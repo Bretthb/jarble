@@ -107,6 +107,48 @@ export function enforceDelegationDepth(depth: number): void {
   }
 }
 
+/**
+ * Pure cycle-detection boundary check: would calling `targetDeploymentId`
+ * create a cycle because that deployment is already in the current call
+ * chain? Returns true when the check should fail.
+ *
+ * Extracted as a pure helper so both cycle-enforcement sites share the
+ * exact same semantics: `ancestors.includes(target)`. Testable without
+ * DB/network mocks.
+ *
+ * Semantics notes (documented, not enforced differently):
+ *   - Match is on deploymentId string, not nodeId. If two different
+ *     nodes in a flow point at the same deployment, the second call
+ *     will be flagged as a cycle even if the nodes have different
+ *     roles / goals. One pod is one conversation, so this is correct
+ *     for the intended mental model.
+ *   - Case-sensitive. `"dep-A"` and `"dep-a"` are different targets.
+ *   - Empty ancestors list → no cycle (vacuous). First hop is always
+ *     allowed.
+ */
+export function wouldCreateCycle(
+  ancestors: readonly string[],
+  targetDeploymentId: string,
+): boolean {
+  return ancestors.includes(targetDeploymentId);
+}
+
+/**
+ * Throws `DelegationCycleError` if calling `targetDeploymentId` would
+ * create a cycle given the current ancestor chain. Pure helper, no I/O.
+ * Use `wouldCreateCycle` when you want to branch gracefully instead of
+ * throwing (e.g. the sub-delegation pre-check path which appends an
+ * annotation to the parent reply rather than aborting the whole call).
+ */
+export function enforceNoCycle(
+  ancestors: readonly string[],
+  targetDeploymentId: string,
+): void {
+  if (wouldCreateCycle(ancestors, targetDeploymentId)) {
+    throw new DelegationCycleError([...ancestors], targetDeploymentId);
+  }
+}
+
 /** Timeout for a single delegation call (ms) */
 // Must accommodate a full retry: 150s first attempt + 5s wait + 150s retry = 305s worst case.
 // Set to 330s to give 25s buffer. Without this headroom, the abort fires mid-retry
@@ -666,9 +708,7 @@ export async function executeDelegation(params: {
 
   // ── Cycle detection ─────────────────────────────────────────────────────
   const ancestors = params.ancestorDeploymentIds ?? [];
-  if (ancestors.includes(params.targetDeploymentId)) {
-    throw new DelegationCycleError(ancestors, params.targetDeploymentId);
-  }
+  enforceNoCycle(ancestors, params.targetDeploymentId);
 
   // ── Per-deployment budget check ────────────────────────────────────────
   // If the source deployment has a maxBudgetCents cap, check accumulated
@@ -1046,7 +1086,7 @@ export async function executeDelegation(params: {
           // Pre-check cycle + depth before even attempting the recursive
           // call. Surfacing these inline in the parent response is more
           // helpful than letting them throw back up.
-          if (nextAncestors.includes(tool.targetDeploymentId)) {
+          if (wouldCreateCycle(nextAncestors, tool.targetDeploymentId)) {
             const msg = `[sub-delegation to ${call.toolName} refused: cycle back to ancestor ${tool.targetDeploymentId}]`;
             log.warn(
               { callId, chain: nextAncestors, target: tool.targetDeploymentId },

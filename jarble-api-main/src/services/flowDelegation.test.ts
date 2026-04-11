@@ -21,6 +21,8 @@ import {
   getMaxDelegationDepth,
   wouldExceedDepth,
   enforceDelegationDepth,
+  wouldCreateCycle,
+  enforceNoCycle,
 } from "./flowDelegation.js";
 
 describe("parseDelegationCalls", () => {
@@ -854,5 +856,158 @@ describe("delegation depth limit (Cycle 6)", () => {
     // When current depth is MAX, the next hop (MAX + 1) is refused.
     const currentDepth = MAX;
     expect(wouldExceedDepth(currentDepth + 1)).toBe(true);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Cycle 7: Delegation cycle detection.
+// Tests the pure cycle-check helpers `wouldCreateCycle` and `enforceNoCycle`.
+// Extraction parallel to the Cycle 6 depth helpers — the check is literally
+// `ancestors.includes(targetDeploymentId)` but pinning the semantics lets
+// us document the deploymentId-based (not nodeId-based) matching and the
+// case-sensitive comparison so any future refactor can't silently break
+// either invariant.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe("delegation cycle detection (Cycle 7)", () => {
+  it("wouldCreateCycle returns false for an empty ancestors list", () => {
+    // Vacuous — the first hop in any chain is always allowed. This is
+    // what `flowChat.ts` passes in as `ancestorDeploymentIds: [entry]`
+    // on the very first executeDelegation call.
+    expect(wouldCreateCycle([], "dep-A")).toBe(false);
+  });
+
+  it("wouldCreateCycle returns false when target is not in ancestors", () => {
+    expect(wouldCreateCycle(["dep-A", "dep-B", "dep-C"], "dep-D")).toBe(false);
+  });
+
+  it("wouldCreateCycle returns true for direct self-delegation (single ancestor === target)", () => {
+    // A bot trying to call itself from the entry position: the entry
+    // bot's own deploymentId is in ancestors and the target IS that
+    // deploymentId → cycle.
+    expect(wouldCreateCycle(["dep-A"], "dep-A")).toBe(true);
+  });
+
+  it("wouldCreateCycle returns true when target is the most recent ancestor", () => {
+    // The A→B→A pattern — bot B tries to bounce back to its immediate
+    // parent A. Classic two-hop cycle.
+    expect(wouldCreateCycle(["dep-A", "dep-B"], "dep-A")).toBe(true);
+  });
+
+  it("wouldCreateCycle returns true when target is in the middle of a long chain", () => {
+    // A→B→C→D wants to call B → goes back two steps. Still a cycle.
+    expect(
+      wouldCreateCycle(["dep-A", "dep-B", "dep-C", "dep-D"], "dep-B"),
+    ).toBe(true);
+  });
+
+  it("wouldCreateCycle tolerates a malformed duplicated ancestors list", () => {
+    // Paranoia: if something upstream accidentally passes [A, A] as
+    // ancestors, the check still works.
+    expect(wouldCreateCycle(["dep-A", "dep-A"], "dep-A")).toBe(true);
+    expect(wouldCreateCycle(["dep-A", "dep-A"], "dep-B")).toBe(false);
+  });
+
+  it("wouldCreateCycle is case-sensitive (documented)", () => {
+    // deploymentIds are lowercase slugs in practice but the check is
+    // case-sensitive. Pinning the behavior so anyone who accidentally
+    // normalizes one side breaks the test and has to think about it.
+    expect(wouldCreateCycle(["dep-a"], "dep-A")).toBe(false);
+    expect(wouldCreateCycle(["dep-A"], "dep-a")).toBe(false);
+  });
+
+  it("wouldCreateCycle handles an empty-string target against an empty-string ancestor", () => {
+    // Edge case: `[""].includes("")` is true, `[].includes("")` is false.
+    // Not a real production scenario but documents the Array.includes
+    // semantics in case someone passes garbage.
+    expect(wouldCreateCycle([""], "")).toBe(true);
+    expect(wouldCreateCycle([], "")).toBe(false);
+  });
+
+  it("enforceNoCycle does not throw for non-cyclic calls", () => {
+    expect(() => enforceNoCycle([], "dep-A")).not.toThrow();
+    expect(() => enforceNoCycle(["dep-B"], "dep-A")).not.toThrow();
+    expect(() =>
+      enforceNoCycle(["dep-A", "dep-B", "dep-C"], "dep-D"),
+    ).not.toThrow();
+  });
+
+  it("enforceNoCycle throws DelegationCycleError when the target is in ancestors", () => {
+    expect(() => enforceNoCycle(["dep-A"], "dep-A")).toThrow(
+      DelegationCycleError,
+    );
+  });
+
+  it("enforceNoCycle preserves the chain and target on the thrown error", () => {
+    const chain = ["dep-A", "dep-B", "dep-C"];
+    try {
+      enforceNoCycle(chain, "dep-B");
+      throw new Error("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DelegationCycleError);
+      expect((err as DelegationCycleError).chain).toEqual(chain);
+      expect((err as DelegationCycleError).target).toBe("dep-B");
+    }
+  });
+
+  it("enforceNoCycle snapshots the ancestors list (mutating it later is safe)", () => {
+    // The helper uses `[...ancestors]` when constructing the error so
+    // downstream mutation of the caller's ancestors array doesn't
+    // corrupt the error payload. This guards against a subtle bug
+    // where the recursive loop mutates `nextAncestors` and the thrown
+    // error's chain would change shape.
+    const ancestors = ["dep-A", "dep-B"];
+    try {
+      enforceNoCycle(ancestors, "dep-A");
+    } catch (err) {
+      const chain = (err as DelegationCycleError).chain;
+      ancestors.push("dep-C"); // mutate after throw
+      expect(chain).toEqual(["dep-A", "dep-B"]); // error payload unchanged
+    }
+  });
+
+  it("thrown error message renders chain with → separators and includes target", () => {
+    try {
+      enforceNoCycle(["dep-A", "dep-B", "dep-C"], "dep-A");
+    } catch (err) {
+      const msg = (err as Error).message;
+      expect(msg).toContain("dep-A");
+      expect(msg).toContain("dep-B");
+      expect(msg).toContain("dep-C");
+      expect(msg).toContain("→");
+      expect(msg).toContain("Delegation cycle detected");
+      // Sanitization invariant: never leak shell/exec fragments
+      expect(msg).not.toMatch(/npx openclaw|kubectl|exec command/i);
+    }
+  });
+
+  it("sub-delegation pre-check boundary: wouldCreateCycle(nextAncestors, target) with nextAncestors = [...ancestors, current]", () => {
+    // Mirrors the exact arithmetic at flowDelegation.ts:1049. Given
+    // ancestors=[A] and current-hop=B, nextAncestors=[A, B]. If the
+    // LLM emits a delegate call back to A, the pre-check flags it.
+    const ancestors = ["dep-A"];
+    const currentHop = "dep-B";
+    const nextAncestors = [...ancestors, currentHop];
+
+    // New target D is allowed
+    expect(wouldCreateCycle(nextAncestors, "dep-D")).toBe(false);
+    // Back to root A is a cycle
+    expect(wouldCreateCycle(nextAncestors, "dep-A")).toBe(true);
+    // Back to immediate parent (current hop) B is also a cycle — "self"
+    // delegation from the child's perspective is blocked.
+    expect(wouldCreateCycle(nextAncestors, "dep-B")).toBe(true);
+  });
+
+  it("same deployment in two nodes of a flow is treated as a cycle (intentional constraint)", () => {
+    // If the user wires the SAME deployment into two nodes with
+    // different roles (e.g. nodeA=Generator running t1, nodeC=Reviewer
+    // also running t1), the second hop looks like a cycle because the
+    // check is on deploymentId, not nodeId. Documenting this as an
+    // intentional constraint — one pod is one LLM conversation, so
+    // calling it twice in the same chain is blocked regardless of
+    // role attribution.
+    const ancestors = ["dep-t1"];  // nodeA (Generator) ran t1 first
+    const target = "dep-t1";       // nodeC (Reviewer) wants to run t1 again
+    expect(wouldCreateCycle(ancestors, target)).toBe(true);
   });
 });
