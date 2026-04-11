@@ -19,6 +19,21 @@ export interface AgentCallParams {
   skillName: string;
   args: any;
   callerUserId: string;
+  /**
+   * Fractal delegation topology (JAR-50). When the caller is already inside a
+   * delegation tree, these fields stitch this skill call into the parent trace
+   * so the row does not become orphaned from `agent_calls.parent_call_id`.
+   *
+   * Marketplace skill calls set `kind: "skill"` on the persisted row. All
+   * fields are optional — top-level callers (agentHub HTTP without parent
+   * headers, flowEngine legacy marketplace path) leave them unset and the
+   * row is a root (`parent_call_id = NULL`, `depth = 0`).
+   */
+  parentCallId?: string | null;
+  depth?: number;
+  traceId?: string | null;
+  parentSpanId?: string | null;
+  orgId?: string | null;
 }
 
 export interface AgentCallResult {
@@ -42,12 +57,28 @@ export async function executeAgentCall(
   const startTime = Date.now();
   const callId = `acl_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
 
+  // Fractal delegation topology (JAR-50). Default parent/depth/trace/span so
+  // both insert sites in this function consume the same normalized values.
+  // `kind: "skill"` lets the delegation tree renderer tell skill hops apart
+  // from delegation / subagent hops when walking `parent_call_id`.
+  const parentCallId = params.parentCallId ?? null;
+  const depth = typeof params.depth === "number" ? params.depth : 0;
+  const traceId = params.traceId ?? null;
+  const parentSpanId = params.parentSpanId ?? null;
+  const orgId = params.orgId ?? null;
+
   logger.info(
     {
       callId,
       caller: params.callerDeploymentId,
       callee: params.calleeServiceId,
       skill: params.skillName,
+      parentCallId,
+      depth,
+      // Cap traceId width in logs — the DB column is varchar(32) so anything
+      // longer is already spurious, and we don't want a spoofed header
+      // blowing up log volume.
+      traceId: traceId ? traceId.slice(0, 32) : null,
     },
     "Agent call: starting"
   );
@@ -116,6 +147,14 @@ export async function executeAgentCall(
       errorMessage: error,
       latencyMs: Date.now() - startTime,
       createdAt: dbDate(),
+      // JAR-50 fractal delegation topology
+      parentCallId,
+      depth,
+      kind: "skill",
+      traceId,
+      parentSpanId,
+      userId: params.callerUserId,
+      orgId,
     } as any);
 
     throw new Error(`Agent call failed: ${error}`);
@@ -134,6 +173,14 @@ export async function executeAgentCall(
     responseBody: JSON.stringify(result).slice(0, 10_000),
     latencyMs,
     createdAt: dbDate(),
+    // JAR-50 fractal delegation topology
+    parentCallId,
+    depth,
+    kind: "skill",
+    traceId,
+    parentSpanId,
+    userId: params.callerUserId,
+    orgId,
   } as any);
 
   logger.info(
