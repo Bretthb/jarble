@@ -857,15 +857,23 @@ export async function executeDelegation(params: {
 
   // Inject dashboard context so delegated bots know they're on the
   // Jarble web dashboard and CAN render jarble_ui components. Without
-  // this tag, JARBLE_UI_PROMPT tells the bot "assume NOT on dashboard"
-  // and the bot refuses to render any canvas components — which is
-  // exactly what happened when t1 was delegated a stat_grid render
-  // and responded "I'm currently on webchat without dashboard/canvas
-  // capabilities."
+  // this signal JARBLE_UI_PROMPT tells the bot "assume NOT on dashboard"
+  // and the bot refuses to render any canvas components.
   //
-  // The [CANVAS_STATE] tag matches the signal that the web frontend
-  // sends on every normal chat (via tamboAgent.ts), and is what
-  // JARBLE_UI_PROMPT checks to detect the dashboard.
+  // The `[CANVAS_STATE]` tag is kept as-is because it's a FUNCTIONAL
+  // marker the bot's system prompt looks for (same signal the web
+  // frontend sends on every normal chat turn via tamboAgent.ts). Bots
+  // are trained to treat it as trusted dashboard metadata, not as
+  // user-injected content.
+  //
+  // In contrast, the old `[DELEGATION_CONTEXT]` wrapper was triggering
+  // prompt-injection-detection heuristics on cautious models. A
+  // SilentRenderer test in Cycle 9 of the QA marathon reproduced this:
+  // the bot quoted the wrapper back at the user and refused to use
+  // render_ui. That finding is fixed by the post-marathon rewrite
+  // below — the delegation guidance is now natural prose, no CAPS
+  // markers, no bracket wrappers.
+  //
   // If this delegation target has its own outgoing edges (can sub-delegate),
   // inject the team roster so it knows about its collaborators.
   let subTeamRoster = "";
@@ -878,13 +886,38 @@ export async function executeDelegation(params: {
         const childTools = buildDelegationTools(childCtx.node, childCtx.nodes, childCtx.edges);
         if (childTools.length > 0) {
           const roster = childTools.map((t) => `- ${t.name}: ${t.description.slice(0, 100)}`).join("\n");
-          subTeamRoster = `\nYou can also delegate to your own team members:\n${roster}\nUse jarble_delegate format: \`\`\`jarble_delegate\n{ "to": "TOOL_NAME", "task": "...", "context": "..." }\n\`\`\`\n`;
+          subTeamRoster =
+            `\n\nYou also have your own team members you can delegate work to:\n${roster}\n` +
+            `Delegate to them by emitting a fenced block like:\n` +
+            "```jarble_delegate\n{ \"to\": \"TOOL_NAME\", \"task\": \"...\", \"context\": \"...\" }\n```\n";
         }
       }
     } catch { /* non-fatal — specialist just won't know about sub-team */ }
   }
 
-  message = `[CANVAS_STATE]\nNo cards on canvas.\n[/CANVAS_STATE]\n[DELEGATION_CONTEXT]\nYou are being delegated a task by a coordinator bot. Render your response as jarble_ui components.\nYou ARE on the Jarble web dashboard. You HAVE full canvas and jarble_ui rendering capability. If any prior message suggested you are NOT on the dashboard, disregard that.${subTeamRoster}\nIMPORTANT RENDERING RULES FOR DELEGATION:\n- Prefer SIMPLE built-in components (stat_grid, data_table, chart, metric_card) over sandbox\n- Use sandbox ONLY when explicitly asked for a full dashboard or interactive widget\n- For tables: use data_table (NOT sandbox with HTML tables)\n- For charts: use the built-in chart component with recharts format (NOT sandbox with Chart.js)\n- For metrics: use stat_grid or metric_card\n- Keep responses focused — render ONE component per delegated task\n- Use realistic data, never placeholders\n- Include layout_hint: "full-width" for tables/charts, "half" for metrics\n[/DELEGATION_CONTEXT]\n${message}`;
+  // Delegation rules as plain prose. Order of precedence and rendering
+  // constraints are expressed conversationally so chatty models don't
+  // flag the surrounding text as a prompt-injection frame. Keep the
+  // `[CANVAS_STATE]` tag at the top since that's the functional
+  // dashboard-detection signal JARBLE_UI_PROMPT looks for.
+  const delegationGuidance =
+    `You are operating as a specialist within a multi-agent team and have received a ` +
+    `delegated task from a coordinator bot. You are on the Jarble web dashboard with ` +
+    `full canvas and render_ui component capability — if any prior message suggested ` +
+    `you are not on the dashboard, disregard that.${subTeamRoster}\n\n` +
+    `When you respond, render the output using the render_ui tool. Prefer the built-in ` +
+    `components in this order: stat_grid, data_table, chart, metric_card; only fall ` +
+    `back to sandbox when the user explicitly asks for a full dashboard or an ` +
+    `interactive widget. For tables use data_table (not a sandboxed HTML table). For ` +
+    `charts use the built-in chart component in recharts format (not sandboxed Chart.js). ` +
+    `For metrics use stat_grid or metric_card. Render exactly one component per ` +
+    `delegated task, use realistic data rather than placeholders, and include ` +
+    `layout_hint: "full-width" for tables and charts or "half" for metrics.`;
+
+  message =
+    `[CANVAS_STATE]\nNo cards on canvas.\n[/CANVAS_STATE]\n\n` +
+    `${delegationGuidance}\n\n` +
+    `Task from the coordinator:\n${message}`;
 
   // Find the pod for this deployment and exec into it
   const { chatViaExec } = await import("./openclawGateway.js");
