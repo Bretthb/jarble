@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
 import type { ConversationMeta } from "@/lib/conversationStorage";
+import { stripDelegationBlocks } from "@/lib/delegationBlockTransform";
 
 interface ConversationHistoryPanelProps {
   conversations: ConversationMeta[];
@@ -32,11 +33,15 @@ function formatRelativeTime(timestamp: number): string {
 }
 
 function stripControlTags(text: string): string {
-  return text
-    .replace(/\[(?:CANVAS_STATE|DELEGATION_CONTEXT|FLOW CONTEXT|FLOW SYSTEM INSTRUCTIONS[^\]]*)\][\s\S]*?\[\/(?:CANVAS_STATE|DELEGATION_CONTEXT|FLOW CONTEXT|FLOW SYSTEM INSTRUCTIONS)\]/gi, "")
-    .replace(/```jarble_delegate\s*\n[\s\S]*?```/g, "")
-    .replace(/```json\s*\n\s*\{[^}]*"tool"\s*:\s*"delegate_to_[^}]*\}\s*```/g, "")
-    .trim();
+  // Strip server-side control tags first (CANVAS_STATE, DELEGATION_CONTEXT, etc.)
+  // then hand off to the shared delegation-block stripper which uses proper
+  // JSON parsing to catch both jarble_delegate and legacy delegate_to_* blocks
+  // regardless of field order or task content.
+  const withoutTags = text.replace(
+    /\[(?:CANVAS_STATE|DELEGATION_CONTEXT|FLOW CONTEXT|FLOW SYSTEM INSTRUCTIONS[^\]]*)\][\s\S]*?\[\/(?:CANVAS_STATE|DELEGATION_CONTEXT|FLOW CONTEXT|FLOW SYSTEM INSTRUCTIONS)\]/gi,
+    "",
+  );
+  return stripDelegationBlocks(withoutTags).trim();
 }
 
 function formatTeamTime(date: Date | string | null): string {

@@ -73,6 +73,7 @@ import type { FlowExecutionStep } from "@/components/workspace/FlowExecutionTime
 import TeamChatCanvasCard, {
   type TeamCanvasCardData,
 } from "@/components/workspace/TeamChatCanvasCard";
+import { transformDelegationBlocks } from "@/lib/delegationBlockTransform";
 import { runtimeNeedsLlm } from "./onboarding/wizardStepConfig";
 import {
   ReactFlow,
@@ -4065,11 +4066,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                       msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-secondary"
                     }`}>
                       {msg.content
-                        ? msg.content
-                            .replace(/```jarble_delegate\s*\n?\s*\{[^}]*"to"\s*:\s*"([^"]+)"[^}]*"task"\s*:\s*"([^"]*)"[^}]*\}\s*\n?```/g,
-                              (_, to, task) => `Delegating to ${to}: ${task.slice(0, 100)}${task.length > 100 ? "..." : ""}`)
-                            .replace(/```json\s*\n?\s*\{[^}]*"tool"\s*:\s*"delegate_to_([^"]+)"[^}]*"task"\s*:\s*"([^"]*)"[^}]*\}\s*\n?```/g,
-                              (_, to, task) => `Delegating to ${to}: ${task.slice(0, 100)}${task.length > 100 ? "..." : ""}`)
+                        ? transformDelegationBlocks(msg.content, { format: "inline", maxTaskChars: 100 })
                         : null}
                       {/* Delegation status indicators */}
                       {msg.delegations && msg.delegations.length > 0 && (
