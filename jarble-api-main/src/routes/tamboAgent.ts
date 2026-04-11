@@ -31,24 +31,9 @@ const MAX_CONCURRENT_DELEGATIONS = Math.max(
   parseInt(process.env.MAX_CONCURRENT_DELEGATIONS ?? "5", 10) || 5,
 );
 
-// ── Per-session exec lock ────────────────────────────────────────────────────
-// Prevents concurrent `npx openclaw agent` calls on the same session, which
-// corrupts OpenClaw's session history (duplicate/out-of-order entries).
-// The second message waits for the first exec to finish before starting.
-const sessionExecLocks = new Map<string, Promise<void>>();
-
-function withSessionLock(sessionKey: string, fn: () => Promise<void>): Promise<void> {
-  const prev = sessionExecLocks.get(sessionKey) || Promise.resolve();
-  const next = prev.then(fn, fn); // Run after previous completes (even if it failed)
-  sessionExecLocks.set(sessionKey, next);
-  // Clean up after completion to avoid memory leak
-  next.finally(() => {
-    if (sessionExecLocks.get(sessionKey) === next) {
-      sessionExecLocks.delete(sessionKey);
-    }
-  });
-  return next;
-}
+// Per-session exec lock is now shared with flowChat.ts via the utils helper.
+// See src/utils/sessionLock.ts for the implementation + Cycle 15 tests.
+import { withSessionLock } from "../utils/sessionLock.js";
 
 import { verifyToken, getUserFromToken } from "../services/auth.js";
 import { getPodAddress, findPodForDeployment } from "../k8s/index.js";
