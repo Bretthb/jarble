@@ -590,14 +590,28 @@ function applyStructuralFixes(
   // Rule 14: rows-object-to-array - data_table rows as array of objects → array of arrays
   if (component === "data_table" && Array.isArray(props.rows) && Array.isArray(props.columns)) {
     const rows = props.rows;
-    const columns = props.columns as string[];
+    const columns = props.columns;
     // Check if rows are objects instead of arrays
     if (rows.length > 0 && isPlainObject(rows[0])) {
+      // Extract column keys - columns may be strings OR objects with key/label/name
+      const colKeys = columns.map((col: unknown) => {
+        if (typeof col === "string") return col;
+        if (isPlainObject(col)) {
+          const c = col as Record<string, unknown>;
+          return String(c.key ?? c.name ?? c.label ?? c.title ?? "");
+        }
+        return String(col);
+      });
       const converted = rows.map((row) => {
         if (!isPlainObject(row)) return row;
-        return columns.map((col) => {
-          const val = (row as Record<string, unknown>)[col];
-          return val === undefined ? "" : val;
+        const obj = row as Record<string, unknown>;
+        return colKeys.map((key) => {
+          // Try exact key match first
+          if (key in obj) return obj[key] === undefined ? "" : obj[key];
+          // Case-insensitive fallback
+          const lower = key.toLowerCase();
+          const found = Object.keys(obj).find((k) => k.toLowerCase() === lower);
+          return found ? (obj[found] === undefined ? "" : obj[found]) : "";
         });
       });
       props.rows = converted;
