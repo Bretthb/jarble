@@ -201,12 +201,17 @@ function layoutResourceGraph<T extends Record<string, unknown>>(
 ): { nodes: Node<T>[]; edges: Edge[] } {
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
+  // LR (left-to-right) spreads nodes horizontally which works much better
+  // for the resource map's cyclic graph shape (mutual agent_call + flow
+  // edges between all team members). TB stacks everything vertically and
+  // forces bezier curves to cross. Wide nodesep/ranksep gives the edges
+  // room to curve without overlapping nodes.
   g.setGraph({
-    rankdir: "TB",
-    nodesep: 120,
-    ranksep: 140,
-    marginx: 60,
-    marginy: 60,
+    rankdir: "LR",
+    nodesep: 180,
+    ranksep: 200,
+    marginx: 80,
+    marginy: 80,
   });
 
   for (const node of nodes) {
@@ -262,12 +267,12 @@ function ResourceMapNode({
     >
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         className="!w-3 !h-3 !bg-muted-foreground/40 !border-2 !border-card hover:!bg-primary !transition-colors"
       />
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
         className="!w-3 !h-3 !bg-muted-foreground/40 !border-2 !border-card hover:!bg-primary !transition-colors"
       />
 
