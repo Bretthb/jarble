@@ -1199,3 +1199,59 @@ export async function executeDelegation(params: {
     clearTimeout(timeout);
   }
 }
+
+// ── Error sanitization ────────────────────────────────────────────────────────
+
+/**
+ * Sanitize an error before exposing it in SSE events or client-facing fields.
+ *
+ * Pod errors can contain API keys, session IDs, or CLI invocation details.
+ * This helper strips known secret patterns and caps the length so those
+ * values never reach the client via the flow step:finished SSE event.
+ *
+ * Call sites: flowEngine.ts executeStep catch (step:finished error field) and
+ * the top-level run() catch (flow:error event).
+ */
+export function sanitizeDelegationError(raw: unknown): string {
+  const FALLBACK = "an internal error occurred";
+  if (raw == null) return FALLBACK;
+
+  const str =
+    typeof raw === "string"
+      ? raw
+      : raw instanceof Error
+        ? raw.message
+        : String(raw);
+
+  const cleaned = str
+    // Exec wrapper — replace the whole bracketed command with a generic label
+    .replace(/error executing command \[.*?\]/gs, "execution error")
+    // Tracing / session / user / timeout / thinking CLI flags
+    .replace(/TRACEPARENT=\S+/g, "")
+    .replace(/JARBLE_CURRENT_SESSION_ID=\S+/g, "")
+    .replace(/--session-id[= ]\S+/g, "")
+    .replace(/--user-id[= ]\S+/g, "")
+    .replace(/--timeout[= ]\d+/g, "")
+    .replace(/--thinking[= ]\S+/g, "")
+    // OpenClaw CLI invocation to EOL (would include the user's message)
+    .replace(/npx openclaw agent --message.*$/gms, "")
+    // Env var assignments — strip before bare key patterns to avoid partial matches
+    .replace(/ANTHROPIC_API_KEY=\S+/g, "[redacted env var]")
+    .replace(/OPENROUTER_API_KEY=\S+/g, "[redacted env var]")
+    .replace(/OPENAI_API_KEY=\S+/g, "[redacted env var]")
+    // API keys — specific prefixes first, then generic sk-* (length ≥ 20)
+    .replace(/sk-ant-[A-Za-z0-9_-]+/g, "[redacted api key]")
+    .replace(/sk-or-[A-Za-z0-9_-]+/g, "[redacted api key]")
+    .replace(/sk-[A-Za-z0-9_-]{20,}/g, "[redacted api key]")
+    // Collapse whitespace left by the removals
+    .replace(/[ \t]+/g, " ")
+    .replace(/ *\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  if (!cleaned) return FALLBACK;
+
+  // Cap at 300 chars — stack traces can be hundreds of lines
+  const MAX = 300;
+  return cleaned.length > MAX ? cleaned.slice(0, MAX).trimEnd() + "…" : cleaned;
+}

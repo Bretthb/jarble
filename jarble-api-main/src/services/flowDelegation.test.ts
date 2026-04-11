@@ -13,7 +13,7 @@ vi.mock("../utils/agentCallEvents.js", () => ({
   emitOrchestrationEnd: () => {},
 }));
 
-import { parseDelegationCalls } from "./flowDelegation.js";
+import { parseDelegationCalls, sanitizeDelegationError } from "./flowDelegation.js";
 
 describe("parseDelegationCalls", () => {
   it("returns empty array for plain text with no JSON block", () => {
@@ -391,5 +391,84 @@ describe("flowChat delegation-mention heuristic (Fix #6)", () => {
     expect(
       DELEGATION_MENTION_REGEX.test("We can delegate responsibility in a team."),
     ).toBe(true);
+  });
+});
+
+describe("sanitizeDelegationError", () => {
+  it("returns fallback for null / undefined", () => {
+    expect(sanitizeDelegationError(null)).toBe("an internal error occurred");
+    expect(sanitizeDelegationError(undefined)).toBe("an internal error occurred");
+  });
+
+  it("returns fallback for empty or whitespace-only strings", () => {
+    expect(sanitizeDelegationError("")).toBe("an internal error occurred");
+    expect(sanitizeDelegationError("   \n\t  ")).toBe("an internal error occurred");
+  });
+
+  it("passes through a clean error message unchanged", () => {
+    expect(sanitizeDelegationError(new Error("Connection refused"))).toBe("Connection refused");
+    expect(sanitizeDelegationError("timeout waiting for pod")).toBe("timeout waiting for pod");
+  });
+
+  it("redacts Anthropic API keys (sk-ant-*)", () => {
+    const raw = "authentication failed: invalid key sk-ant-api03-abcDEF1234567890_xyz please rotate";
+    const out = sanitizeDelegationError(raw);
+    expect(out).toContain("[redacted api key]");
+    expect(out).not.toContain("sk-ant-api03");
+  });
+
+  it("redacts OpenRouter API keys (sk-or-*)", () => {
+    const raw = "gateway rejected sk-or-v1-abcd1234efgh5678 — check billing";
+    const out = sanitizeDelegationError(raw);
+    expect(out).toContain("[redacted api key]");
+    expect(out).not.toContain("sk-or-v1");
+  });
+
+  it("redacts generic sk-* tokens at least 20 chars long", () => {
+    const raw = "invalid token: sk-abcdefghijklmnopqrst provided";
+    const out = sanitizeDelegationError(raw);
+    expect(out).toContain("[redacted api key]");
+    expect(out).not.toContain("sk-abcdefghijklmnopqrst");
+  });
+
+  it("does not redact short sk-* strings (not API keys)", () => {
+    // 'sk-short' is only 8 chars — below the 20-char threshold
+    const raw = "error in sk-short config value";
+    expect(sanitizeDelegationError(raw)).toBe("error in sk-short config value");
+  });
+
+  it("redacts ANTHROPIC_API_KEY env var assignment", () => {
+    const raw = "ANTHROPIC_API_KEY=sk-ant-api03-xyz123 was rejected";
+    const out = sanitizeDelegationError(raw);
+    expect(out).not.toContain("sk-ant-api03");
+    expect(out).not.toContain("ANTHROPIC_API_KEY=sk-ant");
+  });
+
+  it("replaces exec command wrapper with generic label", () => {
+    const raw = "error executing command [npx openclaw agent --session-id sess-xyz --message hello]";
+    const out = sanitizeDelegationError(raw);
+    expect(out).toBe("execution error");
+    expect(out).not.toContain("sess-xyz");
+    expect(out).not.toContain("openclaw");
+  });
+
+  it("strips --session-id flag", () => {
+    const raw = "exec failed --session-id sess-abc123 with code 1";
+    const out = sanitizeDelegationError(raw);
+    expect(out).not.toContain("sess-abc123");
+    expect(out).not.toContain("--session-id");
+  });
+
+  it("caps output at 300 characters", () => {
+    const long = "a".repeat(500) + " end";
+    const out = sanitizeDelegationError(long);
+    expect(out.length).toBeLessThanOrEqual(301); // 300 chars + "…"
+    expect(out.endsWith("…")).toBe(true);
+  });
+
+  it("accepts a plain object (non-Error, non-string) without throwing", () => {
+    const out = sanitizeDelegationError({ code: 500, reason: "internal" });
+    expect(typeof out).toBe("string");
+    expect(out.length).toBeGreaterThan(0);
   });
 });

@@ -21,6 +21,7 @@ import { executeAgentCall } from "./marketplaceHub.js";
 import {
   buildDelegationTools,
   executeDelegation,
+  sanitizeDelegationError,
 } from "./flowDelegation.js";
 import { createModuleLogger } from "../utils/logger.js";
 
@@ -275,7 +276,7 @@ export class FlowExecutionEngine extends EventEmitter {
         this.state.status = "failed";
         this.emit("flow:error", {
           executionId: this.state.executionId,
-          error: err.message,
+          error: sanitizeDelegationError(err),
         });
       }
     }
@@ -723,7 +724,7 @@ export class FlowExecutionEngine extends EventEmitter {
       });
     } catch (err: any) {
       const durationMs = Date.now() - startTime;
-      const errorMsg = err.message || "Unknown error";
+      const errorMsg = sanitizeDelegationError(err);
 
       this.state.stepResults.set(node.id, {
         status: "failed",
