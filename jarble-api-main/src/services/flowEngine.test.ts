@@ -274,6 +274,84 @@ describe("FlowExecutionEngine", () => {
       const result = engine.resolveTemplateVars("{{A.field}}", stepResults);
       expect(result).toBeUndefined();
     });
+
+    // ── Cycle 3 regression: {{nodeId.result.field}} must work ──────────────
+    // Before the fix, `.result` in the path was walked against the unwrapped
+    // StepResult.result (already at the data), so every such template
+    // silently returned "" and users got broken pipelines. See Cycle 3 of
+    // the 2026-04-11 bot teams QA marathon.
+    it("resolves {{nodeId.result.field}} as alias for {{nodeId.field}} (Cycle 3)", () => {
+      const engine = createEngine({ nodes: [], edges: [] });
+      const stepResults = new Map<string, StepResult>([
+        [
+          "stage1",
+          {
+            status: "completed",
+            // Mirrors the shape executeDeploymentViaDelegation stores:
+            // { response, uiBlocks, componentDefs, suggestions, children, ... }
+            result: { response: "blue", uiBlocks: [], suggestions: [] },
+          },
+        ],
+      ]);
+
+      // Form 1: direct access (was already working)
+      expect(
+        engine.resolveTemplateVars("{{stage1.response}}", stepResults)
+      ).toBe("blue");
+
+      // Form 2: .result pass-through (new — JS-object-intuition form)
+      expect(
+        engine.resolveTemplateVars("{{stage1.result.response}}", stepResults)
+      ).toBe("blue");
+
+      // Form 2, interpolated in a longer task string
+      expect(
+        engine.resolveTemplateVars(
+          "Reverse this: {{stage1.result.response}}",
+          stepResults
+        )
+      ).toBe("Reverse this: blue");
+    });
+
+    it("does NOT hijack .result when the result object has its own result key", () => {
+      const engine = createEngine({ nodes: [], edges: [] });
+      // If a node result legitimately has a `result` key (e.g. transform
+      // nodes returning their config), the alias must not skip over it.
+      const stepResults = new Map<string, StepResult>([
+        [
+          "transform1",
+          {
+            status: "completed",
+            result: { result: "nested-value", other: "x" },
+          },
+        ],
+      ]);
+
+      // Accessing {{transform1.result}} must read the inner `result` key,
+      // not return the whole outer object.
+      expect(
+        engine.resolveTemplateVars("{{transform1.result}}", stepResults)
+      ).toBe("nested-value");
+      // And {{transform1.other}} still works.
+      expect(
+        engine.resolveTemplateVars("{{transform1.other}}", stepResults)
+      ).toBe("x");
+    });
+
+    it("{{stepN_result.field}} positional form still resolves", () => {
+      const engine = createEngine({ nodes: [], edges: [] });
+      const stepResults = new Map<string, StepResult>([
+        ["alpha", { status: "completed", result: { response: "first" } }],
+        ["beta", { status: "completed", result: { response: "second" } }],
+      ]);
+
+      expect(
+        engine.resolveTemplateVars("{{step1_result.response}}", stepResults)
+      ).toBe("first");
+      expect(
+        engine.resolveTemplateVars("{{step2_result.response}}", stepResults)
+      ).toBe("second");
+    });
   });
 
   // ── Step execution by node type ─────────────────────────────────────────

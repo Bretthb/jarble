@@ -9,7 +9,10 @@
  * 4. waitForInput nodes pause execution until resume() is called
  * 5. subflow nodes execute a nested flow as a child engine
  * 6. Parallel execution for nodes that become ready simultaneously
- * 7. Resolve template variables: {{stepN_result.field}} -> actual values
+ * 7. Resolve template variables. Three equivalent forms are supported:
+ *      {{nodeId.field}}         (direct — recommended)
+ *      {{nodeId.result.field}}  (alias — matches JS object access intuition)
+ *      {{stepN_result.field}}   (positional — nth completed step)
  * 8. Bill credits via existing executeAgentCall()
  * 9. Emit SSE events for each step start/finish
  */
@@ -1280,6 +1283,27 @@ export class FlowExecutionEngine extends EventEmitter {
     });
   }
 
+  /**
+   * Resolve a template path like `stage1.response` or `stage1.result.response`
+   * against the current step results map.
+   *
+   * Supports three equivalent forms so users don't get silent empty substitutions
+   * when they type the one that feels natural:
+   *
+   *   {{nodeId.field}}           — direct: walks node result.field
+   *   {{nodeId.result.field}}    — pass-through: `.result` is aliased to the
+   *                                same root (matches JS object access intuition,
+   *                                since {@link StepResult.result} is already where
+   *                                the data lives)
+   *   {{stepN_result.field}}     — positional: nth completed step by insertion order
+   *
+   * Previously only forms 1 and 3 worked. Form 2 silently returned undefined
+   * because the walker tried to read `.result` off the unwrapped result object,
+   * which only has `response`/`uiBlocks`/etc. Found during Cycle 3 of the
+   * 2026-04-11 bot teams QA marathon — flagged because the docstring on the
+   * file header shows `{{stepN_result.field}}` and users (including me) wrote
+   * `{{nodeId.result.field}}` assuming `.result` was part of the canonical path.
+   */
   private resolveTemplatePath(
     path: string,
     stepResults: Map<string, StepResult>
@@ -1305,7 +1329,20 @@ export class FlowExecutionEngine extends EventEmitter {
     }
 
     let current: unknown = stepResult.result;
-    for (let i = 1; i < parts.length; i++) {
+    // Alias: {{nodeId.result.field}} === {{nodeId.field}}. If the next path
+    // segment is literally "result" and the current object does NOT have a
+    // "result" key, treat it as a no-op and advance. This lets both the
+    // intuitive JS-object syntax and the docstring syntax work.
+    let i = 1;
+    if (
+      parts[1] === "result" &&
+      typeof current === "object" &&
+      current !== null &&
+      !Object.prototype.hasOwnProperty.call(current, "result")
+    ) {
+      i = 2;
+    }
+    for (; i < parts.length; i++) {
       if (current === null || current === undefined) return undefined;
       if (typeof current === "object") {
         current = (current as Record<string, unknown>)[parts[i]];
