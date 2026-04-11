@@ -845,6 +845,14 @@ export const openclawHandler: RuntimeHandler = {
       entries["LLM_MODEL"] = deployment.llmModel;
     }
 
+    // Jarble API URL for the platform bridge tools (platform_register_agent, etc.)
+    // Without this, the MCP server falls back to host.docker.internal:3001 which
+    // doesn't resolve in Kubernetes. Use the API's public URL.
+    const apiUrl = process.env.FRONTEND_URL
+      ? process.env.FRONTEND_URL.replace("dev.jarble.ai", "api.jarble.ai").replace("jarble.ai", "api.jarble.ai")
+      : "https://api.jarble.ai";
+    entries["JARBLE_API_URL"] = apiUrl;
+
     // Gateway token duplicate key for operator compatibility.
     // Operator reads `token` key from the Secret; legacy reads OPENCLAW_GATEWAY_TOKEN.
     // Adding `token` is harmless for legacy mode.
