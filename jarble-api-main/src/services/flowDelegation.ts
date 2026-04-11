@@ -77,6 +77,36 @@ export function getMaxDelegationDepth(): number {
   return MAX_DELEGATION_DEPTH;
 }
 
+/**
+ * Pure boundary check: would executing at `depth` exceed the configured
+ * delegation depth limit? Returns true when the check should fail.
+ *
+ * Extracted as a pure helper so both enforcement sites (the top-level throw
+ * path in `executeDelegation` and the graceful-refusal path in the
+ * recursive sub-delegation loop) share the same arithmetic. Testable
+ * without any DB or network mocks. See Cycle 6 of the 2026-04-11 bot teams
+ * QA marathon for the regression tests that pin the boundary semantics.
+ *
+ * Semantics: strict `>` — with MAX=4, depths 1..4 are allowed (the chain
+ * can go four hops deep) and depth 5 is the first rejected value. depth=0
+ * represents the entry bot before any delegation hop and is always allowed.
+ */
+export function wouldExceedDepth(depth: number): boolean {
+  return depth > MAX_DELEGATION_DEPTH;
+}
+
+/**
+ * Throws `DelegationDepthExceededError` if the caller is attempting to
+ * execute a delegation at a depth beyond the configured maximum. Pure
+ * helper, no I/O. Use `wouldExceedDepth` if you want to branch without
+ * throwing (e.g. the graceful sub-delegation refusal path).
+ */
+export function enforceDelegationDepth(depth: number): void {
+  if (wouldExceedDepth(depth)) {
+    throw new DelegationDepthExceededError(depth);
+  }
+}
+
 /** Timeout for a single delegation call (ms) */
 // Must accommodate a full retry: 150s first attempt + 5s wait + 150s retry = 305s worst case.
 // Set to 330s to give 25s buffer. Without this headroom, the abort fires mid-retry
@@ -632,9 +662,7 @@ export async function executeDelegation(params: {
   orgId?: string | null;
 }): Promise<DelegationResult> {
   const depth = params.depth ?? 0;
-  if (depth > MAX_DELEGATION_DEPTH) {
-    throw new DelegationDepthExceededError(depth);
-  }
+  enforceDelegationDepth(depth);
 
   // ── Cycle detection ─────────────────────────────────────────────────────
   const ancestors = params.ancestorDeploymentIds ?? [];
@@ -1027,7 +1055,7 @@ export async function executeDelegation(params: {
             errorAnnotations.push(msg);
             continue;
           }
-          if (depth + 1 > MAX_DELEGATION_DEPTH) {
+          if (wouldExceedDepth(depth + 1)) {
             const msg = `[sub-delegation to ${call.toolName} refused: depth ${depth + 1} > max ${MAX_DELEGATION_DEPTH}]`;
             log.warn(
               { callId, attemptedDepth: depth + 1, max: MAX_DELEGATION_DEPTH },

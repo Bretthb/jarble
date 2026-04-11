@@ -19,6 +19,8 @@ import {
   DelegationCycleError,
   DelegationDepthExceededError,
   getMaxDelegationDepth,
+  wouldExceedDepth,
+  enforceDelegationDepth,
 } from "./flowDelegation.js";
 
 describe("parseDelegationCalls", () => {
@@ -754,5 +756,103 @@ describe("DelegationCycleError / DelegationDepthExceededError contract (Cycle 4)
     }
     // Arrow between hops exists
     expect(err.message).toContain("→");
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Cycle 6: Delegation depth limit enforcement.
+// Tests the pure boundary check helpers `wouldExceedDepth` and
+// `enforceDelegationDepth`. These wrap the single `depth > MAX` arithmetic
+// used by both call sites in executeDelegation (top-level throw path and
+// sub-delegation graceful-refusal path). Keeping the check in a pure
+// helper lets us pin the boundary behavior without mocking db + exec +
+// agent_calls + budget checks.
+// ───────────────────────────────────────────────────────────────────────────
+
+describe("delegation depth limit (Cycle 6)", () => {
+  // Default MAX_DELEGATION_DEPTH is 4 unless JARBLE_MAX_DELEGATION_DEPTH
+  // is set to a different positive integer in the test env. We cache it
+  // here so the tests stay correct if someone bumps the default later.
+  const MAX = getMaxDelegationDepth();
+
+  it("has a sane default max depth (4 unless env override)", () => {
+    // This is a smoke test — if the default is bumped intentionally,
+    // update the expected value below in the same PR.
+    expect(MAX).toBeGreaterThanOrEqual(1);
+    expect(MAX).toBeLessThan(20);
+  });
+
+  it("wouldExceedDepth passes for depth = 0 (entry before any hop)", () => {
+    expect(wouldExceedDepth(0)).toBe(false);
+  });
+
+  it("wouldExceedDepth passes for depth = 1 (first delegation hop)", () => {
+    expect(wouldExceedDepth(1)).toBe(false);
+  });
+
+  it("wouldExceedDepth passes at the boundary (depth === MAX)", () => {
+    // With MAX=4 the chain can go four hops deep. The fourth hop is
+    // allowed; the fifth is rejected. Strict > semantics.
+    expect(wouldExceedDepth(MAX)).toBe(false);
+  });
+
+  it("wouldExceedDepth fails one past the boundary (depth === MAX + 1)", () => {
+    expect(wouldExceedDepth(MAX + 1)).toBe(true);
+  });
+
+  it("wouldExceedDepth fails for arbitrarily deep chains", () => {
+    expect(wouldExceedDepth(MAX + 10)).toBe(true);
+    expect(wouldExceedDepth(100)).toBe(true);
+  });
+
+  it("enforceDelegationDepth allows depth 0..MAX without throwing", () => {
+    for (let d = 0; d <= MAX; d++) {
+      expect(() => enforceDelegationDepth(d)).not.toThrow();
+    }
+  });
+
+  it("enforceDelegationDepth throws DelegationDepthExceededError at MAX + 1", () => {
+    expect(() => enforceDelegationDepth(MAX + 1)).toThrow(
+      DelegationDepthExceededError,
+    );
+  });
+
+  it("enforceDelegationDepth preserves the attempted depth on the thrown error", () => {
+    try {
+      enforceDelegationDepth(MAX + 3);
+      throw new Error("should have thrown");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DelegationDepthExceededError);
+      expect((err as DelegationDepthExceededError).depth).toBe(MAX + 3);
+      expect((err as DelegationDepthExceededError).maxDepth).toBe(MAX);
+    }
+  });
+
+  it("thrown error message mentions the attempted depth and max — no raw exec leak", () => {
+    try {
+      enforceDelegationDepth(MAX + 1);
+    } catch (err) {
+      const msg = (err as Error).message;
+      expect(msg).toContain("Delegation depth limit reached");
+      expect(msg).toContain(String(MAX + 1));
+      expect(msg).toContain(String(MAX));
+      expect(msg).toContain("JARBLE_MAX_DELEGATION_DEPTH");
+      // Must never leak shell/exec fragments through the error path
+      expect(msg).not.toMatch(/npx openclaw|kubectl|exec command/i);
+    }
+  });
+
+  it("sub-delegation boundary: wouldExceedDepth(depth + 1) at MAX - 1 allows next hop", () => {
+    // Mirrors the sub-delegation pre-check at flowDelegation.ts:1058:
+    //   if (wouldExceedDepth(depth + 1)) { refuse gracefully }
+    // When current depth is MAX - 1, the next hop (MAX) is still allowed.
+    const currentDepth = MAX - 1;
+    expect(wouldExceedDepth(currentDepth + 1)).toBe(false);
+  });
+
+  it("sub-delegation boundary: wouldExceedDepth(depth + 1) at MAX refuses next hop", () => {
+    // When current depth is MAX, the next hop (MAX + 1) is refused.
+    const currentDepth = MAX;
+    expect(wouldExceedDepth(currentDepth + 1)).toBe(true);
   });
 });
