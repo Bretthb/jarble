@@ -61,7 +61,43 @@ interface ResourceMapEdgeData {
   edgeType: ResourceEdgeType;
   label: string;
   active: boolean;
+  /**
+   * When multiple underlying relationships exist between the same pair of
+   * deployments (e.g. a shared flow AND an agent_call AND a shared API key),
+   * they're merged into a single composite edge. `relationships` holds the
+   * individual rows so the edge label can show a count and the hover tooltip
+   * can expand them. `edgeType` on the composite is the highest-priority type
+   * in the set, which determines the visual color and dash pattern.
+   */
+  relationships?: Array<{ edgeType: ResourceEdgeType; label: string }>;
   [key: string]: unknown;
+}
+
+/**
+ * Priority ordering for merging composite edges. When a pair of deployments
+ * has multiple relationships, the HIGHEST-priority type (lowest index) wins
+ * for visual styling — it picks the edge color, dash array, and the primary
+ * label. The full set of underlying relationships is preserved in
+ * `ResourceMapEdgeData.relationships` for the hover tooltip.
+ *
+ * Order rationale: flows represent the most structural / permanent
+ * relationship between bots, followed by API key sharing (billing coupling),
+ * then agent calls (runtime behavior), then platform/secret sharing
+ * (loose config coupling).
+ */
+const EDGE_TYPE_PRIORITY: ResourceEdgeType[] = [
+  "flow_connection",
+  "api_key_share",
+  "agent_call",
+  "shared_platform",
+  "shared_secret",
+];
+
+function pickPriorityType(types: ResourceEdgeType[]): ResourceEdgeType {
+  for (const t of EDGE_TYPE_PRIORITY) {
+    if (types.includes(t)) return t;
+  }
+  return types[0] ?? "agent_call";
 }
 
 // ─── Edge type config ─────────────────────────────────────────────────
@@ -293,6 +329,8 @@ function ResourceEdge({
   const config = EDGE_CONFIG[edgeType];
   const isActive = edgeData?.active ?? false;
   const label = edgeData?.label ?? config.label;
+  const relationships = edgeData?.relationships ?? [];
+  const isComposite = relationships.length > 1;
 
   const [edgePath, labelX, labelY] = getBezierPath({
     sourceX,
@@ -326,7 +364,9 @@ function ResourceEdge({
         style={{
           ...style,
           stroke: config.color,
-          strokeWidth: isActive ? 2.5 : 2,
+          // Composite edges get a slightly thicker stroke so users can see
+          // at a glance that the line represents multiple relationships.
+          strokeWidth: isActive ? 2.5 : isComposite ? 2.5 : 2,
           strokeDasharray: config.dashArray !== "0" ? config.dashArray : undefined,
           animation:
             isActive && config.dashArray !== "0"
@@ -335,25 +375,71 @@ function ResourceEdge({
         }}
       />
 
-      {/* Edge label */}
+      {/* Edge label — composite edges get a hover tooltip listing all the
+          underlying relationships so the "3 connections" count is expandable
+          into a concrete list (e.g. "Flow: Main Team", "Shared API Key",
+          "Agent Call"). Single-relationship edges skip the tooltip. */}
       <foreignObject
-        x={labelX - 70}
-        y={labelY - 12}
-        width={140}
-        height={24}
-        className="pointer-events-none overflow-visible"
+        x={labelX - 80}
+        y={labelY - 14}
+        width={160}
+        height={28}
+        className="overflow-visible"
+        style={{ pointerEvents: isComposite ? "auto" : "none" }}
       >
         <div className="flex items-center justify-center">
-          <span
-            className="text-[10px] font-medium px-2 py-0.5 rounded-full backdrop-blur-sm border"
-            style={{
-              color: config.color,
-              backgroundColor: `${config.color}10`,
-              borderColor: `${config.color}30`,
-            }}
-          >
-            {label}
-          </span>
+          {isComposite ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className="text-[10px] font-medium px-2 py-0.5 rounded-full backdrop-blur-sm border cursor-help inline-flex items-center gap-1"
+                  style={{
+                    color: config.color,
+                    backgroundColor: `${config.color}15`,
+                    borderColor: `${config.color}40`,
+                  }}
+                >
+                  <span
+                    className="inline-flex items-center justify-center rounded-full text-[9px] font-semibold w-4 h-4"
+                    style={{
+                      backgroundColor: `${config.color}30`,
+                      color: config.color,
+                    }}
+                  >
+                    {relationships.length}
+                  </span>
+                  {label}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="top" className="max-w-[260px] text-[11px] leading-relaxed">
+                <div className="font-semibold mb-1">
+                  {relationships.length} relationships between these bots
+                </div>
+                <ul className="space-y-0.5">
+                  {relationships.map((r, i) => (
+                    <li key={i} className="flex items-center gap-1.5">
+                      <span
+                        className="inline-block w-2 h-2 rounded-full shrink-0"
+                        style={{ backgroundColor: EDGE_CONFIG[r.edgeType].color }}
+                      />
+                      <span>{r.label}</span>
+                    </li>
+                  ))}
+                </ul>
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <span
+              className="text-[10px] font-medium px-2 py-0.5 rounded-full backdrop-blur-sm border"
+              style={{
+                color: config.color,
+                backgroundColor: `${config.color}10`,
+                borderColor: `${config.color}30`,
+              }}
+            >
+              {label}
+            </span>
+          )}
         </div>
       </foreignObject>
     </>
@@ -640,10 +726,20 @@ function ResourceMapGraph({
     // Client-side edges (API key sharing from deployment data)
     const clientEdges = buildResourceEdges(deployments);
 
-    // Merge server-side edges (flow, agent_call, platform, secret) with client edges
+    // Merge server-side edges (flow, agent_call, platform, secret) with client
+    // edges. Filter:
+    //   1. Dangling references to deployments not in the current list
+    //   2. Self-loops (source === target) — these render as strands that
+    //      go nowhere and add visual noise. The Resource Map is about
+    //      inter-deployment connections; a bot calling itself isn't one.
     const depIdSet = new Set(deployments.map((d) => d.id));
     const mergedServerEdges: Edge[] = serverEdges
-      .filter((e: any) => depIdSet.has(e.source) && depIdSet.has(e.target))
+      .filter(
+        (e: any) =>
+          depIdSet.has(e.source) &&
+          depIdSet.has(e.target) &&
+          e.source !== e.target,
+      )
       .map((e: any, i: number) => {
         const edgeType = (e.type || "api_key_share") as ResourceEdgeType;
         const config = EDGE_CONFIG[edgeType] || EDGE_CONFIG.api_key_share;
@@ -660,11 +756,82 @@ function ResourceMapGraph({
         };
       });
 
-    // Dedupe: server edges may duplicate client edges for api_key_share
-    const edgeKeySet = new Set(clientEdges.map((e) => `${e.source}-${e.target}`));
-    const uniqueServerEdges = mergedServerEdges.filter((e) => !edgeKeySet.has(`${e.source}-${e.target}`));
+    // Combine client and server edges, also filtering client self-loops
+    // defensively (shouldn't happen, but the client builder has no explicit
+    // guard either).
+    const rawEdges = [...clientEdges, ...mergedServerEdges].filter(
+      (e) => e.source !== e.target,
+    );
 
-    const allEdges = [...clientEdges, ...uniqueServerEdges];
+    // Merge edges by UNORDERED pair. The Resource Map displays relationships,
+    // not directed calls, so drawing two curves for A→B and B→A creates
+    // visual noise that doesn't convey information. Collapse both directions
+    // into a single edge keyed by `min(a,b)|max(a,b)` so the pair renders as
+    // one line with the union of relationship types on it.
+    //
+    // The merged edge picks its color/style from the HIGHEST-PRIORITY type
+    // (see EDGE_TYPE_PRIORITY) and preserves the full relationship list in
+    // `data.relationships` so the hover tooltip can expand it.
+    //
+    // Before Cycle 16 follow-up: a 4-node team with a Main Team flow was
+    // rendering as 7 strands (agent_call both directions + flow_connection
+    // + a self-loop). After this merge + the self-loop filter: 3 clean
+    // lines, one per actual relationship pair.
+    const pairMap = new Map<string, Edge[]>();
+    for (const edge of rawEdges) {
+      const [a, b] = [edge.source, edge.target].sort();
+      const pairKey = `${a}|${b}`;
+      const bucket = pairMap.get(pairKey) ?? [];
+      bucket.push(edge);
+      pairMap.set(pairKey, bucket);
+    }
+
+    const allEdges: Edge[] = [];
+    for (const [pairKey, bucket] of pairMap) {
+      if (bucket.length === 0) continue;
+      const [a, b] = pairKey.split("|");
+      // Gather the unique relationship types + labels. De-dupe by
+      // type+label pair so two identical agent_call edges (A→B and B→A)
+      // don't show up twice in the tooltip.
+      const seen = new Set<string>();
+      const relationships: Array<{ edgeType: ResourceEdgeType; label: string }> = [];
+      for (const e of bucket) {
+        const d = e.data as ResourceMapEdgeData | undefined;
+        if (!d) continue;
+        const key = `${d.edgeType}|${d.label}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        relationships.push({ edgeType: d.edgeType, label: d.label });
+      }
+      if (relationships.length === 0) continue;
+
+      const types = relationships.map((r) => r.edgeType);
+      const priorityType = pickPriorityType(types);
+      const anyActive = bucket.some(
+        (e) => (e.data as ResourceMapEdgeData | undefined)?.active,
+      );
+
+      // Build the primary label:
+      //   1 relationship  → the single label ("Shared API Key", "Flow: Main Team")
+      //   2+ relationships → a count ("3 connections") so the edge pill stays compact
+      const primaryLabel =
+        relationships.length === 1
+          ? relationships[0].label
+          : `${relationships.length} connections`;
+
+      allEdges.push({
+        id: `merged-${pairKey}`,
+        source: a,
+        target: b,
+        type: "resourceEdge",
+        data: {
+          edgeType: priorityType,
+          label: primaryLabel,
+          active: anyActive,
+          relationships,
+        } satisfies ResourceMapEdgeData,
+      });
+    }
 
     const nodeList: Node<ResourceMapNodeData>[] = deployments.map((dep) => ({
       id: dep.id,
