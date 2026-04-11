@@ -124,6 +124,14 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
   const [customModelMode, setCustomModelMode] = useState(false);
   const [editPrompt, setEditPrompt] = useState<string | null>(null);
 
+  // tRPC utils — used to invalidate the deployment.list cache after a save
+  // so other surfaces (the team chat memory disclosure banner in particular)
+  // pick up the new memoryScope/model immediately. Without this, toggling
+  // memoryScope from global → session here would update the deployment row
+  // but the team chat banner would keep showing the old "global" amber
+  // disclosure until the user refreshed. See
+  // docs/audits/memory-scoping-decision.md (Phase 2).
+  const utils = trpc.useUtils();
   const deploymentQuery = trpc.deployment.getById.useQuery({ id: deploymentId });
   const restartMutation = trpc.deployment.restart.useMutation({
     onSuccess: () => {
@@ -153,6 +161,10 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
       setCustomModelMode(false);
       setEditPrompt(null);
       deploymentQuery.refetch();
+      // Invalidate the list cache so consumers like the team chat memory
+      // disclosure banner (Deployments.tsx → FlowView → teamMemoryScope)
+      // re-aggregate against the new memoryScope on the next render.
+      utils.deployment.list.invalidate();
       podConfigQuery.refetch();
       // Config changes that affect pod-start env vars (model, provider,
       // memoryScope) need the pod to restart so OpenClaw reads the new
