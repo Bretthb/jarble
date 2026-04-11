@@ -11,7 +11,11 @@
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryDisclosureBanner, MemoryDisclosureInline } from "../MemoryDisclosureBanner";
+import {
+  MemoryDisclosureBanner,
+  MemoryDisclosureInline,
+  aggregateTeamMemoryScope,
+} from "../MemoryDisclosureBanner";
 
 describe("MemoryDisclosureBanner", () => {
   describe("global mode", () => {
@@ -121,5 +125,51 @@ describe("MemoryDisclosureInline", () => {
   it("falls back to global for null/undefined scope", () => {
     const { container } = render(<MemoryDisclosureInline scope={null} />);
     expect(container.textContent).toContain("shared across all chats");
+  });
+});
+
+describe("aggregateTeamMemoryScope (loudest scope wins)", () => {
+  // Privacy-critical: a team is only as private as its leakiest member.
+  // The team chat banner in views/Deployments.tsx renders the loudest
+  // possible scope across every deployment in the active flow, so a
+  // single global-memory bot in a team forces the loud disclosure on
+  // the whole team chat. This test locks down the rule.
+  it("returns global if any deployment is global", () => {
+    expect(aggregateTeamMemoryScope(["global", "session", "off"])).toBe("global");
+    expect(aggregateTeamMemoryScope(["session", "global"])).toBe("global");
+    expect(aggregateTeamMemoryScope(["off", "global"])).toBe("global");
+  });
+
+  it("returns session if all are session or session+off", () => {
+    expect(aggregateTeamMemoryScope(["session"])).toBe("session");
+    expect(aggregateTeamMemoryScope(["session", "session"])).toBe("session");
+    expect(aggregateTeamMemoryScope(["session", "off"])).toBe("session");
+    expect(aggregateTeamMemoryScope(["off", "session"])).toBe("session");
+  });
+
+  it("returns off only when every deployment is off", () => {
+    expect(aggregateTeamMemoryScope(["off"])).toBe("off");
+    expect(aggregateTeamMemoryScope(["off", "off", "off"])).toBe("off");
+  });
+
+  it("falls back to global on empty input (privacy-safe default)", () => {
+    expect(aggregateTeamMemoryScope([])).toBe("global");
+  });
+
+  it("treats null and undefined as unknown and falls back to global", () => {
+    // Stale rows from before the memory_scope column existed return null;
+    // unknown rows must default to the loud global banner, never silently
+    // hide the disclosure.
+    expect(aggregateTeamMemoryScope([null, undefined])).toBe("global");
+    expect(aggregateTeamMemoryScope([null])).toBe("global");
+  });
+
+  it("ignores nulls when other valid scopes are present", () => {
+    // If at least one deployment has a known non-global scope and the
+    // rest are unknown, the unknowns shouldn't downgrade to global —
+    // they're absent, not loud. This still picks the loudest *known*
+    // scope, but the empty/unknown-only case stays global.
+    expect(aggregateTeamMemoryScope(["session", null])).toBe("session");
+    expect(aggregateTeamMemoryScope(["off", null, undefined])).toBe("off");
   });
 });

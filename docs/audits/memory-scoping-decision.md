@@ -1,7 +1,7 @@
 # Conversation-Scoped Bot Memory — Decision
 
-**Status:** Decided
-**Date:** 2026-04-08
+**Status:** Decided (Phase 1) · Wiring follow-up (Phase 2, 2026-04-11)
+**Date:** 2026-04-08 (initial), 2026-04-11 (Phase 2)
 **Branch:** `feature/memory-scoping`
 **Initiative:** Conversation-Scoped Bot Memory
 
@@ -163,3 +163,90 @@ it isn't.
   work, not part of the leak fix.
 - Coordinating with OpenClaw upstream on a `--memory-scope=session` flag so
   the native `memory_search` can also be scoped honestly.
+
+## Phase 2 — wiring follow-up (2026-04-11)
+
+After the Phase 1 PR landed, a re-audit on `feature/memory-scoping` found
+that the helpers, schema column, MCP partition logic and banner component
+all existed, **but several pieces were not actually wired into the
+production code paths**. The QA-reproduced leak (Scenario 10 in
+`docs/audits/deep-bot-teams-qa.md`) reproduced in **team chat**, not the
+individual `/d/[id]` chat — and team chat had no banner at all. Specifically:
+
+| Gap | Status before this PR | Why it matters |
+|---|---|---|
+| `Jarble-mvp/views/Deployments.tsx` team chat panel does not render `<MemoryDisclosureBanner>` | Banner only on `/d/[id]/page.tsx` | The QA leak reproduced in the team chat surface, where there was zero disclosure. Users in Bot Teams could not tell that the bot's memory was global. |
+| `jarble-api-main/src/utils/memoryScope.ts` helpers never imported by production code | Only imported by their own test file | The shared `renderMemoryPromptSection` / `renderMemoryStateLine` / `injectMemoryStateLine` were dead code; `openclaw.ts` had its own inline soul.md prompt rendering, and no chat route injected the per-turn `[CANVAS_STATE]` memory line. |
+| `jarble-api-main/src/routes/tamboAgent.ts` does not inject `[CANVAS_STATE]` memory line | Sanitization stripped any client-supplied `[CANVAS_STATE]` block, no replacement injected | The bot received no per-turn signal about which mode it was running in. Even in `session` mode the bot had no idea what session id to pass to memory tool calls on the WS path. |
+| `jarble-api-main/src/routes/flowChat.ts` does not inject `[CANVAS_STATE]` memory line | Same as tamboAgent | Team chat (the surface where the leak reproduced) had even less per-turn signal than direct chat. |
+| `openclaw.ts` soul.md memory section is hand-rolled inline | Inline string concatenation in `renderConfigs` | Wording drifts from the test-locked helper, so a regression in the helper wouldn't surface in CI. |
+
+### Phase 2 scope (this PR)
+
+This PR closes the wiring gaps without revisiting the A-vs-B decision:
+
+1. **Team chat banner** — Render `<MemoryDisclosureBanner>` immediately
+   below the team-chat panel header in `Deployments.tsx`. Picks the
+   loudest scope across all deployments referenced by the active flow
+   so that *if any bot in the team is `global`*, the user sees the loud
+   amber banner. This is the privacy-safe aggregation: a team is only
+   as private as its leakiest member.
+2. **`renderMemoryPromptSection` wired into `openclaw.ts`** — Replace the
+   inline soul.md rendering with a call to the helper, so the prompt
+   wording is exactly what the tests lock down.
+3. **`injectMemoryStateLine` wired into both chat routes** — Both
+   `tamboAgent.ts` (`/api/tambo-agent`) and `flowChat.ts`
+   (`/api/flows/:flowId/chat`) now prepend a `[CANVAS_STATE]` block to
+   the message that goes to the pod, with `Memory: <mode>` and (in
+   session mode) `Session: <id>` lines. The bot now sees the scope and
+   session id on every turn, regardless of whether the chat path is
+   exec, HTTP, or WS gateway.
+4. **`normalizeMemoryScope` wired into both routes and the handler** —
+   Stale rows from before the column existed and any unexpected DB value
+   fall back to the privacy-loaded `global` default rather than crashing.
+5. **Tests** — New tests cover the helper integration into both chat
+   routes (memory line injection for each scope) and a smoke test on
+   the openclaw handler's soul.md output that asserts it goes through
+   the helper. The team-chat banner gets a small aggregation-helper test
+   so the "loudest scope wins" rule is locked down.
+
+### What this PR does NOT do (still out of scope)
+
+- **WS gateway env-var injection.** The `chatViaGateway` (WS) path still
+  cannot inject `JARBLE_CURRENT_SESSION_ID` per call because the MCP
+  server child process inherits its env at pod boot, not per request.
+  Phase 2 mitigates this at the prompt layer by injecting `Session: <id>`
+  into every `[CANVAS_STATE]` block, so the bot can pass `scope_id`
+  voluntarily on memory tool calls. Honest, hard enforcement requires a
+  runtime change and is tracked as a follow-up.
+- **Disabling OpenClaw native `memory_search` / `memory_get`.** The
+  closed runtime tools still bypass Jarble's scope. The soul.md prompt
+  (via the helper) tells the bot to prefer Jarble's tools and never
+  recall cross-session in `session` mode, but it is prompt-level
+  guidance, not enforcement. Follow-up: explore `tools.deny` in
+  `openclaw.json` once we can confirm it doesn't break in-flight bots.
+- **Schema default flip from `global` → `session`.** Keeping `global`
+  preserves the cross-platform memory feature for existing deployments.
+  Privacy-conscious users get the loud disclosure banner plus a one-click
+  toggle in the deployment Configuration panel.
+
+### Why we still picked Option B (re-validated for Phase 2)
+
+The temptation in Phase 2 was to flip the default to `session` and call
+that "Option A done right". Re-reading the original cons list, three of
+them are still valid:
+
+1. **OpenClaw's native memory layer is closed-source and per-pod.** A
+   `session` default would silently miss that layer, leaving users with a
+   false sense of isolation. Disclosure-first is more honest.
+2. **Specialist delegation in Bot Teams legitimately shares context** —
+   if every delegation hop gets a fresh memory pool, the orchestrator
+   has to re-explain the user every hand-off. The product wants a way
+   to scope, not a hard isolation default.
+3. **Cross-platform memory is an advertised feature** of the platform
+   (`PRODUCT.md`, marketing copy, the global-mode soul.md prompt). Pulling
+   it out from under deployments without notice would break shipped
+   bots.
+
+Phase 2's wiring fix gets us the disclosure that was originally promised
+plus the per-turn prompt signal, without changing the default.
