@@ -32,6 +32,31 @@ interface TeamChatMessageProps {
   delegations?: DelegationStatus[];
   /** Skip indicator (Fix #6 — silent delegation failure surface). */
   skip?: SkipInfo;
+  /** When this message was created (epoch ms). */
+  timestamp?: number;
+}
+
+/**
+ * Format a timestamp for display in chat bubbles.
+ * Shows time only for today, "Yesterday HH:MM" for yesterday,
+ * and "Mon DD, HH:MM" for older messages.
+ */
+function formatChatTime(ts: number): string {
+  const d = new Date(ts);
+  const now = new Date();
+  const timeStr = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+
+  // Same day → just time
+  if (d.toDateString() === now.toDateString()) return timeStr;
+
+  // Yesterday
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return `Yesterday ${timeStr}`;
+
+  // Older → "Apr 11, 2:30 PM"
+  const dateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return `${dateStr}, ${timeStr}`;
 }
 
 /**
@@ -57,6 +82,7 @@ export default function TeamChatMessage({
   sourceDeploymentId,
   delegations,
   skip,
+  timestamp,
 }: TeamChatMessageProps) {
   const { content, sourceRole, isSynthesis } = segment;
 
@@ -75,7 +101,7 @@ export default function TeamChatMessage({
         <div className="border-t border-border/40 my-2" />
       )}
 
-      {/* Role label */}
+      {/* Role label + timestamp */}
       <div className="flex items-center gap-1.5 mb-1">
         <TeamChatAvatar
           deploymentId={displayDeploymentId}
@@ -85,6 +111,11 @@ export default function TeamChatMessage({
         <span className="text-[10px] font-medium text-muted-foreground">
           {displayRole}
         </span>
+        {timestamp && (
+          <span className="text-[9px] text-muted-foreground/50 ml-auto">
+            {formatChatTime(timestamp)}
+          </span>
+        )}
       </div>
 
       {/* Message bubble */}

@@ -2867,6 +2867,8 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
   const [flowChatMessages, setFlowChatMessages] = useState<Array<{
     role: string;
     content: string;
+    /** When this message was created (epoch ms). */
+    timestamp?: number;
     /** Phase 2 group-chat: server-assigned message ID for matching CONTENT to the right bubble. */
     _messageId?: string | null;
     /** Phase 2 group-chat: which bot produced this message. */
@@ -3445,7 +3447,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     if (!flowChatInput.trim() || !activeFlowId || flowChatLoading) return;
     const userMsg = flowChatInput.trim();
     setFlowChatInput("");
-    setFlowChatMessages((prev) => [...prev, { role: "user", content: userMsg }]);
+    setFlowChatMessages((prev) => [...prev, { role: "user", content: userMsg, timestamp: Date.now() }]);
     setFlowChatLoading(true);
 
     // Determine which session this message should bind to. Priority:
@@ -3516,6 +3518,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                   {
                     role: "assistant" as const,
                     content: "",
+                    timestamp: Date.now(),
                     _messageId: currentMsgId,
                     sourceRole: data.sourceRole || null,
                     sourceDeploymentId: data.sourceDeploymentId || null,
@@ -4157,6 +4160,11 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                   if (msg.role === "user") {
                     return (
                       <div key={i} className="text-sm text-right">
+                        {msg.timestamp && (
+                          <div className="text-[9px] text-muted-foreground/40 mb-0.5">
+                            {new Date(msg.timestamp).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                          </div>
+                        )}
                         <div className="inline-block max-w-[85%] rounded-lg px-3 py-2 bg-primary text-primary-foreground">
                           {msg.content}
                         </div>
@@ -4195,6 +4203,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                           sourceDeploymentId={msg.sourceDeploymentId ?? undefined}
                           delegations={msg.delegations}
                           skip={msg.skip}
+                          timestamp={msg.timestamp}
                         />
                         {msg.canvasCards && msg.canvasCards.length > 0 && (
                           <div className="mt-1 space-y-1.5" data-testid="team-chat-canvas-cards">
