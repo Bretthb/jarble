@@ -349,15 +349,16 @@ describe("buildFlowSystemPrompt — jarble_delegate format", () => {
   });
 
   it("documents the single canonical delegation tool (no per-member tool drift)", async () => {
-    // qa-bot-teams 2026-04-07 P3 #3: the prompt previously invited confusion
-    // between `jarble_delegate` (fenced block, canonical) and
-    // `delegate_to_<name>` (internal routing key). The prompt now explicitly
-    // tells the bot there is no per-member tool and `jarble_delegate` is the
-    // single canonical delegation mechanism.
+    // Phase 3: the prompt now tells the bot to prefer the a2a_delegate MCP
+    // tool over hand-writing fenced blocks. The tool is the canonical
+    // delegation mechanism; the fenced block is the fallback. Both are
+    // documented in the prompt so the bot knows both paths.
     const { buildFlowSystemPrompt } = await import("./flowDelegation.js");
     const prompt = buildFlowSystemPrompt(node, [tool], "Base prompt.");
-    expect(prompt).toMatch(/no per-member tool/i);
+    expect(prompt).toMatch(/a2a_delegate/i);
     expect(prompt).toMatch(/bare slug/i);
+    // Fenced block is still documented as fallback
+    expect(prompt).toMatch(/jarble_delegate/i);
   });
 });
 

@@ -399,16 +399,19 @@ export function buildFlowSystemPrompt(
 
     parts.push(
       "\n\n## How to Delegate — REQUIRED FORMAT\n" +
-      "To delegate, emit a fenced code block tagged `jarble_delegate` containing a " +
-      "JSON object. The block is the ONLY way to delegate — no other format works. " +
-      "There is no per-member tool (like `delegate_to_<name>`); the single canonical " +
-      "delegation tool is the `jarble_delegate` fenced block, and the `to` field picks " +
-      "the target by bare slug.\n" +
-      "\nFields:\n" +
+      "**Preferred method:** Call the `a2a_delegate` tool with `to`, `task`, and " +
+      "optionally `context` arguments. The tool handles everything automatically — " +
+      "you just call it and the delegation is dispatched. This is the most reliable way " +
+      "to delegate because it guarantees correct formatting.\n" +
+      "\n**Fallback method (if the tool is not available):** Emit a fenced code block " +
+      "tagged `jarble_delegate` containing a JSON object with the same fields.\n" +
+      "\nFields (same for both methods):\n" +
       "- `to`      — REQUIRED string, the bare slug of the team member (from the list above — NOT prefixed with `delegate_to_`)\n" +
       "- `task`    — REQUIRED string, the task to delegate\n" +
       "- `context` — OPTIONAL string, additional context to pass with the task\n" +
-      "\nExample (one-shot):\n" +
+      "\nExample using the tool:\n" +
+      `a2a_delegate({ to: "${sampleSlug}", task: "Describe primary colors" })\n` +
+      "\nExample using the fallback fenced block:\n" +
       "```jarble_delegate\n" +
       `{ "to": "${sampleSlug}", "task": "Describe primary colors", "context": "" }\n` +
       "```\n" +

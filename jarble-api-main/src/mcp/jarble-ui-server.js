@@ -468,21 +468,38 @@ try {
  * For legacy delegate_to_{slug}: routes to /api/pod/agent/{slug} like subagents.
  */
 async function executeDelegationTool(tool, args) {
-  // a2a_delegate: structured delegation — return args for API-side execution
+  // a2a_delegate: structured delegation via MCP tool call (Phase 3).
+  //
+  // Returns a `jarble_delegate` fenced block as the tool result text.
+  // The LLM includes tool results in its response (same pattern as
+  // render_ui → jarble_ui blocks), so parseDelegationCalls() on the
+  // API side finds the block in the exec output and routes the
+  // delegation. This is cleaner than having the LLM hand-write the
+  // block because:
+  //   1. The MCP tool schema validates args (to, task required) — no
+  //      malformed JSON or missing fields
+  //   2. The tool call is deterministic — no "mentioned_but_not_emitted"
+  //      failure mode where the LLM describes delegation in prose
+  //      without actually emitting the tool call
+  //   3. Field ordering is controlled by code, not LLM generation
+  //
+  // The fenced block format is identical to what parseDelegationCalls()
+  // already handles, so no server-side parsing changes are needed.
+  // Bots that don't have the a2a_delegate tool still fall back to
+  // hand-writing jarble_delegate blocks (backward compat).
   if (tool.name === "a2a_delegate") {
     const to = args.to;
     const task = args.task;
     const context = args.context || "";
     console.error("[MCP] a2a_delegate: to=" + to + " task=" + (task || "").slice(0, 100));
+    // Return as a jarble_delegate fenced block — same wire format
+    // parseDelegationCalls() already detects. The LLM includes the
+    // tool result in its text output, making it discoverable on the
+    // API side without any new parsing logic.
+    var delegateBlock = JSON.stringify({ to: to, task: task, context: context });
     return {
       isError: false,
-      text: JSON.stringify({
-        type: "a2a_delegate",
-        to: to,
-        task: task,
-        context: context,
-        status: "delegated",
-      }),
+      text: "```jarble_delegate\n" + delegateBlock + "\n```\nDelegation to **" + to + "** has been dispatched.",
     };
   }
 
