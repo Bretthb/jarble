@@ -22,6 +22,19 @@ export interface FlowStepStatus {
   maxIterations?: number;
   /** Substeps for nested/subflow nodes */
   substeps?: FlowStepStatus[];
+
+  // ── Phase 4: Time-travel debugging fields ─────────────────────────────
+  /** Resolved input args at step start (template vars already substituted) */
+  inputSnapshot?: unknown;
+  /** Condition evaluation audit trail for conditional edges */
+  conditionEvaluations?: Array<{
+    edgeId: string;
+    condition: string;
+    resolved: string;
+    result: boolean;
+  }>;
+  /** How many times this node has been visited (for cyclic nodes) */
+  visitCount?: number;
 }
 
 export interface FlowExecutionState {

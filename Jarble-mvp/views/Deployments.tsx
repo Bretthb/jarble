@@ -70,6 +70,7 @@ import FlowNodeConfigPanel from "@/components/workspace/FlowNodeConfigPanel";
 import type { FlowNodeConfig } from "@/components/workspace/FlowNodeConfigPanel";
 import FlowExecutionTimeline from "@/components/workspace/FlowExecutionTimeline";
 import type { FlowExecutionStep } from "@/components/workspace/FlowExecutionTimeline";
+import FlowTimeTravel from "@/components/workspace/FlowTimeTravel";
 import TeamChatCanvasCard, {
   type TeamCanvasCardData,
 } from "@/components/workspace/TeamChatCanvasCard";
@@ -3873,6 +3874,17 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                   cancel();
                 }
               }}
+            />
+          )}
+
+          {/* Phase 4: Time-travel debugging panel — shows after execution
+              completes/fails. Renders input/output pairs, condition audit
+              trails, and visit counts per step. */}
+          {(execState.status === "completed" || execState.status === "failed") && execState.steps.size > 0 && (
+            <FlowTimeTravel
+              steps={execState.steps}
+              totalCredits={execState.totalCredits}
+              status={execState.status}
             />
           )}
           </div>
