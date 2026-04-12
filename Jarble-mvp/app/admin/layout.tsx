@@ -1,5 +1,7 @@
 "use client";
+import { useEffect, useState } from "react";
 import { AdminGuard } from "@/components/admin/AdminGuard";
+import { AdminCommandPalette } from "@/components/admin/AdminCommandPalette";
 import ProfileDropdown from "@/components/ProfileDropdown";
 import Image from "next/image";
 import Link from "next/link";
@@ -38,9 +40,22 @@ export default function AdminLayout({
   const pathname = usePathname();
   const { theme } = useTheme();
   const logoSrc = theme === "dark" ? "/logodark.png" : "/logo.png";
+  const [paletteOpen, setPaletteOpen] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   return (
     <AdminGuard>
+      <AdminCommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       <div className="min-h-screen">
         {/* Top navbar */}
         <nav className="border-b border-border/60 sticky top-0 z-50 bg-background/95 backdrop-blur-sm">
@@ -58,6 +73,17 @@ export default function AdminLayout({
               </span>
             </div>
             <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setPaletteOpen(true)}
+                className="hidden sm:flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded-md border border-border/60 hover:border-border transition-colors"
+                title="Open search (Ctrl+K)"
+              >
+                Search...
+                <kbd className="font-mono text-[10px] bg-muted px-1.5 py-0.5 rounded">
+                  Ctrl K
+                </kbd>
+              </button>
               <Link
                 href="/dashboard"
                 className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
