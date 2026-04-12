@@ -74,7 +74,7 @@ import TeamChatCanvasCard, {
   type TeamCanvasCardData,
 } from "@/components/workspace/TeamChatCanvasCard";
 import { transformDelegationBlocks } from "@/lib/delegationBlockTransform";
-import { splitAssistantMessage } from "@/lib/teamChatUtils";
+import { splitAssistantMessage, type ChatSegment } from "@/lib/teamChatUtils";
 import TeamChatMessage from "@/components/workspace/TeamChatMessage";
 import TeamChatDelegationNarration from "@/components/workspace/TeamChatDelegationNarration";
 import { runtimeNeedsLlm } from "./onboarding/wizardStepConfig";
@@ -2866,6 +2866,12 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
   const [flowChatMessages, setFlowChatMessages] = useState<Array<{
     role: string;
     content: string;
+    /** Phase 2 group-chat: which bot produced this message. */
+    sourceRole?: string | null;
+    /** Phase 2 group-chat: deployment ID for avatar color. */
+    sourceDeploymentId?: string | null;
+    /** Phase 2 group-chat: message phase for visual variant. */
+    phase?: "entry" | "delegation" | "synthesis" | null;
     delegations?: Array<{
       toolName: string;
       targetRole: string;
@@ -3477,7 +3483,14 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
       } else {
         const reader = res.body?.getReader();
         const decoder = new TextDecoder();
-        let assistantText = "";
+        // Phase 2 group-chat: track per-messageId text accumulators so
+        // each specialist's response builds into its OWN message object.
+        // The server now emits TEXT_MESSAGE_START with sourceRole,
+        // sourceDeploymentId, and phase ("entry" | "delegation" | "synthesis")
+        // for each structural message.
+        const messageTexts = new Map<string, string>();
+        let anyAssistantText = false;
+        let currentMsgId: string | null = null;
 
         while (reader) {
           const { done, value } = await reader.read();
@@ -3488,17 +3501,46 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
             if (!line.startsWith("data: ")) continue;
             try {
               const data = JSON.parse(line.slice(6));
+
+              // ── Phase 2: TEXT_MESSAGE_START opens a new message ──────
+              // Each entry/specialist/synthesis gets its own START event
+              // with sourceRole + phase metadata for group-chat rendering.
+              if (data.type === "TEXT_MESSAGE_START" && data.role === "assistant") {
+                currentMsgId = data.messageId ?? null;
+                if (currentMsgId) messageTexts.set(currentMsgId, "");
+                setFlowChatMessages((prev) => [
+                  ...prev,
+                  {
+                    role: "assistant" as const,
+                    content: "",
+                    sourceRole: data.sourceRole || null,
+                    sourceDeploymentId: data.sourceDeploymentId || null,
+                    phase: data.phase || null,
+                  },
+                ]);
+              }
+
               if (data.type === "TEXT_MESSAGE_CONTENT" && data.delta) {
-                assistantText += data.delta;
-                setFlowChatMessages((prev) => {
-                  const msgs = [...prev];
-                  const last = msgs[msgs.length - 1];
-                  if (last?.role === "assistant") {
-                    msgs[msgs.length - 1] = { ...last, content: assistantText };
-                  } else {
-                    msgs.push({ role: "assistant", content: assistantText });
+                anyAssistantText = true;
+                const mid = data.messageId || currentMsgId;
+                const prev = messageTexts.get(mid) ?? "";
+                const updated = prev + data.delta;
+                messageTexts.set(mid, updated);
+
+                setFlowChatMessages((prevMsgs) => {
+                  const msgs = [...prevMsgs];
+                  // Find the message for this messageId by walking backward
+                  // and matching the sourceRole/content association. For
+                  // backward compat with old servers (no per-specialist
+                  // messageId), fall back to updating the last assistant msg.
+                  for (let j = msgs.length - 1; j >= 0; j--) {
+                    if (msgs[j].role === "assistant") {
+                      msgs[j] = { ...msgs[j], content: updated };
+                      return msgs;
+                    }
                   }
-                  return msgs;
+                  // No assistant message found — push one (backward compat)
+                  return [...msgs, { role: "assistant", content: updated }];
                 });
               } else if (data.type === "CUSTOM" || data.type === "custom") {
                 const name = data.name || data.value?.name;
@@ -3645,7 +3687,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
           }
         }
 
-        if (!assistantText) {
+        if (!anyAssistantText) {
           setFlowChatMessages((prev) => [...prev, { role: "assistant", content: "(No response)" }]);
         }
       }
@@ -4084,7 +4126,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                   </div>
                 )}
                 {flowChatMessages.map((msg, i) => {
-                  // ── User messages: unchanged right-aligned bubble ──────────
+                  // ── User messages: right-aligned bubble ────────────────────
                   if (msg.role === "user") {
                     return (
                       <div key={i} className="text-sm text-right">
@@ -4096,104 +4138,87 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                   }
 
                   // ── Assistant messages: group-chat rendering ────────────────
-                  // Split the monolithic assistant text into per-specialist
-                  // segments at render time by parsing **RoleName:** prefixes.
-                  // Each segment gets its own avatar, role label, and visual
-                  // variant. Delegation narrations appear between segments.
-                  // If parsing fails (no prefixes found), the entire text
-                  // renders as a single coordinator message — same as before.
+                  // Phase 2: the server now emits per-specialist messageIds
+                  // with sourceRole/sourceDeploymentId/phase fields on
+                  // TEXT_MESSAGE_START. Each specialist's response is its own
+                  // message in the flowChatMessages array with structural
+                  // metadata — no more parsing **RoleName:** prefixes.
+                  //
+                  // Backward compat: if the message has no phase field (old
+                  // persisted messages or pre-Phase-2 server), fall back to
+                  // the Phase 1 splitAssistantMessage parser.
+                  const hasPhase2Metadata = !!msg.phase || !!msg.sourceRole;
                   const cleanContent = msg.content
                     ? transformDelegationBlocks(msg.content, { format: "inline", maxTaskChars: 100 })
                     : "";
-                  const segments = splitAssistantMessage(cleanContent);
 
-                  // Gather delegation info for narration lines
-                  const completedDelegations = msg.delegations?.filter(d => d.status !== "running") ?? [];
+                  if (hasPhase2Metadata) {
+                    // ── Phase 2 path: structural message with metadata ────
+                    const segment: ChatSegment = {
+                      content: cleanContent,
+                      sourceRole: msg.phase === "delegation" ? msg.sourceRole ?? null : null,
+                      isSynthesis: msg.phase === "synthesis",
+                    };
+                    return (
+                      <div key={i} className="text-sm space-y-2">
+                        <TeamChatMessage
+                          segment={segment}
+                          entryRole={entryNodeName ?? "Coordinator"}
+                          entryDeploymentId={activeFlow?.nodes?.find(n => n.data?.isEntryPoint)?.data?.id}
+                          sourceDeploymentId={msg.sourceDeploymentId ?? undefined}
+                          delegations={msg.delegations}
+                          skip={msg.skip}
+                        />
+                        {msg.canvasCards && msg.canvasCards.length > 0 && (
+                          <div className="mt-1 space-y-1.5" data-testid="team-chat-canvas-cards">
+                            {msg.canvasCards.map((card) => (
+                              <TeamChatCanvasCard key={card.id} card={card} onRemove={handleRemoveCanvasCard} />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  // ── Phase 1 fallback: parse **RoleName:** prefixes ─────
+                  const segments = splitAssistantMessage(cleanContent);
                   const runningDelegations = msg.delegations?.filter(d => d.status === "running") ?? [];
 
                   return (
                     <div key={i} className="text-sm space-y-2">
-                      {/* Render each segment as its own message bubble */}
-                      {segments.map((seg, si) => {
-                        // If this is a specialist segment AND we have delegation
-                        // info, show a narration line before it
-                        const matchingDeleg = seg.sourceRole
-                          ? completedDelegations.find(d =>
-                              d.targetRole.toLowerCase() === seg.sourceRole?.toLowerCase() ||
-                              d.toolName.replace(/^delegate_to_/, "").replace(/_/g, " ").toLowerCase() === seg.sourceRole?.toLowerCase()
-                            )
-                          : null;
-
-                        return (
-                          <div key={si}>
-                            {/* Delegation narration (if this is a specialist segment) */}
-                            {seg.sourceRole && !seg.isSynthesis && matchingDeleg && (
-                              <TeamChatDelegationNarration
-                                fromRole={entryNodeName ?? "Coordinator"}
-                                fromDeploymentId={activeFlow?.nodes?.find(n => n.data?.isEntryPoint)?.data?.id}
-                                toRole={seg.sourceRole}
-                                toDeploymentId={matchingDeleg ? activeFlow?.nodes?.find(n => {
-                                  const r = n.data?.role ?? n.data?.name;
-                                  return r?.toLowerCase() === seg.sourceRole?.toLowerCase();
-                                })?.data?.id : undefined}
-                                task={matchingDeleg?.toolName?.replace(/^delegate_to_/, "").replace(/_/g, " ")}
-                              />
-                            )}
-                            <TeamChatMessage
-                              segment={seg}
-                              entryRole={entryNodeName ?? "Coordinator"}
-                              entryDeploymentId={activeFlow?.nodes?.find(n => n.data?.isEntryPoint)?.data?.id}
-                              sourceDeploymentId={seg.sourceRole ? activeFlow?.nodes?.find(n => {
-                                const r = n.data?.role ?? n.data?.name;
-                                return r?.toLowerCase() === seg.sourceRole?.toLowerCase();
-                              })?.data?.id : undefined}
-                            />
-                          </div>
-                        );
-                      })}
-
-                      {/* Still-running delegations (show as live status below all segments) */}
+                      {segments.map((seg, si) => (
+                        <div key={si}>
+                          <TeamChatMessage
+                            segment={seg}
+                            entryRole={entryNodeName ?? "Coordinator"}
+                            entryDeploymentId={activeFlow?.nodes?.find(n => n.data?.isEntryPoint)?.data?.id}
+                            sourceDeploymentId={seg.sourceRole ? activeFlow?.nodes?.find(n => {
+                              const r = n.data?.role ?? n.data?.name;
+                              return r?.toLowerCase() === seg.sourceRole?.toLowerCase();
+                            })?.data?.id : undefined}
+                          />
+                        </div>
+                      ))}
                       {runningDelegations.length > 0 && (
                         <div className="space-y-1 ml-6">
                           {runningDelegations.map((d, di) => (
                             <div key={di} className="flex items-center gap-2 text-[10px] text-blue-400">
                               <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
                               {d.targetRole} is working...
-                              {d.elapsedMs != null && (
-                                <span className="text-muted-foreground">{Math.round(d.elapsedMs / 1000)}s</span>
-                              )}
+                              {d.elapsedMs != null && <span className="text-muted-foreground">{Math.round(d.elapsedMs / 1000)}s</span>}
                             </div>
                           ))}
                         </div>
                       )}
-
-                      {/* Delegation skipped indicators */}
                       {msg.skip && msg.skip.reason === "mentioned_but_not_emitted" && (
                         <div className="ml-6 p-2 rounded border border-amber-400/30 bg-amber-500/5 text-[10px] text-amber-300">
                           <div className="font-medium">Delegation mentioned but not executed</div>
-                          <div className="text-amber-300/80 mt-0.5">
-                            The entry bot said it would delegate but never emitted a valid tool call.
-                            {msg.skip.availableTools.length > 0 && (
-                              <> Available: {msg.skip.availableTools.join(", ")}.</>
-                            )}
-                          </div>
                         </div>
                       )}
-                      {msg.skip && msg.skip.reason === "tool_call_not_emitted" && msg.skip.availableToolCount > 0 && (
-                        <div className="ml-6 text-[10px] text-muted-foreground italic">
-                          Answered directly ({msg.skip.availableToolCount} team tool{msg.skip.availableToolCount === 1 ? "" : "s"} available, none used)
-                        </div>
-                      )}
-
-                      {/* Canvas cards */}
                       {msg.canvasCards && msg.canvasCards.length > 0 && (
                         <div className="mt-1 space-y-1.5" data-testid="team-chat-canvas-cards">
                           {msg.canvasCards.map((card) => (
-                            <TeamChatCanvasCard
-                              key={card.id}
-                              card={card}
-                              onRemove={handleRemoveCanvasCard}
-                            />
+                            <TeamChatCanvasCard key={card.id} card={card} onRemove={handleRemoveCanvasCard} />
                           ))}
                         </div>
                       )}

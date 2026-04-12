@@ -477,7 +477,17 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     // Generate a trace ID for the entire flow chat turn so budget checks
     // and OTel spans can stitch all delegation hops into one trace.
     const flowTraceId = nanoid(32);
-    sendEvent(res, { type: TEXT_MESSAGE_START, messageId, role: "assistant" });
+    // Phase 2 group-chat: tag the entry bot's message with its role +
+    // deployment ID so the client renders it with the coordinator's avatar.
+    const entryRole = entryNode.role || entryNode.label || "Coordinator";
+    sendEvent(res, {
+      type: TEXT_MESSAGE_START,
+      messageId,
+      role: "assistant",
+      sourceRole: entryRole,
+      sourceDeploymentId: entryNode.deploymentId,
+      phase: "entry",
+    });
 
     const entryPodName = await findPodForDeployment(entryNode.deploymentId);
     if (!entryPodName) {
@@ -668,27 +678,54 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
 
         if (delegationResult?.response || delegationResult?.uiBlocks?.length) {
           const roleName = targetNode?.role || targetNode?.label || "Team member";
+
+          // Phase 2 group-chat: each specialist gets its OWN messageId so
+          // the client can render separate bubbles with distinct avatars and
+          // role labels instead of concatenating everything into one blob.
+          // The entry bot's initial text was on `messageId`; specialists get
+          // fresh IDs here; the synthesis step already had its own ID at
+          // line 747 — now all three phases are structurally separated.
+          const specialistMsgId = nanoid();
+          sendEvent(res, {
+            type: TEXT_MESSAGE_START,
+            messageId: specialistMsgId,
+            role: "assistant",
+            // NEW fields for group-chat rendering — the client uses these
+            // to pick the avatar color, role label, and indent level.
+            sourceRole: roleName,
+            sourceDeploymentId: tool.targetDeploymentId,
+            phase: "delegation",
+          });
+
           if (delegationResult.response) {
-            sendEvent(res, { type: TEXT_MESSAGE_CONTENT, messageId, delta: `**${roleName}:** ${delegationResult.response}\n\n` });
+            sendEvent(res, { type: TEXT_MESSAGE_CONTENT, messageId: specialistMsgId, delta: delegationResult.response });
           } else if (delegationResult.uiBlocks?.length) {
-            // Specialist rendered a component but had no text response
-            sendEvent(res, { type: TEXT_MESSAGE_CONTENT, messageId, delta: `**${roleName}** rendered ${delegationResult.uiBlocks.length} component${delegationResult.uiBlocks.length > 1 ? "s" : ""}.\n\n` });
+            sendEvent(res, { type: TEXT_MESSAGE_CONTENT, messageId: specialistMsgId, delta: `Rendered ${delegationResult.uiBlocks.length} component${delegationResult.uiBlocks.length > 1 ? "s" : ""}.` });
           }
+
+          sendEvent(res, { type: TEXT_MESSAGE_END, messageId: specialistMsgId });
+
           if (delegationResult.uiBlocks?.length) {
             for (const block of delegationResult.uiBlocks) {
               sendEvent(res, { type: CUSTOM, name: "jarble.flow.delegation.uiblock",
                 value: { delegationToolName: call.toolName, sourceDeploymentId: tool.targetDeploymentId,
-                  sourceRole: targetNode?.role || targetNode?.label || "Team member", block } });
+                  sourceRole: roleName, block } });
             }
           }
         } else if (delegationError) {
-          // The user-visible delta stays intentionally generic — technical
-          // users can check the delegation.end event's `error` field for
-          // details, which is already sanitized above via the
-          // `safeDelegationError` local. Previously this branch computed
-          // a local sanitizedError that was never used (dead code, see
-          // Cycle 8 of the 2026-04-11 bot teams QA marathon).
-          sendEvent(res, { type: TEXT_MESSAGE_CONTENT, messageId, delta: `*Delegation to ${targetNode?.role || call.toolName} was unsuccessful. The team member may be busy or temporarily unavailable.*\n\n` });
+          // Emit the error as its own specialist message so it gets proper
+          // avatar attribution in the group-chat UI.
+          const errorMsgId = nanoid();
+          sendEvent(res, {
+            type: TEXT_MESSAGE_START,
+            messageId: errorMsgId,
+            role: "assistant",
+            sourceRole: targetNode?.role || call.toolName,
+            sourceDeploymentId: tool.targetDeploymentId,
+            phase: "delegation",
+          });
+          sendEvent(res, { type: TEXT_MESSAGE_CONTENT, messageId: errorMsgId, delta: `*Delegation was unsuccessful. The team member may be busy or temporarily unavailable.*` });
+          sendEvent(res, { type: TEXT_MESSAGE_END, messageId: errorMsgId });
         }
       }
 
@@ -745,7 +782,14 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
           });
 
           const synthMessageId = nanoid();
-          sendEvent(res, { type: TEXT_MESSAGE_START, messageId: synthMessageId, role: "assistant" });
+          sendEvent(res, {
+            type: TEXT_MESSAGE_START,
+            messageId: synthMessageId,
+            role: "assistant",
+            sourceRole: entryRole,
+            sourceDeploymentId: entryNode.deploymentId,
+            phase: "synthesis",
+          });
 
           try {
             // Build compose instruction if multiple specialists produced components
