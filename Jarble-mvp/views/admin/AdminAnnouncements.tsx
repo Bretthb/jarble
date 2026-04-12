@@ -30,7 +30,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Loader2, Plus } from "lucide-react";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 type Severity = "info" | "warning" | "critical";
@@ -85,7 +86,17 @@ export default function AdminAnnouncements() {
     onError: (err) => toast.error(err.message),
   });
 
+  const deleteMutation = trpc.admin.deleteAnnouncement.useMutation({
+    onSuccess: () => {
+      toast.success("Announcement deleted");
+      invalidate();
+      setDeleteTarget(null);
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
   const [createOpen, setCreateOpen] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Announcement | null>(null);
   const [message, setMessage] = useState("");
   const [severity, setSeverity] = useState<Severity>("info");
   const [dismissible, setDismissible] = useState(true);
@@ -203,7 +214,7 @@ export default function AdminAnnouncements() {
       </div>
 
       <p className="text-sm text-muted-foreground">
-        One active announcement shows at a time. Most recently created wins. Users dismiss per-announcement via localStorage — critical severity banners cannot be dismissed.
+        Only one announcement can be active at a time — activating a new one turns the rest off. Users dismiss per-announcement via localStorage; critical severity banners cannot be dismissed.
       </p>
 
       {listQuery.isLoading ? (
@@ -220,6 +231,7 @@ export default function AdminAnnouncements() {
               <TableHead>Dismissible</TableHead>
               <TableHead>Active</TableHead>
               <TableHead>Created</TableHead>
+              <TableHead className="w-12"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -256,11 +268,22 @@ export default function AdminAnnouncements() {
                 <TableCell className="text-xs text-muted-foreground">
                   {formatDate(row.createdAt)}
                 </TableCell>
+                <TableCell>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-muted-foreground hover:text-destructive"
+                    onClick={() => setDeleteTarget(row)}
+                    aria-label="Delete announcement"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </TableCell>
               </TableRow>
             ))}
             {listQuery.data?.announcements.length === 0 && (
               <TableRow>
-                <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                   No announcements yet.
                 </TableCell>
               </TableRow>
@@ -268,6 +291,18 @@ export default function AdminAnnouncements() {
           </TableBody>
         </Table>
       )}
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title="Delete announcement?"
+        description={deleteTarget ? `"${deleteTarget.message}" will be permanently removed.` : ""}
+        confirmLabel={deleteMutation.isPending ? "Deleting..." : "Delete"}
+        variant="destructive"
+        onConfirm={() => {
+          if (deleteTarget) deleteMutation.mutate({ id: deleteTarget.id });
+        }}
+      />
     </div>
   );
 }
