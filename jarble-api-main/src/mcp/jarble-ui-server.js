@@ -7616,9 +7616,27 @@ async function executeTool(name, args) {
     case "list_memories": return isMemoryScopeOff() ? memoryOffResponse() : executeListMemories(args || {});
     case "forget_memory": return isMemoryScopeOff() ? memoryOffResponse() : executeForgetMemory(args || {});
     case "create_dashboard": return executeCreateDashboard(args || {});
-    case "compose_dashboard": return executeComposeDashboard(args || {});
+    case "compose_dashboard": {
+      // When custom subagents exist, block compose_dashboard so the bot
+      // routes through its specialist subagents via jarble_delegate instead.
+      var hasCustom = SUBAGENT_TOOLS.some(function(t) {
+        return !t.name.match(/^agent_(component_agent|data_agent|workflow_agent)$/);
+      });
+      if (hasCustom) {
+        return { isError: true, text: "compose_dashboard is disabled because this deployment has custom subagents. Use your custom subagents (jarble_delegate) for component generation instead." };
+      }
+      return executeComposeDashboard(args || {});
+    }
     case "render_page": return executeRenderPage(args || {});
-    case "create_component": return executeCreateComponent(args || {});
+    case "create_component": {
+      var hasCustom2 = SUBAGENT_TOOLS.some(function(t) {
+        return !t.name.match(/^agent_(component_agent|data_agent|workflow_agent)$/);
+      });
+      if (hasCustom2) {
+        return { isError: true, text: "create_component is disabled because this deployment has custom subagents. Use your custom subagents (jarble_delegate) for component generation instead." };
+      }
+      return executeCreateComponent(args || {});
+    }
     case "debug_component": return executeDebugComponent(args || {});
     case "test_dashboard": return executeTestDashboard(args || {});
     // Service hosting tools
