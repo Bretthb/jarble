@@ -1,6 +1,6 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { db, tables } from "../db/index.js";
 import { logger } from "../utils/logger.js";
 import { env } from "../utils/env.js";
@@ -283,12 +283,28 @@ stripeRouter.post("/checkout", stripeActionLimiter, async (req, res) => {
       const notExpired = !promo.expiresAt || new Date(promo.expiresAt) >= new Date();
       const notMaxed = promo.maxUses === null || promo.currentUses < promo.maxUses;
 
-      if (notExpired && notMaxed) {
+      const [{ userCount }] = await db
+        .select({ userCount: sql<number>`count(*)` })
+        .from(tables.promoRedemptions)
+        .where(and(
+          eq(tables.promoRedemptions.promoCodeId, promo.id),
+          eq(tables.promoRedemptions.userId, user.id),
+        ));
+      const notUserMaxed = Number(userCount) < promo.maxUsesPerUser;
+
+      if (notExpired && notMaxed && notUserMaxed) {
         monthlyPriceCents = PROMO_PRICE_CENTS;
         await (db as any).update(tables.promoCodes)
           .set({ currentUses: promo.currentUses + 1 })
           .where(eq(tables.promoCodes.id, promo.id));
+        await (db as any).insert(tables.promoRedemptions).values({
+          promoCodeId: promo.id,
+          userId: user.id,
+        });
         logger.info({ promoCode: promo.code, userId: user.id }, "Promo code applied at checkout");
+      } else if (!notUserMaxed) {
+        res.status(400).json({ error: "You have already redeemed this promo code." });
+        return;
       }
     }
   }
