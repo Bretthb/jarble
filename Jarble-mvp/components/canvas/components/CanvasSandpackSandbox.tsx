@@ -76,11 +76,11 @@ function CanvasSandpackSandboxInner({
 
   return (
     <FadeIn className="h-full w-full">
-    <div
-      ref={containerRef}
-      className="relative h-full w-full overflow-hidden rounded"
-      style={{ minHeight: height || 400 }}
-    >
+      <div
+        ref={containerRef}
+        className="relative h-full w-full overflow-hidden rounded"
+        style={{ minHeight: height || 400 }}
+      >
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-muted/50">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -107,8 +107,8 @@ function CanvasSandpackSandboxInner({
           style={{ height: "100%", minHeight: height || 400 }}
           onLoad={() => setLoading(false)}
         />
-      </SandpackProvider>
-    </div>
+        </SandpackProvider>
+      </div>
     </FadeIn>
   );
 }
