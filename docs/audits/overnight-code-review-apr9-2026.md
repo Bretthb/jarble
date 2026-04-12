@@ -64,7 +64,7 @@ The function header comment on `startAgentCall` reads: "Never throws — if the 
 
 Callers:
 
-1. **`jarble-api-main/src/services/flowDelegation.ts` line ~690**: `startAgentCall` is called with no surrounding try/catch. The comment above it says the writer "never throws, so an audit-store outage cannot break the delegation path." When `RunawayTraceError` is thrown, it propagates up through `executeDelegate` and exits whatever try/catch envelope exists in the flow engine. The flow engine's `executeStep` catches errors and marks the step `failed`, so it won't crash the process. However, the error message visible to the user would be the raw `RunawayTraceError` message string wrapped in a generic flow step failure — not surfaced gracefully as a bot-readable message.
+1. **`jarble-api-main/src/services/flowDelegation.ts` line ~690**: `startAgentCall` is called with no surrounding try/catch. The comment above it says the writer "never throws, so an audit-store outage cannot break the delegation path." When `RunawayTraceError` is thrown, it propagates up through `executeDelegate` and exits whatever try/catch envelope exists in the flow engine. The flow engine's `executeStep` catches errors and marks the step `failed`, so it won't crash the process. However, the error message visible to the user would be the raw `RunawayTraceError` message string wrapped in a generic flow step failure — not surfaced gracefully as an agent-readable message.
 
 2. **`jarble-api-main/src/routes/tamboAgent.ts` line ~748**: `startRootAgentCall` is called at depth=0 and is therefore safe (the check skips depth=0). No P0 here.
 
@@ -117,11 +117,11 @@ Comparing with #79 (`chatViaExec`) and #80 (`chatViaGateway`): those both use `s
 
 No security issues.
 
-### PR #90 — feat: soul.md instructs bot to prefer Jarble memory tools over native
+### PR #90 — feat: soul.md instructs agent to prefer Jarble memory tools over native
 
-Correct and well-targeted. The `if (memoryScope !== "off")` guard correctly adds the scope-aware tools section for both `global` and `session` modes. In `off` mode the section is skipped and replaced by the DISABLED block. The `session` sub-section is pushed as a second soul entry after the global tools section — the bot will see both in sequence, which is the right stacking order (general guidance first, then session-specific refinement).
+Correct and well-targeted. The `if (memoryScope !== "off")` guard correctly adds the scope-aware tools section for both `global` and `session` modes. In `off` mode the section is skipped and replaced by the DISABLED block. The `session` sub-section is pushed as a second soul entry after the global tools section — the agent will see both in sequence, which is the right stacking order (general guidance first, then session-specific refinement).
 
-Minor observation: in `global` mode, the bot is told to prefer Jarble tools but the Jarble tools in global mode store to the same flat store as openclaw's native tools. The only behavioral difference is scope enforcement. The prompt guidance is still correct (Jarble tools respect scope; native tools bypass it) but the operational impact in global mode is neutral.
+Minor observation: in `global` mode, the agent is told to prefer Jarble tools but the Jarble tools in global mode store to the same flat store as openclaw's native tools. The only behavioral difference is scope enforcement. The prompt guidance is still correct (Jarble tools respect scope; native tools bypass it) but the operational impact in global mode is neutral.
 
 No security or correctness issues.
 

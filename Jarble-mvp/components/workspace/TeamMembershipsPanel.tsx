@@ -108,7 +108,7 @@ export default function TeamMembershipsPanel({
               <p className="text-xs text-muted-foreground mt-1">
                 This agent works solo right now. Add it to a team in
                 <br />
-                Bot Teams to make it collaborate with others.
+                Agent Teams to make it collaborate with others.
               </p>
             </div>
             <Button
@@ -118,7 +118,7 @@ export default function TeamMembershipsPanel({
               onClick={() => router.push("/deployments")}
               className="mt-2"
             >
-              Open Bot Teams
+              Open Agent Teams
               <ExternalLink className="w-3 h-3 ml-1.5" />
             </Button>
           </div>
@@ -188,7 +188,7 @@ export default function TeamMembershipsPanel({
                         onClick={() =>
                           router.push(`/deployments?tab=botteams&flow=${m.flowId}`)
                         }
-                        aria-label={`Open ${m.flowName} in Bot Teams`}
+                        aria-label={`Open ${m.flowName} in Agent Teams`}
                       >
                         <ExternalLink className="w-3 h-3" />
                       </Button>

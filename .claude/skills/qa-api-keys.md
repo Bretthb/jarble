@@ -53,6 +53,6 @@ STATUS: [PASS if T1-T4 all pass]
 ```
 
 ## Notes
-- T2-T3 modify bot state (restart). The bot will be briefly unavailable.
+- T2-T3 modify agent state (restart). The agent will be briefly unavailable.
 - T6 changes provider temporarily. Always revert to anthropic at the end.
 - Do NOT change the actual API key to an invalid one - just test the mechanism.

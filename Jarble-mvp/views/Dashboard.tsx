@@ -359,8 +359,8 @@ export default function Dashboard() {
         {/* Dashboard tabs */}
         <div className="flex items-center gap-1 mb-6 border-b border-border/60 pb-px">
           {([
-            { key: "deployments" as DashboardTab, label: "My Bots", icon: Bot },
-            { key: "botteams" as DashboardTab, label: "Bot Teams", icon: Users },
+            { key: "deployments" as DashboardTab, label: "My Agents", icon: Bot },
+            { key: "botteams" as DashboardTab, label: "Agent Teams", icon: Users },
             { key: "resources" as DashboardTab, label: "Resource Map", icon: Network },
           ]).map(({ key, label, icon: Icon }) => (
             <button

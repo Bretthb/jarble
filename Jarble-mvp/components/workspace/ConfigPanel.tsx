@@ -429,11 +429,11 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
             </select>
             <p className="text-[10px] text-muted-foreground leading-snug">
               {(dep?.memoryScope ?? "global") === "global" &&
-                "The bot remembers things from every chat with every user. Good for personal assistants."}
+                "The agent remembers things from every chat with every user. Good for personal assistants."}
               {dep?.memoryScope === "session" &&
-                "Each chat is isolated. The bot cannot recall anything from other conversations (best-effort: relies on bot compliance)."}
+                "Each chat is isolated. The agent cannot recall anything from other conversations (best-effort: relies on agent compliance)."}
               {dep?.memoryScope === "off" &&
-                "Memory tools are disabled. The bot starts fresh every turn."}
+                "Memory tools are disabled. The agent starts fresh every turn."}
             </p>
             <p className="text-[10px] text-amber-500/90 leading-snug">
               Changing this triggers a restart so the new memory mode takes effect.
@@ -496,7 +496,7 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
 // ── Credentials Section ────────────────────────────────────────────────────
 
 const SOURCE_ICONS: Record<string, typeof Key> = { llm: Key, platform: Shield, user: Key, agent: Bot, system: Settings2 };
-const SOURCE_LABELS: Record<string, string> = { llm: "LLM", platform: "Platform", user: "Custom", agent: "Bot-stored", system: "System" };
+const SOURCE_LABELS: Record<string, string> = { llm: "LLM", platform: "Platform", user: "Custom", agent: "Agent-stored", system: "System" };
 
 function CredentialsSection({
   deploymentId,
@@ -612,13 +612,13 @@ function CredentialsSection({
           <div className="space-y-1">
             <div className="flex items-center gap-1.5">
               <Bot className="w-3 h-3 text-muted-foreground" />
-              <span className="text-[11px] font-medium text-foreground">Bot Environment</span>
+              <span className="text-[11px] font-medium text-foreground">Agent Environment</span>
             </div>
             {customVars.map((v) => (
               <div key={v.key} className="flex items-center justify-between pl-4">
                 <span className="text-[10px] font-mono text-muted-foreground">{v.key}</span>
                 <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary/80 text-muted-foreground">
-                  {v.source === "agent" ? "bot-stored" : "user"}
+                  {v.source === "agent" ? "agent-stored" : "user"}
                 </span>
               </div>
             ))}

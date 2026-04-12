@@ -68,19 +68,19 @@ const CONTEXT_SCOPE_OPTIONS: Array<{
   {
     value: "task",
     label: "Task only",
-    description: "Bot only sees the specific delegated task. Best for focused work.",
+    description: "Agent only sees the specific delegated task. Best for focused work.",
     icon: FileText,
   },
   {
     value: "summary",
     label: "Task + Summary",
-    description: "Bot sees the task plus a summary of conversation so far.",
+    description: "Agent sees the task plus a summary of conversation so far.",
     icon: BookOpen,
   },
   {
     value: "full",
     label: "Full conversation",
-    description: "Bot sees the entire conversation history. Uses more tokens.",
+    description: "Agent sees the entire conversation history. Uses more tokens.",
     icon: ScrollText,
   },
 ];
@@ -311,7 +311,7 @@ function FlowNodeConfigPanelInner({
                   id="node-goal"
                   value={goal}
                   onChange={handleGoalChange}
-                  placeholder="What should this bot achieve in this team?"
+                  placeholder="What should this agent achieve in this team?"
                   rows={3}
                   className="min-h-[68px] text-sm bg-secondary/30 border-border/40 resize-none focus-visible:border-primary/50"
                 />
@@ -332,7 +332,7 @@ function FlowNodeConfigPanelInner({
                     Can delegate
                   </div>
                   <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
-                    Allow this bot to send tasks to connected bots
+                    Allow this agent to send tasks to connected agents
                   </div>
                 </div>
                 <Switch
@@ -412,7 +412,7 @@ function FlowNodeConfigPanelInner({
                     This is the entry point
                   </div>
                   <div className="text-[11px] text-primary/70 leading-tight mt-0.5">
-                    Users send messages to this bot first.
+                    Users send messages to this agent first.
                   </div>
                 </div>
               </div>
@@ -428,7 +428,7 @@ function FlowNodeConfigPanelInner({
                   Set as entry point
                 </Button>
                 <p className="text-[11px] text-muted-foreground leading-snug pl-0.5">
-                  The entry point is the bot users talk to. Only one per flow.
+                  The entry point is the agent users talk to. Only one per flow.
                 </p>
               </div>
             )}

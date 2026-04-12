@@ -294,7 +294,7 @@ export default function DeploymentChatPage() {
       <div className="h-screen bg-background text-foreground flex flex-col items-center justify-center gap-4">
         <Loader2 className="w-8 h-8 animate-spin text-primary" />
         <div className="text-center space-y-2">
-          <h2 className="text-lg font-semibold">Provisioning your bot...</h2>
+          <h2 className="text-lg font-semibold">Provisioning your agent...</h2>
           <p className="text-sm text-muted-foreground max-w-md">
             Setting up your deployment. This usually takes 1-2 minutes.
           </p>
@@ -634,7 +634,7 @@ function KeyedChatPanel({
           <div className="text-center space-y-1">
             <p className="text-sm font-medium text-foreground/70">Start a conversation</p>
             <p className="text-xs text-muted-foreground-subtle">
-              Send a message to interact with your bot
+              Send a message to interact with your agent
             </p>
           </div>
           <div className="flex flex-col gap-2 w-full max-w-xs mt-2">

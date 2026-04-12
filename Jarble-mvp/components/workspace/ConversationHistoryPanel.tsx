@@ -182,7 +182,7 @@ function ConversationHistoryPanel({
                     <ArrowDownLeft className="w-3 h-3 text-violet-400 shrink-0" />
                   )}
                   <span className="font-medium truncate text-[11px]">
-                    {s.direction === "sent" ? `To ${s.otherDeploymentName || "bot"}` : `From ${s.otherDeploymentName || "bot"}`}
+                    {s.direction === "sent" ? `To ${s.otherDeploymentName || "agent"}` : `From ${s.otherDeploymentName || "agent"}`}
                   </span>
                   <span className={cn("text-[10px] ml-auto", s.status === "completed" ? "text-emerald-400" : s.status === "failed" ? "text-rose-400" : "text-muted-foreground")}>
                     {s.status}

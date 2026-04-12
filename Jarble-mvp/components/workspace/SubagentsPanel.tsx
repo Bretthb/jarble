@@ -283,7 +283,7 @@ function SubagentsPanelInner({ deploymentId, onClose }: SubagentsPanelProps) {
                   No subagents yet.
                 </p>
                 <p className="text-xs text-muted-foreground/70 mt-1">
-                  Create a subagent to give your bot
+                  Create a subagent to give your agent
                   <br />
                   specialized capabilities.
                 </p>
@@ -532,7 +532,7 @@ function SubagentsPanelInner({ deploymentId, onClose }: SubagentsPanelProps) {
             <AlertDialogDescription>
               Are you sure you want to delete{" "}
               <strong>{deleteTarget?.name}</strong>? This action cannot be
-              undone. The bot will no longer be able to invoke{" "}
+              undone. The agent will no longer be able to invoke{" "}
               <code className="text-xs bg-muted px-1 py-0.5 rounded">
                 agent_{deleteTarget?.slug}
               </code>

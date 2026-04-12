@@ -13,7 +13,7 @@
 
 ## Overview
 
-Bot data lives on Longhorn PVCs (`pvc-{deploymentId}`, 20–30 GiB each, RWO,
+Agent data lives on Longhorn PVCs (`pvc-{deploymentId}`, 20–30 GiB each, RWO,
 single-replica via the `longhorn-isolated` StorageClass from commit `af75011`).
 Before this work landed, the cluster had **zero** snapshot or backup cadence
 and an empty `backup-target` setting (audit findings L-09, L-10) — a single
@@ -29,12 +29,12 @@ This setup adds two protection tiers, both configured via Longhorn's
 
 Both jobs target `groups: ["default"]`, and Longhorn v1.6 automatically
 applies the `recurring-job-group.longhorn.io/default: enabled` label to every
-new volume — verified live on the cluster's existing t1 PVC. So **all bot
+new volume — verified live on the cluster's existing t1 PVC. So **all agent
 PVCs auto-enroll** without any code change to `lifecycle.ts`/`operator.ts`.
 
 The default StorageClass policy (L-05) was also fixed: `local-path` is now
 the sole default; the `longhorn` class no longer carries the
-`is-default-class=true` annotation. Bot PVCs explicitly use `longhorn-isolated`,
+`is-default-class=true` annotation. Agent PVCs explicitly use `longhorn-isolated`,
 and Kubero PVCs explicitly use `local-path`, so nothing depends on the old
 dual-default state.
 
@@ -42,9 +42,9 @@ dual-default state.
 
 ## Why this matters
 
-- **Bot data is single-point-of-failure on a single VPS disk.** Phase 5
-  (`bc8735b`) made each bot run on its own dedicated Hetzner VPS, and Team 1
-  (`af75011`) made each bot's Longhorn replica single-instance and
+- **Agent data is single-point-of-failure on a single VPS disk.** Phase 5
+  (`bc8735b`) made each agent run on its own dedicated Hetzner VPS, and Team 1
+  (`af75011`) made each agent's Longhorn replica single-instance and
   strict-local. That gives strong tenant isolation but ALSO means any data
   loss (bad migration, accidental delete, disk corruption) is permanent.
 - **Daily snapshots** cover the common case: someone fat-fingers an
@@ -248,7 +248,7 @@ kubectl -n longhorn-system logs daemonset/longhorn-manager --since=24h \
 
 ## Restore procedure — single volume from backup
 
-Scenario: bot `dep-XYZ` has corrupted data and needs to be rolled back to
+Scenario: agent `dep-XYZ` has corrupted data and needs to be rolled back to
 last week's backup.
 
 ### Step 1 — Identify the backup
@@ -261,7 +261,7 @@ kubectl -n longhorn-system get backups.longhorn.io \
 Find the backup matching the volume name (`pvc-XYZ`) and the desired
 timestamp.
 
-### Step 2 — Stop the bot pod
+### Step 2 — Stop the agent pod
 
 ```bash
 DEPLOY_ID="XYZ"
@@ -334,7 +334,7 @@ spec:
 EOF
 ```
 
-### Step 6 — Restart the bot pod
+### Step 6 — Restart the agent pod
 
 ```bash
 kubectl -n jarble scale deployment "dep-$DEPLOY_ID" --replicas=1
@@ -354,16 +354,16 @@ If the pod is healthy and the data looks right, the restore is complete.
 
 ## Cost estimate
 
-### Storage cost per bot per month
+### Storage cost per agent per month
 
-- Each bot PVC: 20–30 GiB (default 30 GiB)
+- Each agent PVC: 20–30 GiB (default 30 GiB)
 - Average data fill: 5–10 GiB after npm install + initialization (the
   remainder is unused free space, not stored in backups — Longhorn backs
   up only used blocks)
 - Snapshot retention: 7 daily snapshots, but snapshots are CoW on the
   REPLICA (not the bucket) — they cost zero in object storage
 - Backup retention: 4 weekly backups in the bucket, each ~5–10 GiB
-  → ~20–40 GiB per bot in object storage steady-state
+  → ~20–40 GiB per agent in object storage steady-state
 
 ### Hetzner Object Storage pricing (as of 2026-04)
 
@@ -372,16 +372,16 @@ If the pod is healthy and the data looks right, the restore is complete.
 - Ingress (upload during backup): **free**
 - API requests: **free** (no per-request charge)
 
-### Per-bot monthly cost
+### Per-agent monthly cost
 
-| Bot data fill | Storage in bucket | Monthly cost |
+| Agent data fill | Storage in bucket | Monthly cost |
 |---------------|-------------------|--------------|
 | 5 GiB used   | ~20 GiB (4 weekly copies) | **€0.10** |
 | 10 GiB used  | ~40 GiB | **€0.20** |
 | 20 GiB used  | ~80 GiB | **€0.40** |
 
-So well under €0.50/month per bot for backup storage at typical sizes.
-With 100 bots: ~€10–40/month total.
+So well under €0.50/month per agent for backup storage at typical sizes.
+With 100 agents: ~€10–40/month total.
 
 ### Restore cost (one-time)
 
@@ -390,7 +390,7 @@ Negligible.
 
 ### Comparison: not having backups
 
-- A single accidental `rm -rf /data` on a bot = permanent data loss
+- A single accidental `rm -rf /data` on an agent = permanent data loss
 - Customer goodwill cost: very high
 - Engineering time to triage: hours
 - Verdict: backup cost is 100x cheaper than the smallest data-loss

@@ -54,21 +54,21 @@ export const metadata: Metadata = {
     default: "Jarble",
     template: "%s | Jarble",
   },
-  description: "Deploy powerful AI bots across WhatsApp, Discord, Slack, and more. No coding required.",
+  description: "Deploy powerful AI agents across WhatsApp, Discord, Slack, and more. No coding required.",
   icons: {
     icon: "/favicon.png",
     apple: "/favicon.png",
   },
   openGraph: {
     title: "Jarble",
-    description: "Deploy powerful AI bots across WhatsApp, Discord, Slack, and more. No coding required.",
+    description: "Deploy powerful AI agents across WhatsApp, Discord, Slack, and more. No coding required.",
     type: "website",
     url: "https://jarble.ai",
   },
   twitter: {
     card: "summary_large_image",
     title: "Jarble",
-    description: "Deploy powerful AI bots across WhatsApp, Discord, Slack, and more. No coding required.",
+    description: "Deploy powerful AI agents across WhatsApp, Discord, Slack, and more. No coding required.",
   },
 };
 

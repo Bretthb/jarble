@@ -45,7 +45,7 @@ Cluster networking:
 - DNS: Cloudflare, `api.jarble.ai` and `*.jarble.ai` both point to the master's public IP
 
 Namespace layout:
-- `jarble` — API deployment, bot pods, secrets, PVCs
+- `jarble` — API deployment, agent pods, secrets, PVCs
 - `monitoring` — Prometheus, node-exporter, kube-state-metrics
 - `cert-manager` — cert-manager controllers
 - `kube-system` — K3s system pods, Traefik, CoreDNS
@@ -455,9 +455,9 @@ kubectl rollout restart deployment/jarble-api -n jarble
 kubectl rollout status deployment/jarble-api -n jarble
 ```
 
-### Check a Bot Pod
+### Check an Agent Pod
 
-Bot pods are named `dep-{deploymentId}-...` and carry the label `app=dep-{deploymentId}`.
+Agent pods are named `dep-{deploymentId}-...` and carry the label `app=dep-{deploymentId}`.
 
 ```bash
 # List all bot pods
@@ -470,7 +470,7 @@ kubectl logs -n jarble -l app=dep-<deploymentId> --tail=50
 kubectl describe pod -n jarble -l app=dep-<deploymentId>
 ```
 
-### Restart a Stuck Bot Pod
+### Restart a Stuck Agent Pod
 
 ```bash
 kubectl delete pod -n jarble -l app=dep-<deploymentId>
@@ -486,7 +486,7 @@ curl -X POST https://api.jarble.ai/debug/deployment/<deploymentId>/status \
   -d '{"status":"running"}'
 ```
 
-### Clear a Corrupted Bot PVC
+### Clear a Corrupted Agent PVC
 
 npm cache corruption on Longhorn PVCs (`ENOTEMPTY` errors) requires clearing the npm cache and reinstalling:
 
@@ -587,7 +587,7 @@ ssh root@<agent-ip> "df -h /var/lib/longhorn"
 
 ### Set Up the GHCR Pull Secret
 
-Bot pods and the API deployment pull from `ghcr.io/jarble-ai`. A pull secret must exist in the `jarble` namespace.
+Agent pods and the API deployment pull from `ghcr.io/jarble-ai`. A pull secret must exist in the `jarble` namespace.
 
 ```bash
 # Create with a GitHub PAT that has read:packages scope
@@ -763,12 +763,12 @@ kubectl apply -f jarble-api-main/k8s/monitoring/grafana.yaml  # optional
 | Issue | Status | Notes |
 |-------|--------|-------|
 | Stripe not configured | Blocked on STRIPE_SECRET_KEY | Billing UI renders but payment flow is disabled. `is_free=true` set on test deployments to bypass subscription enforcement. |
-| Bot system prompt not applied | Bug | The OpenClaw runtime uses its default personality. The custom system prompt configured by users is not being passed through. |
+| Agent system prompt not applied | Bug | The OpenClaw runtime uses its default personality. The custom system prompt configured by users is not being passed through. |
 | Subscription enforcement bypassed | Intentional (dev) | `is_free=true` on test deployments. Must be reverted before launch. |
 | Auth0Provider SSR hydration warning | Cosmetic | Mismatch between server-rendered and client-rendered Auth0 state. Does not affect functionality. Fix: move Auth0Provider reads into component body (already partially addressed in commit `2118815`). |
 | Provisioning screen is full-page | UX bug | Should render as a banner/overlay, not replace the full page during deployment. |
 | Vercel production branch | Pending | The `main` branch deployment to `jarble.ai` needs to be set up when ready to promote from develop. |
-| npm cache corruption on PVCs | Recurring | Longhorn PVCs occasionally get `ENOTEMPTY` errors during `npx openclaw`. Fix: see "Clear a Corrupted Bot PVC" in Common Operations above. |
+| npm cache corruption on PVCs | Recurring | Longhorn PVCs occasionally get `ENOTEMPTY` errors during `npx openclaw`. Fix: see "Clear a Corrupted Agent PVC" in Common Operations above. |
 | `creating` status stuck | Known | Deployment creation sets status to `creating` but readiness polling sometimes times out. Fix: use debug endpoint to force status. |
 
 ---
@@ -787,7 +787,7 @@ Browser (dev.jarble.ai)
   -> Browser: typewriter reveal + canvas card rendering
 ```
 
-**Bot deployment:**
+**Agent deployment:**
 ```
 Frontend (deployment wizard)
   -> tRPC deployment.create (creates DB record)
@@ -832,7 +832,7 @@ Bot ConfigMap:     config-{id}         (namespace: jarble)
 GHCR Pull Secret:  ghcr-pull-secret    (namespace: jarble)
 ```
 
-### Config Paths Inside a Bot Pod
+### Config Paths Inside an Agent Pod
 
 ```
 /data/config/openclaw.json          Written by configSync (Jarble platform)

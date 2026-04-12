@@ -178,7 +178,7 @@ export default function BetaPage() {
                   id="useCase"
                   value={form.useCase}
                   onChange={(e) => setForm({ ...form, useCase: e.target.value })}
-                  placeholder="e.g. Customer support bot for my Shopify store, personal assistant on Discord..."
+                  placeholder="e.g. Customer support agent for my Shopify store, personal assistant on Discord..."
                   rows={3}
                   className="w-full px-4 py-2.5 rounded-lg bg-background border border-input text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all text-sm resize-none"
                 />

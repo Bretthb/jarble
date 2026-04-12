@@ -31,7 +31,7 @@ Based on the failure type, spawn the right specialist agent for deep investigati
 | Stripe/billing | `stripe-webhook-debugger` | Payment flow, subscription issues |
 | API/tRPC errors | `jarble-api-debugger` | 500s, mutation failures, DB errors |
 | Canvas/components | `nextjs-frontend-debugger` | Component rendering, sandbox issues |
-| MCP/UI blocks | `mcp-server` | Bot UI rendering, tool execution |
+| MCP/UI blocks | `mcp-server` | Agent UI rendering, tool execution |
 | Runtime/config | `runtime-handler` | Config sync, secret mapping, LLM provider |
 | Database/schema | `drizzle-db-schema` | Query errors, schema mismatches |
 | Performance | `performance-bundle-analyzer` | Slow loads, large bundles |

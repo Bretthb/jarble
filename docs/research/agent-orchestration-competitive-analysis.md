@@ -10,7 +10,7 @@
 
 1. **Parallel delegation is table stakes.** Every serious orchestration platform (LangGraph, CrewAI Flows, Microsoft Agent Framework) supports parallel fan-out where a coordinator dispatches to N specialists simultaneously. Jarble's current serial delegation is a competitive gap -- LangGraph benchmarks show 137x speedup for parallel vs sequential tool execution. This should be the highest-priority architectural change.
 
-2. **A2A protocol has reached production maturity and Jarble should adopt it.** With 150+ organizations, Linux Foundation governance, and production deployments at Tyson Foods and Gordon Food Service, A2A v1.0 is no longer speculative. Adopting A2A as the wire format for delegation (replacing the fenced `jarble_delegate` markdown block) would make Jarble's bot teams interoperable with the broader agent ecosystem and position the marketplace for third-party agent integration.
+2. **A2A protocol has reached production maturity and Jarble should adopt it.** With 150+ organizations, Linux Foundation governance, and production deployments at Tyson Foods and Gordon Food Service, A2A v1.0 is no longer speculative. Adopting A2A as the wire format for delegation (replacing the fenced `jarble_delegate` markdown block) would make Jarble's agent teams interoperable with the broader agent ecosystem and position the marketplace for third-party agent integration.
 
 3. **Structured state machines beat freeform prompt engineering for orchestration at scale.** LangGraph's explicit graph model with checkpointed state has proven more reliable than CrewAI's prompt-driven delegation, which suffers from well-documented schema validation failures in hierarchical processes. Jarble's current approach (prompt-engineered `jarble_delegate` blocks) is closer to CrewAI's fragile path. The flow engine already has DAG execution -- extending it to handle delegation as first-class graph edges would be more reliable.
 
@@ -36,7 +36,7 @@ The most mature state-machine approach to agent orchestration, with 126K+ GitHub
 
 ### Letta (MemGPT)
 
-The definitive agent memory platform. Three-tier architecture: Core Memory (in-context, like RAM), Recall Memory (searchable conversation history, like cache), Archival Memory (long-term vector search, like cold storage). The breakthrough insight: agents self-edit their memory using tools (`memory_replace`, `memory_insert`, `memory_rethink`, `archival_memory_insert`, `archival_memory_search`). Letta V1 (2026) deprecates the MemGPT "heartbeat" pattern in favor of direct model generations, improving performance with GPT-5 and Claude 4.5 Sonnet. **Key lesson for Jarble**: Jarble's per-deployment memory (global/session/off) should evolve toward self-editing memory tools that the bot controls, rather than platform-injected context. The three-tier model maps to: core = system prompt + recent context, recall = session history, archival = deployment-scoped persistent memory.
+The definitive agent memory platform. Three-tier architecture: Core Memory (in-context, like RAM), Recall Memory (searchable conversation history, like cache), Archival Memory (long-term vector search, like cold storage). The breakthrough insight: agents self-edit their memory using tools (`memory_replace`, `memory_insert`, `memory_rethink`, `archival_memory_insert`, `archival_memory_search`). Letta V1 (2026) deprecates the MemGPT "heartbeat" pattern in favor of direct model generations, improving performance with GPT-5 and Claude 4.5 Sonnet. **Key lesson for Jarble**: Jarble's per-deployment memory (global/session/off) should evolve toward self-editing memory tools that the agent controls, rather than platform-injected context. The three-tier model maps to: core = system prompt + recent context, recall = session history, archival = deployment-scoped persistent memory.
 
 ### OpenAI Swarm / Agents SDK
 
@@ -44,7 +44,7 @@ Swarm introduced two elegant primitives: Agents (instructions + tools) and Hando
 
 ### Relevance AI
 
-Positions itself as "the home of the AI workforce" with a low-code platform for building and managing multi-agent systems. Over 400 pre-built agent templates in their marketplace. Named a "Luminary" by Everest Group alongside Google and Microsoft. **Key lesson for Jarble**: the marketplace with 400+ templates demonstrates the power of pre-built agent compositions. Jarble's marketplace should emphasize team templates (pre-configured multi-agent compositions), not just individual bot templates.
+Positions itself as "the home of the AI workforce" with a low-code platform for building and managing multi-agent systems. Over 400 pre-built agent templates in their marketplace. Named a "Luminary" by Everest Group alongside Google and Microsoft. **Key lesson for Jarble**: the marketplace with 400+ templates demonstrates the power of pre-built agent compositions. Jarble's marketplace should emphasize team templates (pre-configured multi-agent compositions), not just individual agent templates.
 
 ### Dust.tt
 
@@ -52,7 +52,7 @@ Enterprise agent platform using Temporal for workflow orchestration (handling cr
 
 ### Voice Platforms (Vapi, Bland.ai, Retell)
 
-These platforms have solved delegation UX for voice: warm transfers (Retell), configurable escalation timing (Vapi), and dynamic mid-conversation data injection (Bland). **Key lesson for Jarble**: the voice agent pattern of structured handoff context (caller ID, qualification data, conversation summary) should inform how Jarble's delegation passes context between bots. Currently, context scope is "task" / "summary" / "full" -- voice platforms show that structured handoff metadata (not just conversation text) produces better results.
+These platforms have solved delegation UX for voice: warm transfers (Retell), configurable escalation timing (Vapi), and dynamic mid-conversation data injection (Bland). **Key lesson for Jarble**: the voice agent pattern of structured handoff context (caller ID, qualification data, conversation summary) should inform how Jarble's delegation passes context between agents. Currently, context scope is "task" / "summary" / "full" -- voice platforms show that structured handoff metadata (not just conversation text) produces better results.
 
 ### Fixie.ai
 
@@ -72,7 +72,7 @@ Previously positioned as an agent marketplace/deployment platform but has pivote
 | **Memory Isolation** | Three-tier (Letta): core (in-context) / recall (conversation) / archival (long-term); self-editing via tools | Per-deployment scope (global/session/off); memory injected by platform | Medium -- functional but not agent-controlled; no archival tier |
 | **Marketplace** | Pre-built team templates (Relevance AI 400+), credit-based billing with burn tables (Salesforce), 10-30% platform take rate | Component marketplace exists; team templates not yet exposed | Medium -- marketplace needs team composition templates |
 | **State Management** | Checkpointed state after every step (LangGraph); durable execution (Dust/Temporal); immutable state with reducers | Flow engine has execution state; delegation has no intermediate state persistence | Medium -- delegation chain state is ephemeral |
-| **Task Decomposition** | Supervisor pattern (explicit planner), map-reduce (dynamic runtime splitting), reflection loops (self-critique) | Coordinator bot uses prompt engineering to decide delegation targets | Medium -- works but not inspectable or overridable by users |
+| **Task Decomposition** | Supervisor pattern (explicit planner), map-reduce (dynamic runtime splitting), reflection loops (self-critique) | Coordinator agent uses prompt engineering to decide delegation targets | Medium -- works but not inspectable or overridable by users |
 | **Result Synthesis** | Aggregation nodes (LangGraph reduce), structured output schemas, consensus mechanisms | Coordinator receives results and synthesizes via prompt | Low -- current approach is flexible; structured aggregation could help for specific use cases |
 
 ---
@@ -102,8 +102,8 @@ Replace fenced `jarble_delegate` markdown blocks with a structured JSON-RPC prot
 
 **Implementation**:
 - Define a `DelegationRequest` JSON schema: `{ jsonrpc: "2.0", method: "tasks/send", params: { to: string, task: { message: string, context?: string, artifacts?: any[] } } }`
-- In `buildFlowSystemPrompt()`, instruct bots to emit delegation as a tool call (via MCP `jarble_delegate` tool) rather than a fenced block
-- Add `jarble_delegate` as an MCP tool in `jarble-ui-server.js` -- the bot calls it like any other tool, the runtime intercepts and routes
+- In `buildFlowSystemPrompt()`, instruct agents to emit delegation as a tool call (via MCP `jarble_delegate` tool) rather than a fenced block
+- Add `jarble_delegate` as an MCP tool in `jarble-ui-server.js` -- the agent calls it like any other tool, the runtime intercepts and routes
 - Keep the fenced block parser as a legacy fallback for 2 release cycles
 - This aligns with A2A's `tasks/send` method and `Task` object model, making future A2A gateway integration straightforward
 
@@ -131,11 +131,11 @@ Promote delegation from "prompt-parsed side effect" to "first-class graph edge i
 **Implementation**:
 - Extend `FlowNode` type to include `type: "delegation"` (alongside existing `deployment`, `transform`, `condition`, `output`, `waitForInput`, `subflow`)
 - Delegation edges become explicit in the flow graph, visible and editable in the canvas UI
-- The flow engine handles delegation routing, not the bot's prompt
-- Bots can still request ad-hoc delegation via the MCP tool (4.2), but the preferred path is graph-defined
+- The flow engine handles delegation routing, not the agent's prompt
+- Agents can still request ad-hoc delegation via the MCP tool (4.2), but the preferred path is graph-defined
 - This unifies the flow engine and delegation system, eliminating the current split where flows use `flowEngine.ts` DAG execution but delegation uses `flowDelegation.ts` prompt parsing
 
-**Trade-off**: This reduces bot autonomy (the graph decides who to delegate to, not the bot). For structured workflows this is better; for creative/exploratory tasks, freeform delegation should remain available.
+**Trade-off**: This reduces agent autonomy (the graph decides who to delegate to, not the agent). For structured workflows this is better; for creative/exploratory tasks, freeform delegation should remain available.
 
 #### 4.5 Three-Tier Memory with Self-Editing Tools
 **Impact**: High | **Effort**: Large | **Priority**: P2
@@ -143,10 +143,10 @@ Promote delegation from "prompt-parsed side effect" to "first-class graph edge i
 Adopt Letta's three-tier model: core memory (in-context persona/facts), recall memory (searchable conversation history), archival memory (long-term knowledge base).
 
 **Implementation**:
-- Core memory: extend the existing per-deployment memory with structured blocks (persona block, user block, facts block) that the bot reads/writes via MCP tools
+- Core memory: extend the existing per-deployment memory with structured blocks (persona block, user block, facts block) that the agent reads/writes via MCP tools
 - Recall memory: expose conversation history search as an MCP tool (`memory_search_conversations`) backed by the existing `chat_sessions` / `chat_messages` tables
 - Archival memory: add a vector store per deployment (Postgres pgvector extension on Neon) with `memory_archive_insert` and `memory_archive_search` MCP tools
-- Key shift: bots manage their own memory via tools rather than having context injected by the platform
+- Key shift: agents manage their own memory via tools rather than having context injected by the platform
 
 #### 4.6 Structured Handoff Context
 **Impact**: Medium | **Effort**: Small | **Priority**: P1
@@ -155,8 +155,8 @@ Improve delegation context quality by passing structured metadata alongside the 
 
 **Implementation**:
 - Extend `DelegationResult` and the delegation wire format with a `handoffContext` object: `{ callerRole, callerGoal, conversationSummary, relevantArtifacts[], priorDelegationResults[] }`
-- The coordinator bot populates this via the MCP tool call (4.2)
-- The target bot receives it as a structured preamble, not interleaved with conversation history
+- The coordinator agent populates this via the MCP tool call (4.2)
+- The target agent receives it as a structured preamble, not interleaved with conversation history
 - This mirrors voice platform patterns (Retell's structured handoff data) and improves specialist coherence
 
 ### Tier 3: Medium Impact, Variable Effort
@@ -245,13 +245,13 @@ The observability plan specifies `trace.cost_usd_running` per user/hour at $50 h
 
 **Context**: Jarble has two orchestration systems operating in parallel:
 1. **Flow engine** (`flowEngine.ts`) -- explicit DAG with typed nodes, topological execution, cycle support, HITL. Reliable, inspectable, but rigid.
-2. **Freeform delegation** (`flowDelegation.ts`) -- bots decide who to delegate to via prompt engineering, parsed from response text. Flexible, autonomous, but fragile and opaque.
+2. **Freeform delegation** (`flowDelegation.ts`) -- agents decide who to delegate to via prompt engineering, parsed from response text. Flexible, autonomous, but fragile and opaque.
 
 The industry has converged on explicit graphs: LangGraph uses state machines, Microsoft Agent Framework added graph-based workflows on top of AutoGen's conversational approach, and CrewAI added Flows on top of crews. The common pattern: freeform delegation is useful for prototyping but explicit orchestration is needed for production.
 
 **Decision**: Hybrid model with two delegation modes:
 
-1. **Graph-defined delegation (default for teams)**: Delegation targets and routing are explicit edges in the flow graph. The flow engine handles execution, retry, and parallel fan-out. The bot receives results but does not decide who to delegate to. This is the reliable, inspectable path.
+1. **Graph-defined delegation (default for teams)**: Delegation targets and routing are explicit edges in the flow graph. The flow engine handles execution, retry, and parallel fan-out. The agent receives results but does not decide who to delegate to. This is the reliable, inspectable path.
 
 2. **Autonomous delegation (opt-in per node)**: A node with `autonomousDelegation: true` can use the MCP `jarble_delegate` tool to choose delegation targets at runtime. This preserves the current creative flexibility for exploratory tasks. The flow engine still enforces depth limits, cycle detection, and cost guards.
 

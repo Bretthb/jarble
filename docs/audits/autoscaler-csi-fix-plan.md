@@ -3,7 +3,7 @@
 **Date**: 2026-04-07
 **Author**: terraform-infra agent
 **Status**: PLAN ONLY — no apply. Executor must get explicit approval before touching infra.
-**Problem**: Bot pods with Longhorn PVCs fail `FailedAttachVolume` on autoscaled workers because `CSINode jarble-auto-*` does not contain driver `driver.longhorn.io`.
+**Problem**: Agent pods with Longhorn PVCs fail `FailedAttachVolume` on autoscaled workers because `CSINode jarble-auto-*` does not contain driver `driver.longhorn.io`.
 
 ---
 
@@ -195,7 +195,7 @@ done
 kubectl -n longhorn-system get pods -o wide -w
 ```
 
-Once the Longhorn pods are Running on the auto-workers, the stuck bot pods should proceed past `FailedAttachVolume` within a minute. If they don't auto-retry, delete the pod to force re-attach:
+Once the Longhorn pods are Running on the auto-workers, the stuck agent pods should proceed past `FailedAttachVolume` within a minute. If they don't auto-retry, delete the pod to force re-attach:
 
 ```bash
 kubectl -n jarble delete pod <stuck-pod-name>
@@ -261,7 +261,7 @@ I compared the master's user_data (`infrastructure/terraform/main.tf` lines 159-
 
 Honest numbers:
 
-- **Manual hotfix of live cluster** (section 4b): **5 minutes**, including running the patch, watching pods come up, and deleting the stuck bot pods to force re-attach. Do this first.
+- **Manual hotfix of live cluster** (section 4b): **5 minutes**, including running the patch, watching pods come up, and deleting the stuck agent pods to force re-attach. Do this first.
 - **Terraform code change** (section 3A): **15 minutes** to write, review, and commit. Single file, ~15 lines inserted.
 - **Validation on a freshly provisioned auto-worker**: **10 minutes**, including triggering a new auto-scale, waiting for the node to join, and running the section-4a commands.
 - **Total**: **30 minutes of focused work** if everything goes well. Budget 1 hour for unknown-unknowns.

@@ -46,5 +46,5 @@ Every new canvas component requires changes in exactly 6 locations:
 - Text sizes: labels `text-xs`, body `text-sm`, headings `text-sm font-semibold` or `text-lg font-semibold`
 - Colors: `text-foreground`, `text-muted-foreground`, `border-border`, `bg-card`, `bg-secondary`
 - Spacing: `p-3` to `p-4` for card-like containers, `gap-2` to `gap-3` for lists
-- Icons rendered as emoji strings (not Lucide) to support bot-provided icons
+- Icons rendered as emoji strings (not Lucide) to support agent-provided icons
 - Interactive components use `CanvasActionContext` for dispatching actions

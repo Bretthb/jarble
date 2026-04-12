@@ -13,7 +13,7 @@ Overnight QA agents are authorized to perform the following **without confirmati
 - **kubectl exec** for read-only inspection (env, logs, file listing, mcporter list)
 - **Playwright** for UI testing via the existing authenticated session
 - **Langfuse queries** for trace inspection and verification
-- **Chat messages** via the frontend (bot conversations for testing)
+- **Chat messages** via the frontend (agent conversations for testing)
 - **Inserting tagged test rows** in non-critical tables (agent_calls, chat_messages) — tag with `TEST:overnight-{date}` prefix
 
 ### Allowed with clear tagging

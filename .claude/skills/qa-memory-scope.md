@@ -2,7 +2,7 @@
 description: "QA: Memory Scope - Tests global/session/off modes, banner verification, and enforcement. 8 tests, ~2 min."
 ---
 
-Test memory scope modes end-to-end against dev.jarble.ai. Uses t3 (99i1thbvf1c9) as the test bot.
+Test memory scope modes end-to-end against dev.jarble.ai. Uses t3 (99i1thbvf1c9) as the test agent.
 
 ## Auth Setup
 Same as `/qa-bot-teams`.
@@ -39,8 +39,8 @@ Navigate to `/d/99i1thbvf1c9`. Check for banner containing "memory is off" or "w
 
 ### T7: Verify off enforcement
 Send message: "Remember that my favorite color is blue"
-Check response - bot should say memory is disabled/unavailable.
-**PASS**: Bot acknowledges memory is off (doesn't pretend to remember).
+Check response - agent should say memory is disabled/unavailable.
+**PASS**: Agent acknowledges memory is off (doesn't pretend to remember).
 
 ### T8: Restore original state
 POST `/trpc/deployment.update` with `memoryScope: "global"` (restore default).

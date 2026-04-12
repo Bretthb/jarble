@@ -1,4 +1,4 @@
-# Bot Teams Delegation — Runtime Handler + soul.md Fix Plan
+# Agent Teams Delegation — Runtime Handler + soul.md Fix Plan
 
 **Date:** 2026-04-07
 **Scope:** Fix #1 (soul.md augmentation) + Fix #4 (teamMembers condition) from the runtime-handler angle.
@@ -9,16 +9,16 @@
 
 ## Executive summary
 
-Bot Teams delegation is broken at multiple layers. This document covers ONLY the layers visible from the runtime handler + configSync perspective:
+Agent Teams delegation is broken at multiple layers. This document covers ONLY the layers visible from the runtime handler + configSync perspective:
 
 1. **`flow_deployment_memberships` is empty in production** (0 rows against 29 flows). Even if every other layer worked, no team member list would be produced.
-2. **`flows.update` / `flows.create` does not trigger `syncConfigsToPvc` for affected deployments** — so even when memberships sync works, running bots never get fresh soul.md.
+2. **`flows.update` / `flows.create` does not trigger `syncConfigsToPvc` for affected deployments** — so even when memberships sync works, running agents never get fresh soul.md.
 3. **soul.md already includes a "Team Members" section** (openclaw.ts:266-275) but it's part of the generic Agent Pool and talks about `delegate_to_{slug}` MCP tools that **do not exist** at runtime.
 4. **The MCP server (`jarble-ui-server.js`) statically hardcodes `AGENT_TOOLS`** — only `delegate_to_data_agent` and `delegate_to_workflow_agent`. It never loads `delegation-tools.json` (ln 378). So even if openclaw.ts writes the file correctly, nothing on the pod reads it.
 5. **OpenClaw does re-read SOUL.md across sessions** via `readFileWithCache` (mtime-based) + per-session `bootstrap-cache`. New sessions see updated SOUL.md. Ongoing sessions do not. Pod restart is NOT required for flow-change propagation to new conversations.
 6. **There is no CLI system-prompt flag.** `openclaw agent --help` confirms: `--agent`, `--channel`, `--message`, `--reply-*`, `--session-id`, `--thinking`, `--timeout`, `--to`, `--verbose`, `--json`, `--local`, `--deliver`. No `--system` / `--system-prompt` / `--persona`. The only way to change the model's authoritative behavior is to edit the workspace bootstrap files (`SOUL.md`, `AGENTS.md`, etc.). Note: `--thinking` and `--json` DO exist and are not phantom — the user's statement about those is incorrect. But the system-prompt conclusion stands.
 
-The only viable fix shape is: **write a flow-aware augmentation into soul.md and trigger configSync for every bot in the team on any flow mutation. Pod restart is not required.**
+The only viable fix shape is: **write a flow-aware augmentation into soul.md and trigger configSync for every agent in the team on any flow mutation. Pod restart is not required.**
 
 ---
 
@@ -80,7 +80,7 @@ Called from three places, each wrapped in `try/catch` that logs a warning and co
 
 **Problem #1:** The try/catch **swallows insert failures**. The most likely failure is an FK violation on `deployment_id` (e.g. user drags a deployment from another org, deployment got deleted between view and save, or test fixtures reference dead IDs). The flow is saved, but memberships are silently absent.
 
-**Problem #2:** No call to `syncConfigsToPvc` for affected deployments. Even if memberships sync, the bot pod's soul.md is stale until something else triggers a sync.
+**Problem #2:** No call to `syncConfigsToPvc` for affected deployments. Even if memberships sync, the agent pod's soul.md is stale until something else triggers a sync.
 
 ### Production evidence
 
@@ -164,7 +164,7 @@ Implication:
 - **Ongoing conversations** → same sessionKey → bootstrap cache hit → returns stale SOUL.md content until the OpenClaw process restarts.
 - A Tier 2 process restart clears the cache; a Tier 1 sync does not.
 
-**Recommendation:** For Bot Teams, Tier 1 is acceptable because flow mutations are almost always followed by a user starting a fresh chat. Do not force Tier 2 for soul.md-only changes — the cost of 5-10s downtime across every bot in a team on every flow edit is worse than the bug. Document the "fresh conversation" requirement in the UI (the canvas could auto-start a new chat thread when the flow is saved).
+**Recommendation:** For Agent Teams, Tier 1 is acceptable because flow mutations are almost always followed by a user starting a fresh chat. Do not force Tier 2 for soul.md-only changes — the cost of 5-10s downtime across every agent in a team on every flow edit is worse than the bug. Document the "fresh conversation" requirement in the UI (the canvas could auto-start a new chat thread when the flow is saved).
 
 If the trade-off is wrong and we need immediate propagation mid-conversation, the cheap fix is to include the `flow.updatedAt` timestamp in the flowChat `sessionKey` — changing it forces a cache miss.
 
@@ -194,7 +194,7 @@ Nested under an **Agent Pool** section (openclaw.ts:277-302) whose header is "Yo
 1. It references `delegate_to_{slug}` tools **that do not exist** in the MCP server at runtime. The model's tool list will not contain them, and it will either refuse or hallucinate.
 2. It uses the exact same "When to Delegate" language as the Agent Pool section for platform agents like `data_agent`. The LLM conflates them: when a deployment is in a flow, the Team Members block reads like a weaker version of the platform agents.
 3. There is no explicit mention of "you are in a flow called X" or "your role is Y" — context that would let the model reason about team responsibilities.
-4. There is no explicit guardrail saying "if there are no delegation tools visible in your current tool list, do not claim you delegated — say you cannot." This is what would have caught the failure mode in the QA report where the bot confidently lied about delegating.
+4. There is no explicit guardrail saying "if there are no delegation tools visible in your current tool list, do not claim you delegated — say you cannot." This is what would have caught the failure mode in the QA report where the agent confidently lied about delegating.
 5. It's part of the generic pool even when `teamMembers` is the only populated field. The flow context is buried.
 
 ### Proposed augmentation — exact draft text
@@ -251,7 +251,7 @@ Template variables:
 - `{{ENTRY_POINT}}` — whether this deployment has `isEntryPoint: true` on any node in the flow. Also needs plumbing.
 - `{{TEAMMATE_LINES}}` — markdown bullet list:
   ```
-  - **dispatcher** (Dispatcher) — Primary routing bot. Delegate to them when you need a broad classifier.
+  - **dispatcher** (Dispatcher) — Primary routing agent. Delegate to them when you need a broad classifier.
   - **specialist_pricing** (Pricing Specialist) — Expert on catalog pricing rules. Delegate for pricing questions.
   ```
   Derived from `teamMembers` with `m.slug`, `m.name`, `m.role`.
@@ -312,7 +312,7 @@ The current implementation:
 Extensions needed:
 1. When loading memberships for self, capture the self-row's `role` and `isEntryPoint` into a new local.
 2. Query `orchestration_flows` for the flow's `name`. Batch-fetch by `flowId`.
-3. If a deployment participates in MULTIPLE flows, pick one (first) OR render multiple sections. For v1, pick the first flow by insertion order and log a warning if there are multiple. (Rationale: soul.md can't cleanly present "you are in three unrelated teams" without confusing the LLM; users will almost always have one team per bot in early days; we can add multi-team later.)
+3. If a deployment participates in MULTIPLE flows, pick one (first) OR render multiple sections. For v1, pick the first flow by insertion order and log a warning if there are multiple. (Rationale: soul.md can't cleanly present "you are in three unrelated teams" without confusing the LLM; users will almost always have one team per agent in early days; we can add multi-team later.)
 4. Build `teamContext` object.
 5. Continue populating `teamMembers` as well, for back-compat with other callers, until the next sweep removes them.
 
@@ -380,7 +380,7 @@ Current openclaw.ts:516-538 writes `delegation-tools.json` keyed on `deployment.
 - (B) **Gate on `deployment.teamContext?.teammates.length > 0`** so at least it writes when the new data is present. Still dead (no consumer), but future-ready.
 - (C) **Wire a consumer in `jarble-ui-server.js`** so it actually registers `delegate_to_*` tools dynamically, and keep the write.
 
-**Recommendation:** (A) for this PR. Option (C) is the "proper" fix but requires MCP server changes + bot pod redeploy path + careful testing that the tool registration lifecycle plays well with the MCP handshake. That's a separate track. The new soul.md section explicitly tells the LLM to use `jarble_delegate` JSON blocks (not tool calls), so the MCP side is irrelevant to the soul.md fix.
+**Recommendation:** (A) for this PR. Option (C) is the "proper" fix but requires MCP server changes + agent pod redeploy path + careful testing that the tool registration lifecycle plays well with the MCP handshake. That's a separate track. The new soul.md section explicitly tells the LLM to use `jarble_delegate` JSON blocks (not tool calls), so the MCP side is irrelevant to the soul.md fix.
 
 ---
 
@@ -388,12 +388,12 @@ Current openclaw.ts:516-538 writes `delegation-tools.json` keyed on `deployment.
 
 ### Current chain (broken)
 
-1. User edits Bot Teams flow in `Deployments.tsx` (canvas UI).
+1. User edits Agent Teams flow in `Deployments.tsx` (canvas UI).
 2. Client calls `flows.update` tRPC mutation.
 3. `flows.ts:270` writes updated `definition` to `orchestration_flows` table.
 4. `flows.ts:279-283` calls `syncFlowMemberships(id, definition)` (wrapped in try/catch that swallows errors).
 5. **STOP.** No calls to `syncConfigsToPvc` for any affected deployment.
-6. Running bot pods retain stale soul.md indefinitely.
+6. Running agent pods retain stale soul.md indefinitely.
 
 ### Proposed chain (fixed)
 
@@ -418,7 +418,7 @@ for (const node of input.definition.nodes || []) {
 3. Union old ∪ new deployment IDs into `affectedDeploymentIds`.
 4. Fire-and-forget `syncConfigsToPvc(id)` for each.
 
-The same logic applies to `flows.create` (only step 4's "new" set), `flows.update`, `flows.delete` (step 4's "old" set — bots losing their team context), and `flows.duplicate` (new set only; old was just cloned, originals untouched).
+The same logic applies to `flows.create` (only step 4's "new" set), `flows.update`, `flows.delete` (step 4's "old" set — agents losing their team context), and `flows.duplicate` (new set only; old was just cloned, originals untouched).
 
 ### Cost analysis
 
@@ -428,7 +428,7 @@ Tier 1 syncConfigsToPvc is cheap:
 - 1 ConfigMap update
 - No pod restart, no secret rotation
 
-Empirically: ~200-500ms per deployment per mutex-gated sync. For a team of 5 bots, ~1-2s total (in parallel). Fire-and-forget, does not block the tRPC response.
+Empirically: ~200-500ms per deployment per mutex-gated sync. For a team of 5 agents, ~1-2s total (in parallel). Fire-and-forget, does not block the tRPC response.
 
 ### Race / mutex notes
 
@@ -440,7 +440,7 @@ configSync early-returns if `deployment.status !== "running" && status !== "crea
 
 ### Does the ConfigMap get updated?
 
-Yes — Tier 1 (configSync.ts:599-601) calls `updateDeploymentConfigMap(deploymentId, configFiles, managedBy)` before writing to the PVC. So even a stopped bot, when next started, gets the new soul.md from the ConfigMap via the init container. Good.
+Yes — Tier 1 (configSync.ts:599-601) calls `updateDeploymentConfigMap(deploymentId, configFiles, managedBy)` before writing to the PVC. So even a stopped agent, when next started, gets the new soul.md from the ConfigMap via the init container. Good.
 
 ---
 
@@ -504,7 +504,7 @@ Why:
 - Jarble's typical UX is: user edits team → starts fresh chat to test → new sessionKey → new SOUL.md. The bug never manifests.
 - The edge case is "user edits flow mid-ongoing-conversation" — for those cases, the sessionKey is stable and the stale SOUL.md persists. This is acceptable if documented, or can be fixed cheaply by including `flow.updatedAt` in sessionKey generation (see section 2).
 
-**Do NOT** escalate Tier 1 → Tier 2 for flow changes. The 5-10s downtime would compound badly in a team of 5+ bots and each one would block briefly. Tier 1 is the right choice.
+**Do NOT** escalate Tier 1 → Tier 2 for flow changes. The 5-10s downtime would compound badly in a team of 5+ agents and each one would block briefly. Tier 1 is the right choice.
 
 If we later discover we need immediate propagation mid-conversation, the minimal change is:
 
@@ -521,7 +521,7 @@ This makes every flow edit effectively fork the session, at the cost of losing m
 
 Because the soul.md augmentation is gated entirely on `deployment.teamContext` being populated, and `buildDeploymentFields` reads live from `flow_deployment_memberships`:
 
-1. User removes bot from flow in canvas.
+1. User removes agent from flow in canvas.
 2. `flows.update` runs `syncFlowMemberships` → deletes memberships for the removed node.
 3. (New code) `flows.update` triggers `syncConfigsToPvc` for the removed deployment.
 4. `buildDeploymentFields` queries memberships → empty → `teamContext` is undefined.
@@ -537,7 +537,7 @@ Because the soul.md augmentation is gated entirely on `deployment.teamContext` b
 
 ### High-impact risks
 
-1. **Solo deployments (no flow)** — The new augmentation code is gated on `deployment.teamContext`. If `buildDeploymentFields` has a bug where it always sets `teamContext` even when no memberships exist, every solo bot gets a confusing "you are on a team" block. **Mitigation:** exit-early at the top of the teamContext block: `if (!myMemberships?.length) return { ... no teamContext }`. Add unit test.
+1. **Solo deployments (no flow)** — The new augmentation code is gated on `deployment.teamContext`. If `buildDeploymentFields` has a bug where it always sets `teamContext` even when no memberships exist, every solo agent gets a confusing "you are on a team" block. **Mitigation:** exit-early at the top of the teamContext block: `if (!myMemberships?.length) return { ... no teamContext }`. Add unit test.
 
 2. **Removed teammate orphaning** — If `flows.update` removes deployment A from the flow but we forget to invoke `syncConfigsToPvc(A)`, A's soul.md still says it has teammates. **Mitigation:** the trigger chain MUST union OLD ∪ NEW deployment IDs (section 5). Snapshot old memberships BEFORE calling syncFlowMemberships. Add test.
 
@@ -545,7 +545,7 @@ Because the soul.md augmentation is gated entirely on `deployment.teamContext` b
 
 4. **Flow membership query on every buildDeploymentFields** — Every configSync now does an extra 2-3 DB queries (memberships, teammate deployments, flow name). Hot-path impact depends on how often configSync is called. In practice it's only on create/update/install/credential-save, never on chat hot path. Should be fine but worth noting.
 
-5. **Multi-team deployments get arbitrary flow** — v1 picks the first flow deterministically. A bot in 3 teams will see only team 1 in its soul.md. Users will be confused. **Mitigation:** log a warning at INFO level listing all flow IDs so support can diagnose; document in UI that one bot should only be in one team for now; add multi-team rendering in a follow-up.
+5. **Multi-team deployments get arbitrary flow** — v1 picks the first flow deterministically. An agent in 3 teams will see only team 1 in its soul.md. Users will be confused. **Mitigation:** log a warning at INFO level listing all flow IDs so support can diagnose; document in UI that one agent should only be in one team for now; add multi-team rendering in a follow-up.
 
 ### Lower-impact risks
 
@@ -555,7 +555,7 @@ Because the soul.md augmentation is gated entirely on `deployment.teamContext` b
 
 8. **ConfigMap size limits** — K8s ConfigMaps are capped at 1 MiB. soul.md grows by ~2 KB per deployment with the new block. Negligible.
 
-9. **Token cost** — The new block is ~700-900 tokens of system prompt. Multiplied across every turn of every team conversation, this is a measurable LLM cost increase on Bot Teams usage only. Acceptable trade-off for the feature working at all.
+9. **Token cost** — The new block is ~700-900 tokens of system prompt. Multiplied across every turn of every team conversation, this is a measurable LLM cost increase on Agent Teams usage only. Acceptable trade-off for the feature working at all.
 
 10. **Tests** — Any existing `renderConfigs` tests that snapshot soul.md content will fail. Need to update fixtures. Search: `jarble-api-main/src/runtimes/handlers/**/*.test.ts`, `jarble-api-main/src/services/configSync*.test.ts`.
 
@@ -575,7 +575,7 @@ Honest, assuming a reasonably experienced engineer familiar with the repo:
 | Upgrade the try/catch around `syncFlowMemberships` to log at ERROR level and include details | 0.25 |
 | Fix or verify `flow_deployment_memberships` is actually populating (the investigation, not the code — possibly a schema / data migration to retrofit existing flows) | 1.0 |
 | Unit tests: teamContext rendering (present/absent), entryPoint path, multi-team fallback, delete-teammate removal | 1.5 |
-| E2E test on dev: create flow with 2 bots, chat and inspect soul.md on pod, remove one bot, re-inspect | 1.0 |
+| E2E test on dev: create flow with 2 agents, chat and inspect soul.md on pod, remove one agent, re-inspect | 1.0 |
 | Code review + iteration | 1.0 |
 | **Total** | **~8.25 hours** |
 
@@ -585,7 +585,7 @@ This DOES NOT include:
 - Wiring a real `jarble_delegate` event stream to the frontend.
 - Any schema migration if `flow_deployment_memberships` needs backfilling for existing flows.
 
-With those, end-to-end Bot Teams would be ~16-20 hours of honest work.
+With those, end-to-end Agent Teams would be ~16-20 hours of honest work.
 
 ---
 
@@ -605,16 +605,16 @@ With those, end-to-end Bot Teams would be ~16-20 hours of honest work.
     - Create a flow linking them with roles.
     - Verify `flow_deployment_memberships` rows exist.
     - `kubectl exec` into each pod and `cat /data/.openclaw/.openclaw/workspace/SOUL.md` — should contain the Team Context block with correct teammate slugs.
-    - Start a new flow chat, verify the entry bot references teammates correctly (no phantom claims).
-    - Remove one bot from the flow, verify its SOUL.md loses the block.
-    - Delete the flow, verify both bots lose the block.
+    - Start a new flow chat, verify the entry agent references teammates correctly (no phantom claims).
+    - Remove one agent from the flow, verify its SOUL.md loses the block.
+    - Delete the flow, verify both agents lose the block.
 11. **Do NOT** attempt to fix `flowChat.ts` delegation parsing in this PR. That's a separate concern.
 
 ---
 
 ## 12. Open questions for the user (do not guess)
 
-1. **Multi-team support**: If a bot is legitimately in 3 teams, do we render 3 blocks or pick 1? v1 picks 1 (section 5); is that acceptable or do we need multi-team day-one?
+1. **Multi-team support**: If an agent is legitimately in 3 teams, do we render 3 blocks or pick 1? v1 picks 1 (section 5); is that acceptable or do we need multi-team day-one?
 2. **`selfRole` fallback**: When a node has no `role` set, what should we display? "(unspecified)" is ugly. Suggest: fallback to `node.label`, then to "Team Member" if also absent.
 3. **Delegation parser format**: This plan proposes `jarble_delegate` fenced JSON blocks. The current `flowDelegation.ts` parser expects `json` blocks with `{"tool": "delegate_to_X", ...}`. Does the user want to:
    - (a) Change the parser to look for `jarble_delegate` blocks (new format), or

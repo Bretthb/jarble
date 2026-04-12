@@ -2,7 +2,7 @@
 description: "QA: Bridge - Tests Jarble-OpenClaw bridge MCP tools: register-agent, store-secret, list-team, log-action. 5 tests, ~3 min."
 ---
 
-Test the Jarble-OpenClaw Bridge platform MCP tools end-to-end against dev.jarble.ai. These tools let bots register their actions on the platform.
+Test the Jarble-OpenClaw Bridge platform MCP tools end-to-end against dev.jarble.ai. These tools let agents register their actions on the platform.
 
 ## Auth Setup
 Same as `/qa-bot-teams`.
@@ -47,6 +47,6 @@ STATUS: [PASS if T1-T4 all pass]
 ```
 
 ## Notes
-- These tests send real chat messages to bots, which costs credits
-- The bot must have the new MCP server deployed (with platform_* tools)
-- If bot doesn't recognize the tool, report FAIL with note "bridge not deployed"
+- These tests send real chat messages to agents, which costs credits
+- The agent must have the new MCP server deployed (with platform_* tools)
+- If agent doesn't recognize the tool, report FAIL with note "bridge not deployed"

@@ -50,7 +50,7 @@
 
 ### H4. No config sync triggered after starting a stopped deployment
 **File:** `jarble-api-main/src/trpc/routers/deployment.ts:955-963`
-**Issue:** If user changes system prompt while bot is stopped, then starts it, old config persists. ConfigMap not updated during `start`.
+**Issue:** If user changes system prompt while agent is stopped, then starts it, old config persists. ConfigMap not updated during `start`.
 **Fix:** Trigger `syncConfigsToPvc` after start completes.
 
 ### H5. Gateway token comparison not timing-safe
@@ -170,12 +170,12 @@
 ## FEATURE IDEAS
 
 ### Theme Bug & Slash Commands
-- **Theme bug:** Bot too aggressively detects theme intent. Typing "windows 98" contextually (not as a theme request) triggers `set_theme`. Needs better intent gating or explicit commands only.
+- **Theme bug:** Agent too aggressively detects theme intent. Typing "windows 98" contextually (not as a theme request) triggers `set_theme`. Needs better intent gating or explicit commands only.
 - **Slash commands:** Add `/command` system to web chat:
   - `/theme windows98` — explicit theme switching
   - All OpenClaw CLI commands surfaced as `/commands`
-  - Separates "chat with bot" from "control the bot"
-  - Mirrors Discord bot UX users already know
+  - Separates "chat with agent" from "control the agent"
+  - Mirrors Discord agent UX users already know
 
 ### WhatsApp/Messaging (Secondary Path)
 - WhatsApp QR pairing, Discord, Slack, Telegram are now optional "connect your own" extras

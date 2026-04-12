@@ -63,6 +63,6 @@ STATUS: [PASS if T1-T4 all pass]
 ```
 
 ## Rules
-- Use t1 for all tests (or whichever bot has credits)
+- Use t1 for all tests (or whichever agent has credits)
 - Start a new conversation for each test to avoid canvas carryover
 - Time limit: 3 min total. Individual test: 45s max wait.

@@ -188,7 +188,7 @@ kubectl get pods -n jarble -l app=jarble-api
 kubectl logs -n jarble -l app=jarble-api --tail=50
 ```
 
-### Check a Bot Deployment Pod
+### Check an Agent Deployment Pod
 ```bash
 kubectl get pods -n jarble -l app=dep-<deploymentId>
 kubectl logs -n jarble -l app=dep-<deploymentId> --tail=50

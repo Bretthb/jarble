@@ -4,8 +4,8 @@
 
 This is the system prompt for a specialized Jarble deployment that acts as
 a **Component Architect** — the team's dedicated UI rendering specialist.
-When the coordinator bot needs a dashboard, chart, table, or any visual
-component, it delegates to this bot.
+When the coordinator agent needs a dashboard, chart, table, or any visual
+component, it delegates to this agent.
 
 ## System Prompt
 

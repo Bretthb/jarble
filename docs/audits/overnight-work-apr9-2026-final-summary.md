@@ -29,13 +29,13 @@ Block 2: #81, #82, #83, #84, #85, #86, #87, #88, #89 (DRAFT), #90, #91, #92, #93
 
 ## Architectural findings documented for morning review
 
-1. **OpenClaw uses native memory tools, not Jarble MCP's** (block 1). Closed by PR #90 soul.md prompt. Verified: bots now explicitly told to prefer `mcporter call jarble-ui.*` for user-facing memory.
+1. **OpenClaw uses native memory tools, not Jarble MCP's** (block 1). Closed by PR #90 soul.md prompt. Verified: agents now explicitly told to prefer `mcporter call jarble-ui.*` for user-facing memory.
 
 2. **dev.jarble.ai `NODE_ENV=development`** forces exec-only path (`tamboAgent.ts:1204`). `chatViaHTTP` (#86) and `chatViaGateway` (#80) are therefore dormant on this env until Kubero flips to `NODE_ENV=production`.
 
 3. **OpenClaw 2026.2.x has no W3C traceparent support** (research audit #87). API-side injection is forward-compatible but dropped at pod boundary. Plugin scaffold in `runtimes/openclaw-otel-bridge/` (DRAFT PR #89) ready for follow-up.
 
-4. **NEW (trace-D): t1 refused to render `jarble_ui` block when delegated**, saying "I'm currently on webchat without dashboard/canvas capabilities". This is a bot prompt/context issue — not a PR #91 bug. When the delegated specialist doesn't emit a UI block, there's nothing to forward with attribution. Needs investigation: is it the delegation session_id's prefix confusing openclaw's channel detection? Or a side-effect of recent soul.md changes?
+4. **NEW (trace-D): t1 refused to render `jarble_ui` block when delegated**, saying "I'm currently on webchat without dashboard/canvas capabilities". This is an agent prompt/context issue — not a PR #91 bug. When the delegated specialist doesn't emit a UI block, there's nothing to forward with attribution. Needs investigation: is it the delegation session_id's prefix confusing openclaw's channel detection? Or a side-effect of recent soul.md changes?
 
 ## Immediate morning action list (ordered by impact)
 
@@ -43,7 +43,7 @@ Block 2: #81, #82, #83, #84, #85, #86, #87, #88, #89 (DRAFT), #90, #91, #92, #93
 2. **Flip `NODE_ENV=production` on Kubero CRD** — unlocks HTTP/WS gateway spans (#80, #86) that are currently dead code on dev.jarble.ai. Safe change, small blast radius.
 3. **Investigate t1 "webchat mode" refusal** — new finding from trace-D. Likely prompt-engineering fix.
 4. **Finish DRAFT PR #89** (openclaw-otel-bridge plugin) — unlocks true cross-pod tracing once the runtime Dockerfile is updated + rebuild.
-5. **Read the background bot-teams specialist QA report** if it ever writes to `docs/audits/bot-teams-deep-qa-apr9-2026.md` — still running at EOT.
+5. **Read the background agent-teams specialist QA report** if it ever writes to `docs/audits/bot-teams-deep-qa-apr9-2026.md` — still running at EOT.
 
 ## Deferred to future sessions
 
@@ -55,7 +55,7 @@ Block 2: #81, #82, #83, #84, #85, #86, #87, #88, #89 (DRAFT), #90, #91, #92, #93
 ## Infrastructure state at EOT
 
 - Prod API pod: `jarble-api-kuberoapp-web-5b88457bd7-gqbvq` Running, healthy
-- 4 bot pods running (t1, t2, t3, Dev11122)
+- 4 agent pods running (t1, t2, t3, Dev11122)
 - Neon managed_nodes: 21 rows (down from 195 after cleanup)
 - Langfuse: receiving traces continuously, 17+ delegation traces from tonight's testing visible
 - All PRs on `develop` branch, zero conflicts with main
@@ -67,4 +67,4 @@ Added to `.claude/projects/.../memory/`:
 - (existing memory files updated by background agents)
 
 ---
-*Written at EOT by main Claude Opus 4.6. Background bot-teams-specialist QA agent still running silently; will be reviewed in the morning if it ever writes output. 7 hours used, ~36 PRs shipped, bot teams + memory scoping + observability all load-bearing end-to-end.*
+*Written at EOT by main Claude Opus 4.6. Background agent-teams-specialist QA agent still running silently; will be reviewed in the morning if it ever writes output. 7 hours used, ~36 PRs shipped, agent teams + memory scoping + observability all load-bearing end-to-end.*

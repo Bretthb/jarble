@@ -159,7 +159,7 @@ describe("ServicePublishForm", () => {
 
     it("renders instruction snippet textarea", () => {
       render(<ServicePublishForm />);
-      expect(screen.getByLabelText("Bot Instruction Snippet (optional)")).toBeDefined();
+      expect(screen.getByLabelText("Agent Instruction Snippet (optional)")).toBeDefined();
     });
 
     it("renders pricing model select", () => {

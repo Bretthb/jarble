@@ -43,7 +43,7 @@ export function GeneralTab({ formData, updateFormData }: TabProps) {
             placeholder="You are a helpful assistant..."
           />
           <p className="text-xs text-muted-foreground mt-2">
-            The soul file defines your bot's personality and behavior. This syncs to <code className="bg-secondary px-1 rounded">/data/config/soul.md</code> on the pod.
+            The soul file defines your agent's personality and behavior. This syncs to <code className="bg-secondary px-1 rounded">/data/config/soul.md</code> on the pod.
           </p>
         </div>
       </div>

@@ -128,7 +128,7 @@ function ComponentsTab({ deploymentId }: { deploymentId: string }) {
       <EmptyState
         icon={Puzzle}
         title="No components installed"
-        description="Browse the marketplace to find and install custom components for your bot."
+        description="Browse the marketplace to find and install custom components for your agent."
       />
     );
   }
@@ -272,7 +272,7 @@ function SkillsTab({ deploymentId }: { deploymentId: string }) {
       <EmptyState
         icon={Zap}
         title="No skills installed"
-        description="Skills give your bot extra capabilities like web search, weather, and more."
+        description="Skills give your agent extra capabilities like web search, weather, and more."
       />
     );
   }

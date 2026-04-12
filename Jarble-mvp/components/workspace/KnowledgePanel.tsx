@@ -310,10 +310,10 @@ function KnowledgePanelInner({ deploymentId, onClose }: KnowledgePanelProps) {
           <div className="flex flex-col items-center justify-center py-8 gap-2 text-muted-foreground">
             <Brain className="w-8 h-8 opacity-30" />
             <p className="text-xs text-center px-4">
-              Upload documents to give your bot knowledge
+              Upload documents to give your agent knowledge
             </p>
             <p className="text-[10px] text-muted-foreground/60 text-center px-4">
-              Your bot will search these documents when answering questions
+              Your agent will search these documents when answering questions
             </p>
           </div>
         ) : (
@@ -365,7 +365,7 @@ function KnowledgePanelInner({ deploymentId, onClose }: KnowledgePanelProps) {
               <span className="font-mono text-foreground">
                 {deleteTarget?.filename}
               </span>{" "}
-              and all its chunks from the knowledge base. Your bot will no longer be able to search this document.
+              and all its chunks from the knowledge base. Your agent will no longer be able to search this document.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

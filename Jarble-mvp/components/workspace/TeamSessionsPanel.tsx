@@ -98,7 +98,7 @@ export default function TeamSessionsPanel({
           <div className="py-8 text-center">
             <ArrowUpRight className="w-6 h-6 mx-auto text-muted-foreground/40 mb-2" />
             <div className="text-xs text-muted-foreground">
-              No delegation sessions yet. Team conversations will appear here when bots delegate tasks to each other.
+              No delegation sessions yet. Team conversations will appear here when agents delegate tasks to each other.
             </div>
           </div>
         )}

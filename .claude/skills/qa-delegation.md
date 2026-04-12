@@ -51,7 +51,7 @@ Create flow with a node pointing to `fake-deployment-id`. Try to execute.
 **PASS**: Graceful error (not 500 crash). Either flow creation rejects it or execution returns an error.
 
 ### T9: Cleanup
-Delete all `QA-Test-*` flows. Restart any stopped bots.
+Delete all `QA-Test-*` flows. Restart any stopped agents.
 **PASS**: All cleanup succeeds.
 
 ## Report Format

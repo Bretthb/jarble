@@ -172,7 +172,7 @@ describe("ResourceMapView", () => {
   it("renders the empty state message with helpful guidance", () => {
     render(<ResourceMapView deployments={[]} />);
     expect(
-      screen.getByText(/Deploy more bots to see how they connect/),
+      screen.getByText(/Deploy more agents to see how they connect/),
     ).toBeInTheDocument();
   });
 });

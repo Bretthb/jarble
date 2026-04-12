@@ -33,7 +33,7 @@ Found at `plugin-sdk/infra/diagnostic-events.d.ts`. The union type includes:
 - `model.usage` — provider, model, input/output/cacheRead/cacheWrite tokens, `costUsd`, `durationMs`, sessionKey, sessionId, channel
 - `webhook.received` / `webhook.processed` / `webhook.error`
 - `message.queued`
-- (and more — see full file on any running bot pod at `/opt/openclaw/node_modules/openclaw/dist/plugin-sdk/infra/diagnostic-events.d.ts`)
+- (and more — see full file on any running agent pod at `/opt/openclaw/node_modules/openclaw/dist/plugin-sdk/infra/diagnostic-events.d.ts`)
 
 The plugin SDK exports `emitDiagnosticEvent` / `onDiagnosticEvent`, meaning plugins can both publish and subscribe to events.
 

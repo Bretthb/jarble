@@ -57,9 +57,9 @@ describe("TeamChatCanvasCard", () => {
       expect(screen.getByText("Designer")).toBeInTheDocument();
     });
 
-    it("renders 'Entry bot' for origin=entry", () => {
+    it("renders 'Entry agent' for origin=entry", () => {
       render(<TeamChatCanvasCard card={makeCard({ origin: "entry", producerRole: "Anything" })} />);
-      expect(screen.getByText("Entry bot")).toBeInTheDocument();
+      expect(screen.getByText("Entry agent")).toBeInTheDocument();
       expect(screen.queryByText("Anything")).not.toBeInTheDocument();
     });
 

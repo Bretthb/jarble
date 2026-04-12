@@ -6,7 +6,7 @@
 
 ## Executive Summary
 
-**Overall completeness: ~35%.** The 1-level delegation case (entry bot → flat specialists) works end-to-end in both `flowChat.ts` and `tamboAgent.ts`. Everything the vision adds on top of that — true N-level recursion, subagents as delegation-graph participants, per-deployment membership UI, tree visualization, canvas attribution, origin-tagged chat history — is missing or half-wired.
+**Overall completeness: ~35%.** The 1-level delegation case (entry agent → flat specialists) works end-to-end in both `flowChat.ts` and `tamboAgent.ts`. Everything the vision adds on top of that — true N-level recursion, subagents as delegation-graph participants, per-deployment membership UI, tree visualization, canvas attribution, origin-tagged chat history — is missing or half-wired.
 
 ### Top 3 gaps
 
@@ -81,7 +81,7 @@ When specialist B (delegated from A) invokes subagent S, the two rows in `agent_
 Three sub-pieces missing:
 1. "Team X" — trivial once tRPC query added
 2. "Task Y" — not tracked anywhere. Needs either new `active_delegations` table or live query against `agent_calls` where `callee_deployment_id = me AND status = 'pending'`
-3. "From bot Z" — derivable from `agent_calls.caller_deployment_id` once status flow works
+3. "From agent Z" — derivable from `agent_calls.caller_deployment_id` once status flow works
 
 ### Files to modify
 - `jarble-api-main/src/trpc/routers/flows.ts` — add `listMembershipsForDeployment({ deploymentId })`
@@ -155,7 +155,7 @@ Components from delegated specialists land on the entry canvas, but attribution 
 - Delegations use synthetic session IDs with prefixes (`flow-delegation-*`, `team-delegation-*`, `flow-*`) — the only current signal for origin, purely by string convention
 
 ### Gap
-No way to distinguish user 1:1 chats from inbound delegations on bot B's page.
+No way to distinguish user 1:1 chats from inbound delegations on agent B's page.
 
 ### Files to modify
 - `jarble-api-main/src/db/schema.pg.ts:389` (+ mysql + sqlite + `db/init.ts`) — add `originType varchar default 'user'` (`user`|`delegation`|`subagent`) and `originCallId` (nullable FK → `agent_calls.id`) on `chat_sessions`

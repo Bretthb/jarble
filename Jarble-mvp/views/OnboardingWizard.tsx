@@ -550,7 +550,7 @@ export default function OnboardingWizard() {
                   <div>
                     <h2 className="text-xl font-semibold mb-1">System Prompt</h2>
                     <p className="text-sm text-muted-foreground">
-                      Tell your bot how to behave. This sets its personality, knowledge, and capabilities.
+                      Tell your agent how to behave. This sets its personality, knowledge, and capabilities.
                     </p>
                   </div>
                   <textarea
@@ -725,7 +725,7 @@ export default function OnboardingWizard() {
                 />
               </div>
               <p className="text-sm font-medium text-muted-foreground">
-                Launching your bot...
+                Launching your agent...
               </p>
             </motion.div>
           </motion.div>

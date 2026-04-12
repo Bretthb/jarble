@@ -28,7 +28,7 @@ Second block of the overnight session, after the user said "continue" and "use t
 | #87 | docs: cross-pod traceparent research audit |
 | #88 | docs: overnight work report |
 | #89 | feat(JAR-51): openclaw-otel-bridge plugin scaffold (Phase 7 DRAFT) — **not merged** |
-| #90 | feat: soul.md tells bot to prefer Jarble memory tools |
+| #90 | feat: soul.md tells agent to prefer Jarble memory tools |
 | #91 | feat(fractal): canvas card attribution for delegated team members (Piece 5) |
 | #92 | feat(fractal): render OrchestrationSteps as tree by parentId (Piece 4 render) |
 | #93 | feat(fractal): wire orchestration:step events to SSE → OrchestrationSteps (Piece 4 wiring, tamboAgent) |
@@ -43,7 +43,7 @@ Second block of the overnight session, after the user said "continue" and "use t
 Every merged PR was typecheck + tests green + API pod rolled + smoke-tested where possible. Specific end-to-end verifications:
 
 - ✅ **Debug drawer UI**: opened in Playwright, saw 14+ recent traces listed, expanded `e186ec1f...` and confirmed the 2-span depth-1 fractal delegation tree renders correctly
-- ✅ **Bot team delegation**: `overnight-trace-C` chat (t2 → t1 delegation) ran successfully, produced `jarble.delegation.exec` span with correct pod.name, session.key, message.length, runtime, traceparent.injected attributes
+- ✅ **Agent team delegation**: `overnight-trace-C` chat (t2 → t1 delegation) ran successfully, produced `jarble.delegation.exec` span with correct pod.name, session.key, message.length, runtime, traceparent.injected attributes
 - ✅ **`JARBLE_CURRENT_SESSION_ID` env injection**: confirmed in API log: `env TRACEPARENT=00-... JARBLE_CURRENT_SESSION_ID=jarble-web-... npx openclaw agent ...`
 - ✅ **Langfuse traces**: 3 reference trace IDs queried successfully, depth/parent chains intact
 - ✅ **agent_calls DB correlation**: 2 rows for trace `e186ec1f` with matching parent_call_id and parent_span_id chains
@@ -54,14 +54,14 @@ Every merged PR was typecheck + tests green + API pod rolled + smoke-tested wher
 
 Two qa-orchestrator agents were launched at the start of block 2:
 1. **Broad QA sweep** — reported to `docs/audits/overnight-qa-apr9-2026.md` (committed in #96). Found 3 P1s; all were either false positives or resolved by subsequent PRs.
-2. **Bot teams specialist** — still running silently at the time of this report. Any findings will be reviewed in the morning.
+2. **Agent teams specialist** — still running silently at the time of this report. Any findings will be reviewed in the morning.
 
 One code-reviewer agent was launched mid-block:
 3. **Overnight code review** — reported to `docs/audits/overnight-code-review-apr9-2026.md` (committed in #96). Found 1 P0 + 2 P1 + 3 P2/P3. P0 + both P1s fixed in PR #95. P2 items (chatViaHTTP span leak was a false positive; listRecentTraces stale span counts and addComponentCard 8-arg smell are cosmetic) deferred.
 
 ## Architectural findings documented in reports
 
-1. **OpenClaw uses its NATIVE memory tools, not Jarble MCP's** (from block 1 report). PR #90 adds a soul.md prompt telling the bot to prefer Jarble tools, making tonight's memory scope enforcement actually load-bearing.
+1. **OpenClaw uses its NATIVE memory tools, not Jarble MCP's** (from block 1 report). PR #90 adds a soul.md prompt telling the agent to prefer Jarble tools, making tonight's memory scope enforcement actually load-bearing.
 2. **dev.jarble.ai runs `NODE_ENV=development`** which forces exec-only path in `tamboAgent.ts:1204`. `chatViaHTTP` + `chatViaGateway` (both wrapped by #79/#80/#86) are therefore dormant on this env. Flip to production to exercise them.
 3. **OpenClaw 2026.2.x has no W3C traceparent support** (from `cross-pod-traceparent-consume-apr9.md`). Our env/header injection is forward-compatible but dropped at the pod boundary. Plugin scaffold in `runtimes/openclaw-otel-bridge/` (DRAFT PR #89) ready to close the gap.
 
@@ -87,11 +87,11 @@ Removed `userId`, `spanId`, `parentSpanId` from the tRPC response via a `sanitiz
   3. Pass Langfuse env vars into pod Secret
   4. Rebuild runtime via `deploy-runtimes.yml`
 - **NODE_ENV=production flip** on dev.jarble.ai Kubero CRD — unlocks the HTTP/WS gateway spans (#80, #86) that are currently dead code
-- **Bot teams specialist QA agent** findings — still running; check morning
+- **Agent teams specialist QA agent** findings — still running; check morning
 
 ## Final grand total (full overnight session, both blocks)
 
-**~35 PRs shipped to develop tonight.** Zero P0 bugs left open. All memory-scoping trilogy work is live AND load-bearing (via PR #90 prompt). Bot teams delegation verified end-to-end with Langfuse observability + agent_calls DB correlation + debug drawer rendering the tree in the UI. Circuit breaker enforces runaway-cost safety. Cross-pod observability path documented + scaffolded.
+**~35 PRs shipped to develop tonight.** Zero P0 bugs left open. All memory-scoping trilogy work is live AND load-bearing (via PR #90 prompt). Agent teams delegation verified end-to-end with Langfuse observability + agent_calls DB correlation + debug drawer rendering the tree in the UI. Circuit breaker enforces runaway-cost safety. Cross-pod observability path documented + scaffolded.
 
 ---
 *Written autonomously during block 2 of the overnight session. PRs are all on the `develop` branch.*

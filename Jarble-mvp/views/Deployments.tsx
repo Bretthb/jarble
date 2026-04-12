@@ -1430,7 +1430,7 @@ function FlowEdge({
             <TooltipContent side="top" className="max-w-[260px] text-[11px] leading-relaxed">
               {edgeType === "delegates" && (
                 <>
-                  <strong>One-way delegation.</strong> The source bot can send tasks to the target bot. The target cannot initiate delegation back.
+                  <strong>One-way delegation.</strong> The source agent can send tasks to the target agent. The target cannot initiate delegation back.
                 </>
               )}
               {edgeType === "reports" && (
@@ -1440,7 +1440,7 @@ function FlowEdge({
               )}
               {edgeType === "collaborates" && (
                 <>
-                  <strong>Bidirectional collaboration.</strong> Both bots can delegate tasks to each other. Useful for peer-to-peer workflows.
+                  <strong>Bidirectional collaboration.</strong> Both agents can delegate tasks to each other. Useful for peer-to-peer workflows.
                 </>
               )}
             </TooltipContent>
@@ -1552,11 +1552,11 @@ function FlowPaletteSidebar({
         <div className="flex items-center gap-2 mb-1">
           <Users className="w-3.5 h-3.5 text-primary" />
           <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
-            Bot Team
+            Agent Team
           </p>
         </div>
         <p className="text-[10px] text-muted-foreground">
-          Click to add bots to your team canvas
+          Click to add agents to your team canvas
         </p>
       </div>
 
@@ -1855,7 +1855,7 @@ function FlowToolbar({
               <span className="hidden sm:inline ml-1.5">New</span>
             </Button>
           </TooltipTrigger>
-          <TooltipContent>Create a new bot team</TooltipContent>
+          <TooltipContent>Create a new agent team</TooltipContent>
         </Tooltip>
 
         {hasFlow && (
@@ -4210,7 +4210,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                 {flowChatMessages.length === 0 && (
                   <div className="flex flex-col items-center justify-center py-12 text-center">
                     <MessageSquare className="w-8 h-8 text-muted-foreground/30 mb-3" />
-                    <p className="text-xs text-muted-foreground">Send a message to your bot team</p>
+                    <p className="text-xs text-muted-foreground">Send a message to your agent team</p>
                     {entryNodeName && (
                       <p className="text-[10px] text-muted-foreground/60 mt-1">
                         Messages go to {entryNodeName} (entry point)
@@ -4363,9 +4363,9 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
             <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-primary/5 border border-primary/10 flex items-center justify-center">
               <Users className="w-8 h-8 text-primary/40" />
             </div>
-            <h3 className="text-lg font-semibold mb-1">Build Your Bot Team</h3>
+            <h3 className="text-lg font-semibold mb-1">Build Your Agent Team</h3>
             <p className="text-muted-foreground text-sm mb-6 max-w-sm mx-auto">
-              Wire your bots together into coordinated teams. Define roles, delegation paths, and communication channels.
+              Wire your agents together into coordinated teams. Define roles, delegation paths, and communication channels.
             </p>
             <Button
               onClick={handleNewFlow}
@@ -4597,7 +4597,7 @@ export default function Deployments({ defaultTab, embedded }: { defaultTab?: str
               </TabsTrigger>
               <TabsTrigger value="flows" className="gap-1.5">
                 <Users className="w-3.5 h-3.5" />
-                Bot Teams
+                Agent Teams
               </TabsTrigger>
               <TabsTrigger value="resource-map" className="gap-1.5">
                 <LayoutGrid className="w-3.5 h-3.5" />

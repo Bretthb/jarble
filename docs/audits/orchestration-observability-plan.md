@@ -8,7 +8,7 @@
 
 Jarble is a fractal AI-workforce platform: every deployment is its own K8s pod on Hetzner with its own memory, and teams compose deployments into DAGs that can delegate recursively across N pods. The vision hinges on three things working together — **isolation, composition, and legibility**. We have the first two. The third is mostly missing, and it's actively blocking us from shipping with confidence.
 
-Today a single user chat turn that cascades through 4 pods produces 4 disconnected log streams and zero trace data. The `agent_calls` table exists in the schema but has no writers anywhere in the codebase. The `audit_logs` table is the same story. Delegation hops cross pod boundaries with no correlation ID, no parent call ID, no token accounting, no cost attribution. When a bot "forgets mid-conversation" (as it did today from the auto-scaler data-loss bug), there is no honest way to answer "what happened" beyond grepping pino output across multiple workers.
+Today a single user chat turn that cascades through 4 pods produces 4 disconnected log streams and zero trace data. The `agent_calls` table exists in the schema but has no writers anywhere in the codebase. The `audit_logs` table is the same story. Delegation hops cross pod boundaries with no correlation ID, no parent call ID, no token accounting, no cost attribution. When an agent "forgets mid-conversation" (as it did today from the auto-scaler data-loss bug), there is no honest way to answer "what happened" beyond grepping pino output across multiple workers.
 
 **The plan:** stand up a proper observability layer — Langfuse + OpenTelemetry + the existing Sentry + Grafana LGTM — with cross-pod W3C traceparent propagation, a unified span data model that mirrors the fractal delegation shape, a security/audit event schema with redaction and runaway-cost guards, and a self-hosted deployment on the existing K3s cluster that can graduate to SaaS at scale. This is the foundation. Without it, every subsequent vision feature (N-level delegation, memory scoping, delegation tree viz, in-product debugger) is built on sand.
 
@@ -218,7 +218,7 @@ Emit as span attributes (observational, not blocking — decision gate comes lat
 
 - `input.source` — user / delegation / tool_result / memory / platform_webhook
 - `input.instruction_density` — imperative verb count + "ignore previous" / "system:" / "you are now" / fenced `jarble_ui` / fenced `jarble_delegate` occurrences in non-user sources
-- `delegation.target_origin` — was target deployment id in the parent bot's allow-list, or dynamically chosen from tool output? Flag the latter.
+- `delegation.target_origin` — was target deployment id in the parent agent's allow-list, or dynamically chosen from tool output? Flag the latter.
 - `tool.arg.origin_trace` — for each tool arg, which upstream span produced it. Tool calls whose args derive from untrusted `tool_result` get `taint=true`
 - `llm.output.contains_control_tokens` — bool, detects fenced delegation/UI blocks leaking through as user-visible text
 - `delegation.target_changed_mid_trace` — bool, target deployment differs from declared team topology
@@ -299,7 +299,7 @@ Queryable by deployment_id, date range, cost, error status. Served via a dedicat
 - Not a DaemonSet — cpx11 workers are RAM-constrained; 200MB per node is wasteful
 - Not a sidecar — couples to pod lifecycle and doubles pod count
 - Tail sampling + batch + memory_limiter + OTLP exporter to Langfuse
-- Auto-scaled bot pods discover the collector via stable in-cluster DNS
+- Auto-scaled agent pods discover the collector via stable in-cluster DNS
 
 ### 6.4 Sampling (tail-based, in collector)
 
@@ -336,8 +336,8 @@ Check `kubectl -n observability logs deploy/langfuse-web`. 90% of the time it's 
 **2. Storage full (Clickhouse PVC > 85%)**
 Alert at 80% via cron probe → Slack. Run Langfuse retention job manually. If still full, drop oldest `traces` partition in Clickhouse directly. Longhorn can expand the PVC online — +20GB takes 2 minutes.
 
-**3. Bot pods can't export (new autoscaled node, spans missing)**
-Check `otel-collector` service DNS resolves from the bot pod: `kubectl exec <bot> -- getent hosts otel-collector.observability`. If it fails, the new node joined without flannel networking. Restart flannel pod on that node. App keeps running — we just lose traces from that one pod until fixed.
+**3. Agent pods can't export (new autoscaled node, spans missing)**
+Check `otel-collector` service DNS resolves from the agent pod: `kubectl exec <bot> -- getent hosts otel-collector.observability`. If it fails, the new node joined without flannel networking. Restart flannel pod on that node. App keeps running — we just lose traces from that one pod until fixed.
 
 ### 6.8 Monthly cost (USD)
 

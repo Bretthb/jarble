@@ -1,6 +1,6 @@
-# Bot Teams Rescue — Linear Tickets (ready to create)
+# Agent Teams Rescue — Linear Tickets (ready to create)
 
-Created 2026-04-07 as Phase 2B of the Bot Teams rescue mission. If the
+Created 2026-04-07 as Phase 2B of the Agent Teams rescue mission. If the
 Linear MCP OAuth flow has been completed, paste each section into a new
 Linear ticket OR I'll create them via the API directly. Otherwise, run
 each section through `/create-ticket` or paste manually.
@@ -8,11 +8,11 @@ each section through `/create-ticket` or paste manually.
 **Team key**: `JAR`
 **Source audit**: `docs/audits/qa-bot-teams-2026-04-07.md`
 **Branch**: `develop` (commits already landing as the work progresses)
-**Foundation commit**: `e44e059` — QA: Bot Teams agentic audit + Fix #6 + Workstream A CSI
+**Foundation commit**: `e44e059` — QA: Agent Teams agentic audit + Fix #6 + Workstream A CSI
 
 ---
 
-## EPIC — Bot Teams rescue: wire the full tool-injection pipeline
+## EPIC — Agent Teams rescue: wire the full tool-injection pipeline
 
 **Title**: `Bot Teams rescue — wire the full tool-injection pipeline`
 **Labels**: `infrastructure`, `feature`, `bug`
@@ -21,7 +21,7 @@ each section through `/create-ticket` or paste manually.
 
 ### Scope
 
-Agentic QA found that Bot Teams is broken end-to-end at every layer below
+Agentic QA found that Agent Teams is broken end-to-end at every layer below
 the API CRUD surface. Flows save, the canvas works, the API responds, but
 **no delegation has ever actually run** in production. Four parallel
 investigation agents (jarble-api-debugger, runtime-handler, mcp-server,
@@ -32,16 +32,16 @@ fix plan documented in `docs/audits/qa-bot-teams-2026-04-07.md`.
 
 1. **`flow_deployment_memberships` is empty in production** — 29 flows, 0 rows. Silent try/catch was masking the failure for who-knows-how-long.
 2. **OpenClaw has NO first-class MCP server support** — verified directly on the pod. The dist explicitly logs `"ignoring ${params.mcpServers.length} MCP servers"`. The `mcporter config add jarble-ui` command runs and writes a JSON file but no process consults it.
-3. **`render_ui` works through a different path** — `canvasFiles.ts:218-231` exec node-e from the API directly into the pod. The bot is never involved. Across 15 session JSONL files, `grep -c tool_use` = 0 — the bot has never called any tool in its lifetime.
+3. **`render_ui` works through a different path** — `canvasFiles.ts:218-231` exec node-e from the API directly into the pod. The agent is never involved. Across 15 session JSONL files, `grep -c tool_use` = 0 — the agent has never called any tool in its lifetime.
 4. **`delegation-tools.json` writer is dead code** — broken condition AND dead consumer AND statically hardcoded `AGENT_TOOLS`. Three layers of dead-on-arrival.
-5. **Bots actively reject `[FLOW CONTEXT]` in user turns** — Claude correctly pattern-matches "user claiming tools they don't have" and refuses. No prompt engineering will save the current approach.
+5. **Agents actively reject `[FLOW CONTEXT]` in user turns** — Claude correctly pattern-matches "user claiming tools they don't have" and refuses. No prompt engineering will save the current approach.
 6. **`tamboAgent.ts` has the same bug** — solo chat works only because users aren't using team context.
-7. **Longhorn CSI gap on auto-workers** — `nodeManager.ts` taints with `jarble.ai/workload=agent:NoSchedule`, Longhorn DaemonSets don't tolerate it, CSINode never gets the driver, FailedAttachVolume blocks every new bot on auto-workers.
+7. **Longhorn CSI gap on auto-workers** — `nodeManager.ts` taints with `jarble.ai/workload=agent:NoSchedule`, Longhorn DaemonSets don't tolerate it, CSINode never gets the driver, FailedAttachVolume blocks every new agent on auto-workers.
 8. **Migration `0007_lyrical_callisto.sql` (`flow_chat_sessions`/`flow_chat_messages`) was never applied to production.**
 
 ### Acceptance criteria
 
-- [ ] Delegation actually runs end-to-end on dev. A bot in a team can be told "delegate this to the Specialist" and the specialist actually responds.
+- [ ] Delegation actually runs end-to-end on dev. An agent in a team can be told "delegate this to the Specialist" and the specialist actually responds.
 - [ ] `jarble.flow.delegation.start` and `jarble.flow.delegation.end` SSE events fire on the live chat stream.
 - [ ] When delegation silently fails, `jarble.flow.delegation.skipped` event fires with a reason code (✓ done in Fix #6).
 - [ ] `flow_deployment_memberships` has rows for every flow that has team members.
@@ -49,7 +49,7 @@ fix plan documented in `docs/audits/qa-bot-teams-2026-04-07.md`.
 - [ ] Future autoscaled workers have the Longhorn CSI driver registered automatically.
 - [ ] `jarble-ui-server.js` write loop (file-watcher.sh spam) is fixed.
 - [ ] Migration 0007 is applied to production Neon DB.
-- [ ] No regressions in solo (non-team) bot chat.
+- [ ] No regressions in solo (non-team) agent chat.
 
 ### Children
 - JAR-?? (this list — link the children below)
@@ -66,9 +66,9 @@ fix plan documented in `docs/audits/qa-bot-teams-2026-04-07.md`.
 
 ### Scope
 
-When the entry bot in a Bot Team responds without emitting a valid tool_call
+When the entry agent in an Agent Team responds without emitting a valid tool_call
 JSON block, the prior code silently fell through to "direct answer" mode.
-Users would see the bot say *"I delegated this to the Specialist, I'll share
+Users would see the agent say *"I delegated this to the Specialist, I'll share
 their answer momentarily"* and then nothing — no specialist run, no error,
 just a hung conversation.
 
@@ -76,7 +76,7 @@ just a hung conversation.
 
 1. **`jarble-api-main/src/routes/flowChat.ts`** — added a 50-line else branch that emits a `jarble.flow.delegation.skipped` SSE event with one of three reason codes (`no_tools_available`, `tool_call_not_emitted`, `mentioned_but_not_emitted`) + `log.warn` for the silent-failure case
 2. **`jarble-api-main/src/routes/tamboAgent.ts`** — same fix for the team-context branch in the regular chat path (line ~1193)
-3. **`Jarble-mvp/views/Deployments.tsx`** — added the SSE handler and an amber warning banner that surfaces "Delegation didn't actually run. The entry bot claimed to delegate but never emitted a valid tool call."
+3. **`Jarble-mvp/views/Deployments.tsx`** — added the SSE handler and an amber warning banner that surfaces "Delegation didn't actually run. The entry agent claimed to delegate but never emitted a valid tool call."
 4. **`jarble-api-main/src/services/flowDelegation.test.ts`** — 13 new regression tests (parseDelegationCalls strict behavior + skipReason heuristic). All passing.
 
 ### Verification
@@ -113,7 +113,7 @@ PVC mounts fail.
 ### What changed
 
 1. **`infrastructure/terraform/main.tf:196`** — added a 13-line block between the storageclass patch and cert-manager install that waits for the Longhorn DaemonSets to exist, then `kubectl patch` adds the toleration `{key: "jarble.ai/workload", value: "agent", effect: "NoSchedule"}` to both `longhorn-manager` and `longhorn-csi-plugin`.
-2. **Live cluster hotfix** — same `kubectl patch` commands run via SSH to master. Zero-downtime, reversible. Once patched, Longhorn pods scheduled onto stuck workers within ~30 sec. Stuck bot pods deleted to force reattach via the controller.
+2. **Live cluster hotfix** — same `kubectl patch` commands run via SSH to master. Zero-downtime, reversible. Once patched, Longhorn pods scheduled onto stuck workers within ~30 sec. Stuck agent pods deleted to force reattach via the controller.
 
 ### Verification
 
@@ -139,7 +139,7 @@ PVC mounts fail.
 
 ### Scope
 
-Bots in a Bot Team have NO awareness they're in a team. Their `soul.md`
+Agents in an Agent Team have NO awareness they're in a team. Their `soul.md`
 (the only Jarble-authored artifact that actually reaches the running pod
 and is treated as authoritative) doesn't mention team members, delegation
 tools, or `delegate_to_*` anywhere. The current attempt to inject team
@@ -159,7 +159,7 @@ when a flow is edited, and propagate the new soul.md to the pod via
    - DELETE the dead `delegation-tools.json` writer at lines 516-538 (broken condition, no consumer, three layers of dead code)
    - DELETE the `delegation-tools.json` entry from the `configFiles` spec at line ~182
    - INSERT a new top-level `## Team Context` section at line ~236, gated on `deployment.teamContext` being defined. Wrapped in HTML-comment delimiters `<!-- BEGIN JARBLE_FLOW_CONTEXT v1 -->` / `<!-- END JARBLE_FLOW_CONTEXT v1 -->` for clean removal when the deployment leaves a flow. Authoritative tone. Lists teammates by slug+role+name. Teaches the `jarble_delegate` fenced-block format with a one-shot example. Hard rule: "Never claim you delegated unless you actually emitted a `jarble_delegate` block in this response."
-4. **`jarble-api-main/src/trpc/routers/flows.ts`** — wire `syncConfigsToPvc` into `create`, `update`, `delete`, `duplicate` mutations. CRITICAL: snapshot OLD memberships BEFORE `syncFlowMemberships` runs so leaving bots also get re-synced. Compute union of OLD ∪ NEW deployment IDs → fire-and-forget `void syncConfigsToPvc(deploymentId)` for each. Upgrade the silent `logger.warn` catch in `syncFlowMemberships` to `logger.error` with the full deployment ID list so we can finally diagnose the production-empty-table issue.
+4. **`jarble-api-main/src/trpc/routers/flows.ts`** — wire `syncConfigsToPvc` into `create`, `update`, `delete`, `duplicate` mutations. CRITICAL: snapshot OLD memberships BEFORE `syncFlowMemberships` runs so leaving agents also get re-synced. Compute union of OLD ∪ NEW deployment IDs → fire-and-forget `void syncConfigsToPvc(deploymentId)` for each. Upgrade the silent `logger.warn` catch in `syncFlowMemberships` to `logger.error` with the full deployment ID list so we can finally diagnose the production-empty-table issue.
 5. **Investigate the empty-table root cause** — likely FK failures on stale deployment IDs in flow definitions (production data corruption). Document the hypothesis. Fix the silent catch, retry, see what errors land in logs, then write a follow-up backfill ticket if needed.
 
 ### Verification
@@ -168,7 +168,7 @@ when a flow is edited, and propagate the new soul.md to the pod via
 - New unit test for `buildDeploymentFields` teamContext population
 - New unit test for the openclaw.ts soul.md augmentation rendering
 - Manual: edit a flow on dev, verify `soul.md` on the pod gets updated within ~5 sec
-- Manual: chat with a bot in a flow, verify the bot acknowledges its team in its first response
+- Manual: chat with an agent in a flow, verify the agent acknowledges its team in its first response
 
 ### Files
 - `jarble-api-main/src/runtimes/types.ts`
@@ -212,7 +212,7 @@ None of it produces any benefit.
 ### What changes
 
 1. **`jarble-api-main/src/services/flowDelegation.ts:165-193`** — rewrite `parseDelegationCalls` to parse ` ```jarble_delegate ... ``` ` blocks. Format: `{ "to": "specialist_slug", "task": "...", "context": "..." }`. The parser converts `to` → `toolName` (prefix `delegate_to_`) so downstream code is unchanged. Keep the legacy ` ```json ``` ` parser as a deprecated fallback during rollout.
-2. **`jarble-api-main/src/services/flowDelegation.ts:116-149`** — rewrite `buildFlowSystemPrompt` to instruct the bot to use the `jarble_delegate` format with a one-shot example and the same hard rule from Workstream B.
+2. **`jarble-api-main/src/services/flowDelegation.ts:116-149`** — rewrite `buildFlowSystemPrompt` to instruct the agent to use the `jarble_delegate` format with a one-shot example and the same hard rule from Workstream B.
 3. **`jarble-api-main/src/routes/flowChat.ts:370-373`** — change the prefix from `[FLOW CONTEXT]` to `[FLOW SYSTEM INSTRUCTIONS — AUTHORITATIVE]`. Band-aid until B1b lands a real system-prompt channel.
 4. **`jarble-api-main/src/services/configSync.ts:55-86`** — DELETE the entire `reRegisterMcpServer` function (it's a no-op against OpenClaw which has no MCP server support). Find and delete its call sites at lines 621-623 and 1184-1185. Add a top-of-file comment explaining the canvasFiles proxy is the actual route.
 5. **`jarble-api-main/src/services/statusReconciler.ts:230-239`** — bump `mcpSyncIntervalMs` from 5 minutes to 15 minutes. Add a top-level hash gate so the per-pod loop is skipped entirely when the API hash hasn't changed since last sync.
@@ -224,7 +224,7 @@ None of it produces any benefit.
 - API typecheck clean
 - New tests in `flowDelegation.test.ts` covering `jarble_delegate` parser (single block, broadcast, missing fields, legacy fallback)
 - Manual: tail logs on a pod for 1 minute — should be ZERO `MODIFY /data/config/mcp/jarble-ui-server.js` events
-- Manual: send a chat to a flow bot, verify delegation now actually fires (specialist runs, response comes back, synthesis happens)
+- Manual: send a chat to a flow agent, verify delegation now actually fires (specialist runs, response comes back, synthesis happens)
 
 ### Files
 - `jarble-api-main/src/services/flowDelegation.ts`
@@ -389,7 +389,7 @@ Expected: FK errors on stale deployment IDs (see Child #8). But could also be:
 ### Scope
 
 Workstream C ships a band-aid: prefix the augmented prompt with
-`[FLOW SYSTEM INSTRUCTIONS — AUTHORITATIVE]` so the bot treats it more
+`[FLOW SYSTEM INSTRUCTIONS — AUTHORITATIVE]` so the agent treats it more
 seriously. The proper fix is to extend OpenClaw's `agent` CLI (or use the
 `/v1/chat/completions` endpoint with `role: "system"`) so the augmented
 prompt goes through a real system channel.
@@ -402,7 +402,7 @@ prompt goes through a real system channel.
 4. Worst case: fork OpenClaw or upstream a PR adding `--system-prompt`
 
 ### Acceptance criteria
-- [ ] System prompt augmentation is authoritative — bot reliably emits `jarble_delegate` blocks when instructed (verified via probe)
+- [ ] System prompt augmentation is authoritative — agent reliably emits `jarble_delegate` blocks when instructed (verified via probe)
 - [ ] No more `mentioned_but_not_emitted` events in logs over a 24h window after deploy
 
 ---

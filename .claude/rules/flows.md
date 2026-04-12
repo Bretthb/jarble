@@ -19,7 +19,7 @@ globs:
 - **Human-in-the-loop (HITL)**: `waitForInput` nodes pause execution until `resume()` is called with user input; this triggers `jarble.flow.paused` SSE and a `/api/flows/executions/:id/resume` REST endpoint
 - **Nested flows**: `subflow` nodes spin up a child `FlowEngine` and stream its events as `jarble.flow.substep.*` events
 - **Template variables**: Node configs support `{{stepN_result.field}}` syntax resolved at runtime from prior step results
-- **Node types**: `deployment` (call a Jarble bot), `transform` (JS expression), `condition` (branch on expression result), `output` (collect results), `waitForInput`, `subflow`
+- **Node types**: `deployment` (call a Jarble agent), `transform` (JS expression), `condition` (branch on expression result), `output` (collect results), `waitForInput`, `subflow`
 - **Credit billing**: Deployment nodes consume agent credits via `executeAgentCall()`
 
 ## Flow CRUD (`jarble-api-main/src/trpc/routers/flows.ts`)
@@ -56,7 +56,7 @@ globs:
 | `jarble.flow.substep.finished` | A subflow child node finished |
 
 ## Flow Canvas (`Jarble-mvp/views/Deployments.tsx`)
-Flow graphs are visualized and edited using `@xyflow/react`. Custom node and edge types rendered inline. 3 tabs: Linked Deployments, Bot Teams (flow canvas), Resource Map.
+Flow graphs are visualized and edited using `@xyflow/react`. Custom node and edge types rendered inline. 3 tabs: Linked Deployments, Agent Teams (flow canvas), Resource Map.
 
 ## Adding a New Flow Node Type
 1. Add the type literal to `FlowNode["type"]` union in `flowEngine.ts`

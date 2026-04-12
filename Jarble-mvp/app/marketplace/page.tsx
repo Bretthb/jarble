@@ -86,7 +86,7 @@ export default function MarketplaceBrowsePage() {
             Marketplace
           </h2>
           <p className="mt-2 text-muted-foreground text-lg">
-            Discover and install community-built components and services for your bots.
+            Discover and install community-built components and services for your agents.
           </p>
         </div>
 
@@ -367,7 +367,7 @@ function MarketplaceEmptyState({
           <EmptyTitle>Marketplace Coming Soon</EmptyTitle>
           <EmptyDescription>
             The component marketplace is being built. Soon you will be able to
-            browse, install, and share community-built components for your bots.
+            browse, install, and share community-built components for your agents.
           </EmptyDescription>
         </EmptyHeader>
       </Empty>

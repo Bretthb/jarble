@@ -1,7 +1,7 @@
-# Bot Teams Rescue — Linear Tickets Draft
+# Agent Teams Rescue — Linear Tickets Draft
 
 > **Why this file exists instead of Linear tickets**: Linear OAuth did not
-> complete during the Bot Teams rescue session (2026-04-07). These tickets were
+> complete during the Agent Teams rescue session (2026-04-07). These tickets were
 > drafted but never filed. File them manually or via the `create-ticket` skill
 > when Linear auth is available.
 >
@@ -17,21 +17,21 @@ agent reports when they land, then create via `create-ticket` skill.
 
 ## Parent epic
 
-**Title**: Bot Teams rescue — wire the full tool-injection pipeline
+**Title**: Agent Teams rescue — wire the full tool-injection pipeline
 **Labels**: `infrastructure`, `feature`
 **Priority**: High
 
 ### Scope
-Agentic QA found that Bot Teams delegation is completely non-functional in
+Agentic QA found that Agent Teams delegation is completely non-functional in
 production. The API-side code runs, the canvas UI exists, and flows save
 cleanly — but nothing below the API layer actually works:
 
-- The `jarble-ui` MCP server is not registered with any running bot
+- The `jarble-ui` MCP server is not registered with any running agent
 - `delegation-tools.json` is never written (broken condition)
 - Even if it were written, nothing on the pod reads it
-- The entry bot receives delegation instructions as a user message, which
+- The entry agent receives delegation instructions as a user message, which
   Claude actively rejects as "user claiming to have a tool they don't"
-- `soul.md` — the only authoritative channel to the bot — has zero references
+- `soul.md` — the only authoritative channel to the agent — has zero references
   to delegation
 - `chatViaExec` passes phantom CLI flags (`--thinking`, `--json`) that OpenClaw
   ignores
@@ -42,8 +42,8 @@ Full audit: `docs/audits/qa-bot-teams-2026-04-07.md`
 
 ### Acceptance Criteria
 - [ ] A deployment in a team can successfully delegate a task to a team member
-- [ ] The team member's response is visible in the entry bot's chat
-- [ ] The `jarble-ui` MCP server is registered and the bot can list its tools
+- [ ] The team member's response is visible in the entry agent's chat
+- [ ] The `jarble-ui` MCP server is registered and the agent can list its tools
 - [ ] Stuck deployments `t2`, `dep-b30a0mdprxbd`, `dep-s2fds1k29cb6` are recovered
 - [ ] Future autoscaled workers have the Longhorn CSI driver installed
 - [ ] Silent delegation failures emit diagnostic SSE events (Fix #6 — already done)
@@ -61,16 +61,16 @@ Full audit: `docs/audits/qa-bot-teams-2026-04-07.md`
 - `jarble-api-main/src/routes/flowChat.ts` — emit `jarble.flow.delegation.skipped` event + log warning
 - `jarble-api-main/src/routes/tamboAgent.ts` — same for non-flow chat with team context
 - `jarble-api-main/src/services/flowDelegation.test.ts` — 13 regression tests
-- `Jarble-mvp/views/Deployments.tsx` — render amber warning banner when bot claims to delegate without emitting a tool call
+- `Jarble-mvp/views/Deployments.tsx` — render amber warning banner when agent claims to delegate without emitting a tool call
 
-### JAR-XX — Fix #2: register jarble-ui MCP server with the running bot
+### JAR-XX — Fix #2: register jarble-ui MCP server with the running agent
 
 **Status**: blocked on mcp-server agent Phase 1 plan
 **Priority**: Urgent (unblocks everything else MCP-related)
 **Scope**:
 - Find why the baked `/opt/jarble/mcp/jarble-ui-server.js` isn't being registered by mcporter
 - Reconcile the baked vs configSync path mismatch (or delete the dead `syncMcpServerToAllRunning` writer)
-- Verify: bot returns `render_ui` in its tools list
+- Verify: agent returns `render_ui` in its tools list
 - Detailed plan: (fill in from agent report)
 
 ### JAR-XX — Fix #1: soul.md augmentation for flow context
@@ -156,7 +156,7 @@ Full audit: `docs/audits/qa-bot-teams-2026-04-07.md`
 
 ---
 
-## QA findings — 2026-04-07 Bot Teams retest (qa-explorer-ui agent)
+## QA findings — 2026-04-07 Agent Teams retest (qa-explorer-ui agent)
 
 The following 4 tickets were found and filed in the same session. Each is cross-referenced with the parallel agent that is actively fixing it.
 
@@ -198,7 +198,7 @@ Wave 3 delta (`62b2230`) added `messageCount` to the `flow_chat_sessions` backen
 `jarble-api-main/src/routes/flowChat.ts` — the coordinator delegation heuristic only triggers when the user uses strong language ("MUST delegate", "YOU MUST"). Casual prompts such as "have your specialist handle this" cause the coordinator to answer directly, silently skipping delegation.
 
 #### Context
-The delegation skip heuristic was introduced in Wave 3 to avoid unnecessary round-trips. It over-fires: it treats any user message without explicit "MUST" wording as a direct-answer candidate, regardless of the coordinator's role. This breaks the core Bot Teams contract for users who phrase requests naturally.
+The delegation skip heuristic was introduced in Wave 3 to avoid unnecessary round-trips. It over-fires: it treats any user message without explicit "MUST" wording as a direct-answer candidate, regardless of the coordinator's role. This breaks the core Agent Teams contract for users who phrase requests naturally.
 
 #### Acceptance Criteria
 - [ ] Coordinator routes to a specialist when the user says "have your specialist handle X" (no "MUST" required)
@@ -260,7 +260,7 @@ This inconsistency causes confusion when reading logs, writing tests, or writing
 Per-specialist tool naming (`delegate_to_<name>`) was chosen so the coordinator LLM can see explicit targets in its tool list rather than having to pass a `target` argument. The generic name `jarble_delegate` was used in earlier design docs and was never updated. Both names appear in different places in the codebase and docs, creating drift.
 
 #### Acceptance Criteria
-- [ ] A single canonical tool-name convention is chosen and documented in `CLAUDE.md` under the Bot Teams / Flow section
+- [ ] A single canonical tool-name convention is chosen and documented in `CLAUDE.md` under the Agent Teams / Flow section
 - [ ] All references in docs, comments, and the coordinator system prompt use the canonical name
 - [ ] The MCP server registration in `jarble-ui-server.js` matches the canonical name
 - [ ] A note in `docs/audits/bot-teams-rescue-tickets-draft.md` records the decision

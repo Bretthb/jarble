@@ -265,10 +265,10 @@ export default function DraftServiceDetail({ serviceId }: DraftServiceDetailProp
             <section>
               <h3 className="text-lg font-semibold mb-3 flex items-center gap-2">
                 <FileText className="size-5" />
-                Bot Instructions
+                Agent Instructions
               </h3>
               <p className="text-xs text-muted-foreground mb-2">
-                This snippet will be added to your bot&apos;s system prompt when installed.
+                This snippet will be added to your agent&apos;s system prompt when installed.
               </p>
               <pre className="rounded-lg border border-border bg-muted/50 p-4 overflow-x-auto text-sm text-foreground whitespace-pre-wrap">
                 {pkg.instructionSnippet}
