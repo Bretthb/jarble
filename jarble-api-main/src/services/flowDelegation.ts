@@ -319,7 +319,7 @@ export function buildDelegationTools(
     if (tools.some((t) => t.targetNodeId === targetId)) continue;
 
     // Build a safe function name from the target's role/label/id
-    let safeName = (targetNode.role || targetNode.label || targetNode.id)
+    let safeName = (targetNode.role || (targetNode as any).config?.role || targetNode.label || targetNode.id)
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "_")
       .replace(/^_+|_+$/g, "")
@@ -344,7 +344,7 @@ export function buildDelegationTools(
 
     tools.push({
       name: fullName,
-      description: `Delegate a task to ${targetNode.role || targetNode.label}.${goalStr}${capsStr}`,
+      description: `Delegate a task to ${targetNode.role || (targetNode as any).config?.role || targetNode.label}.${goalStr}${capsStr}`,
       targetNodeId: targetNode.id,
       targetDeploymentId: targetNode.deploymentId,
       contextScope: edge.contextScope || targetNode.contextScope || "task",
@@ -368,10 +368,12 @@ export function buildFlowSystemPrompt(
 ): string {
   const parts = [basePrompt];
 
-  if (node.role || node.goal) {
+  const nodeRole = node.role || (node as any).config?.role;
+  const nodeGoal = node.goal || (node as any).config?.goal;
+  if (nodeRole || nodeGoal) {
     parts.push("\n\n## Your Role in This Team");
-    if (node.role) parts.push(`You are the **${node.role}**.`);
-    if (node.goal) parts.push(`Your goal: ${node.goal}`);
+    if (nodeRole) parts.push(`You are the **${nodeRole}**.`);
+    if (nodeGoal) parts.push(`Your goal: ${nodeGoal}`);
   }
 
   if (delegationTools.length > 0 && node.canDelegate !== false) {
@@ -1240,7 +1242,7 @@ export async function executeDelegation(params: {
               (n) => n.id === tool.targetNodeId,
             );
             const roleLabel =
-              childNode?.role || childNode?.label || tool.targetNodeId;
+              childNode?.role || (childNode as any)?.config?.role || childNode?.label || tool.targetNodeId;
             successAnnotations.push(
               `**${roleLabel}:** ${childResult.response}`.trim(),
             );

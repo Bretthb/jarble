@@ -227,7 +227,7 @@ async function syncFlowMemberships(
         flowId,
         deploymentId: node.deploymentId,
         nodeId: node.id,
-        role: node.role || node.label || null,
+        role: node.role || (node.config as any)?.role || node.label || null,
         isEntryPoint: node.isEntryPoint ?? (node.config as any)?.isEntryPoint ?? false,
         createdAt: dbDate(),
       });

@@ -1459,7 +1459,7 @@ tamboAgentRouter.post("/", async (req, res) => {
             const targetNode = teamFlowDefinition!.nodes.find(
               (n) => n.id === tool.targetNodeId,
             );
-            const roleName = targetNode?.role || targetNode?.label || "Team member";
+            const roleName = targetNode?.role || (targetNode as any)?.config?.role || targetNode?.label || "Team member";
             jobs.push({ call, tool, roleName, index: i });
           }
 

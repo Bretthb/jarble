@@ -144,13 +144,6 @@ Use Unsplash URLs for visual topics. Prefer \`image_gallery\`/\`carousel\` for c
 - **Credentials**: When a user provides an API key, token, or credential, use \`store_secret\` (NOT store_memory) to save it as an encrypted env var. It becomes available as \`process.env.KEY_NAME\` after a brief restart. Call \`list_secrets\` to check existing keys first.
 \`knowledge_search\` for uploaded docs (cite sources). \`list_artifacts()\` at conversation start; \`save_artifact\` for substantial components.
 
-### Platform Bridge
-Register your actions on the Jarble platform so they are visible to users in the dashboard:
-- \`platform_register_agent\` — register a subagent (appears in Subagents panel)
-- \`platform_store_secret\` — store a credential visible in Config credentials
-- \`platform_list_team\` — list your team members and roles
-- \`platform_log_action\` — log significant actions (visible in Debug Traces)
-
 ### Suggestions
 Optionally end with \`\`\`jarble_suggestions\\n["Option A", "Option B"]\\n\`\`\` (2-5 options, 2-8 words). Auto-generated if omitted.`;
 
@@ -290,7 +283,7 @@ export const openclawHandler: RuntimeHandler = {
       );
       const subagentRoutingNote = hasDeploymentSubagents
         ? `\n**IMPORTANT**: For component/UI rendering requests (dashboards, charts, forms, landing pages), delegate to your **Custom Subagents** listed below, NOT to teammates. Teammates are for cross-bot collaboration; subagents are your specialized component builders.\n\n`
-        : "";
+        : `\n**Rendering**: For charts, dashboards, tables, and other UI components, use your own MCP rendering tools (\`render_ui\`, \`compose_dashboard\`) directly. Do not delegate rendering tasks to teammates — they are separate deployments for cross-bot collaboration, not your UI builders.\n\n`;
 
       const teamSection =
         `<!-- BEGIN JARBLE_FLOW_CONTEXT v1 -->\n\n` +
@@ -366,8 +359,12 @@ export const openclawHandler: RuntimeHandler = {
       }
 
       // 3. Team members - other deployments linked via Bot Teams flows
-      // A2A Phase 1: teach the bot to use a2a_delegate tool for team delegation
-      if (deployment.teamMembers && deployment.teamMembers.length > 0) {
+      // Only render this section when there is NO Team Context block above.
+      // When Team Context exists, it is the authoritative delegation source
+      // and includes the teammate roster + jarble_delegate instructions.
+      // Rendering both creates conflicting delegation paths that confuse the bot.
+      const hasTeamContext = !!deployment.teamContext?.teammates?.length;
+      if (!hasTeamContext && deployment.teamMembers && deployment.teamMembers.length > 0) {
         const lines = deployment.teamMembers.map((m) =>
           `- **${m.slug}** - ${m.name}${m.role ? `: ${m.role}` : ""}`
         );

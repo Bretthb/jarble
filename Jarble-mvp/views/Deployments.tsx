@@ -2858,6 +2858,13 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
         type: (n.type === "flowDeployment" ? "deployment" : (n.type ?? "deployment")) as "deployment" | "transform" | "condition" | "output",
         deploymentId: n.data?.id,
         label: n.data?.name ?? n.id,
+        // Bot team fields — must be at top level for backend to read them.
+        // Also kept in config for backwards compat with older saved flows.
+        role: n.data?.role || undefined,
+        goal: n.data?.goal || undefined,
+        canDelegate: n.data?.canDelegate ?? true,
+        contextScope: n.data?.contextScope || undefined,
+        isEntryPoint: n.data?.isEntryPoint || false,
         config: {
           role: n.data?.role || "",
           goal: n.data?.goal || "",
