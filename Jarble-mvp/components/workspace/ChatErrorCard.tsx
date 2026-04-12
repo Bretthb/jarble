@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useState } from "react";
-import { AlertTriangle, RefreshCw, Play, Stethoscope, CheckCircle2, AlertCircle, XCircle, MinusCircle, ChevronDown, ChevronUp } from "lucide-react";
+import { AlertTriangle, RefreshCw, Play, Stethoscope, CheckCircle2, AlertCircle, XCircle, MinusCircle, ChevronDown, ChevronUp, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { DiagnosticCheck, DiagnosticResult } from "@/hooks/useDiagnose";
@@ -13,6 +13,7 @@ export interface ClassifiedChatError {
   canRetry: boolean;
   canStart: boolean;
   canDiagnose: boolean;
+  canTopUp?: boolean;
 }
 
 interface ChatErrorCardProps {
@@ -20,6 +21,7 @@ interface ChatErrorCardProps {
   onRetry?: () => void;
   onStartBot?: () => void;
   onDiagnose?: () => void;
+  onTopUp?: () => void;
   diagnosis?: DiagnosticResult | null;
   isDiagnosing?: boolean;
 }
@@ -43,6 +45,7 @@ function ChatErrorCardInner({
   onRetry,
   onStartBot,
   onDiagnose,
+  onTopUp,
   diagnosis,
   isDiagnosing,
 }: ChatErrorCardProps) {
@@ -88,6 +91,12 @@ function ChatErrorCardInner({
           <Button variant="default" size="sm" onClick={onStartBot} className="h-7 text-xs gap-1.5">
             <Play className="w-3 h-3" />
             Start Agent
+          </Button>
+        )}
+        {error.canTopUp && onTopUp && (
+          <Button variant="default" size="sm" onClick={onTopUp} className="h-7 text-xs gap-1.5">
+            <Zap className="w-3 h-3" />
+            Add Credits
           </Button>
         )}
       </div>

@@ -34,6 +34,7 @@ import TeamMembershipsPanel from "@/components/workspace/TeamMembershipsPanel";
 import TeamSessionsPanel from "@/components/workspace/TeamSessionsPanel";
 import DebugTracePanel from "@/components/workspace/DebugTracePanel";
 import { MemoryDisclosureBanner, type MemoryScope } from "@/components/chat/MemoryDisclosureBanner";
+import { CreditStatusBanner } from "@/components/chat/CreditStatusBanner";
 import { ArrowLeft, Loader2, SendHorizontal, Square, Settings, Store, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Bot, Users, Activity, ArrowUpRight } from "lucide-react";
 import { useReducer, useRef, useState, useCallback, useEffect, useMemo, memo } from "react";
 import { cn } from "@/lib/utils";
@@ -708,6 +709,7 @@ function CanvasWorkspace({
    *  the chat. Read from the deployment record on the parent. */
   memoryScope?: string | null;
 }) {
+  const router = useRouter();
   const { getAccessTokenSilently } = useAuth0();
   const startMutation = trpc.deployment.start.useMutation();
   const [state, dispatch] = useReducer(canvasReducer, INITIAL_CANVAS_STATE);
@@ -955,6 +957,7 @@ function CanvasWorkspace({
             "global" until set). The banner is intentionally persistent
             in global mode — that's the privacy-loaded default. */}
         <MemoryDisclosureBanner scope={(memoryScope ?? null) as MemoryScope | null} />
+        <CreditStatusBanner deploymentId={deploymentId} className="mx-3 mt-2" />
         {/* Chat messages via assistant-ui - keyed so runtime resets on conversation switch */}
         <KeyedChatPanel
           key={activeConversationId ?? "default"}
@@ -983,6 +986,9 @@ function CanvasWorkspace({
                   onSuccess: () => clearChatError(),
                   onError: (err) => console.error("[Jarble:Chat] Start bot failed:", err.message),
                 });
+              } : undefined}
+              onTopUp={lastChatError.canTopUp ? () => {
+                router.push(`/d/${deploymentId}?tab=model`);
               } : undefined}
             />
           </div>

@@ -13,6 +13,7 @@ export type ChatErrorCode =
   | "DEPLOYMENT_NOT_RUNNING"
   | "POD_CRASH_LOOP"
   | "BOT_EMPTY_RESPONSE"
+  | "CREDITS_EXHAUSTED"
   | "UNKNOWN";
 
 export interface ClassifiedError {
@@ -22,6 +23,7 @@ export interface ClassifiedError {
   canRetry: boolean;
   canStart: boolean;
   canDiagnose: boolean;
+  canTopUp?: boolean;
 }
 
 interface ClassifyContext {
@@ -32,6 +34,18 @@ const ERROR_MAP: Array<{
   pattern: RegExp | ((msg: string, ctx: ClassifyContext) => boolean);
   result: ClassifiedError;
 }> = [
+  {
+    pattern: /\b402\b|Payment Required|insufficient credit|insufficient.*balance|out of credit|credits? exhausted|quota exceeded/i,
+    result: {
+      code: "CREDITS_EXHAUSTED",
+      message: "Managed credits exhausted",
+      suggestion: "Add credits to your deployment to continue chatting",
+      canRetry: false,
+      canStart: false,
+      canDiagnose: false,
+      canTopUp: true,
+    },
+  },
   {
     pattern: /execInPod timed out/i,
     result: {

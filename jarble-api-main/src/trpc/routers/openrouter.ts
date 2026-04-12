@@ -9,6 +9,7 @@ import {
   provisionOpenRouterKey,
   revokeOpenRouterKey,
   getOpenRouterKeyUsage,
+  getOpenRouterCreditStatus,
   updateOpenRouterKeyLimit,
 } from "../../utils/openrouter.js";
 import { encryptApiKey } from "../../utils/encryption.js";
@@ -235,6 +236,49 @@ export const openrouterRouter = router({
       }
 
       return getOpenRouterKeyUsage(keyId);
+    }),
+
+  // Get structured credit status (ok/warning/exhausted) for a deployment.
+  // Returns null for BYOK deployments or when the Management API is not configured.
+  // Resolves the linked pool owner's key when this deployment is linked.
+  creditStatus: protectedProcedure
+    .input(z.object({ deploymentId: z.string() }))
+    .query(async ({ ctx, input }) => {
+      if (!env.OPENROUTER_MANAGEMENT_KEY) {
+        return null;
+      }
+
+      const deployment = await ctx.db.query.deployments.findFirst({
+        where: and(
+          eq(deployments.id, input.deploymentId),
+          eq(deployments.userId, ctx.user.id),
+        ),
+      });
+
+      if (!deployment) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      }
+
+      if (deployment.llmMode !== "included") {
+        return null; // BYOK deployments don't have managed credits
+      }
+
+      // Resolve linked pool owner's key
+      let keyId = deployment.llmApiKeyId;
+      const sourceId = deployment.llmApiKeySourceDeploymentId;
+      if (sourceId) {
+        const owner = await ctx.db.query.deployments.findFirst({
+          where: and(
+            eq(deployments.id, sourceId),
+            eq(deployments.userId, ctx.user.id),
+          ),
+        });
+        keyId = owner?.llmApiKeyId || keyId;
+      }
+
+      if (!keyId) return null;
+
+      return getOpenRouterCreditStatus(keyId);
     }),
 
   // Update the credit limit for an included-credits deployment

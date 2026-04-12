@@ -211,6 +211,26 @@ export async function getOpenRouterKeyUsage(hash: string): Promise<KeyUsage | nu
   }
 }
 
+// ── Credit Status ──────────────────────────────────────────────────────
+//
+// Pure classifier lives in `./creditStatus.ts` so it can be imported
+// without pulling in env + fetch. This wrapper composes it with the
+// management-API fetch.
+
+import { classifyCreditUsage, type CreditStatus } from "./creditStatus.js";
+export { classifyCreditUsage } from "./creditStatus.js";
+export type { CreditLevel, CreditStatus } from "./creditStatus.js";
+export { CREDIT_WARNING_THRESHOLD, CREDIT_EXHAUSTED_THRESHOLD } from "./creditStatus.js";
+
+/**
+ * Fetch credit status for an OpenRouter key hash. Null if API not configured
+ * or key not found.
+ */
+export async function getOpenRouterCreditStatus(hash: string): Promise<CreditStatus | null> {
+  const usage = await getOpenRouterKeyUsage(hash);
+  return classifyCreditUsage(usage);
+}
+
 /**
  * Update an OpenRouter key's spending limit.
  *

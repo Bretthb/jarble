@@ -48,6 +48,7 @@ import {
   type ComponentDefinition,
 } from "../utils/componentResolver.js";
 import { classifyError } from "../utils/chatErrors.js";
+import { getOpenRouterCreditStatus } from "../utils/openrouter.js";
 import { generateSuggestions } from "../services/suggestions.js";
 import { generateReasoning } from "../services/reasoning.js";
 import { sessionManager } from "../services/chatSessionManager.js";
@@ -951,6 +952,50 @@ tamboAgentRouter.post("/", async (req, res) => {
     sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
     res.end();
     return;
+  }
+
+  // Preflight managed-credits check. For "included" deployments, we look up
+  // the OpenRouter key's current usage and fail fast with a structured error
+  // if the monthly cap is exhausted — otherwise the request would hit the
+  // pod, round-trip to OpenRouter, and return an opaque 402.
+  if (deployment.llmMode === "included") {
+    let keyIdForCredits = deployment.llmApiKeyId;
+    const sourceDeploymentId = deployment.llmApiKeySourceDeploymentId;
+    if (sourceDeploymentId) {
+      const owner = await db.query.deployments.findFirst({
+        where: eq(tables.deployments.id, sourceDeploymentId),
+      });
+      keyIdForCredits = owner?.llmApiKeyId || keyIdForCredits;
+    }
+
+    if (keyIdForCredits) {
+      try {
+        const creditStatus = await getOpenRouterCreditStatus(keyIdForCredits);
+        if (creditStatus && creditStatus.level === "exhausted") {
+          const classified = classifyError("insufficient credits", {});
+          const messageId = nanoid();
+          sendEvent(res, { type: "TEXT_MESSAGE_START", messageId, role: "assistant" });
+          sendEvent(res, {
+            type: "TEXT_MESSAGE_CONTENT",
+            messageId,
+            delta: "Your managed credits are exhausted for this billing cycle. Add credits or upgrade your plan to keep chatting.",
+          });
+          sendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+          sendEvent(res, {
+            type: CUSTOM,
+            name: CUSTOM_CHAT_ERROR,
+            value: { error: classified, creditStatus },
+          });
+          sendEvent(res, { type: "RUN_FINISHED", runId, threadId });
+          res.end();
+          return;
+        }
+      } catch (err) {
+        // Non-fatal: if the Management API is flaky we'd rather let the
+        // chat proceed and surface any 402 downstream than block the user.
+        log.warn({ err, deploymentId }, "Chat: credit preflight check failed, continuing");
+      }
+    }
   }
 
   const messageId = nanoid();
