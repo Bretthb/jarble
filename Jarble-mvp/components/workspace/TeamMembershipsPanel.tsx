@@ -26,6 +26,7 @@ import { X, Users, Crown, ExternalLink, Loader2, Check, Zap } from "lucide-react
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import TeamTopologyMiniGraph from "./TeamTopologyMiniGraph";
 
 interface TeamMembershipsPanelProps {
   deploymentId: string;
@@ -115,7 +116,7 @@ export default function TeamMembershipsPanel({
               type="button"
               size="sm"
               variant="outline"
-              onClick={() => router.push("/deployments")}
+              onClick={() => router.push("/dashboard")}
               className="mt-2"
             >
               Open Agent Teams
@@ -186,7 +187,7 @@ export default function TeamMembershipsPanel({
                         variant="ghost"
                         className="h-7 px-2 text-xs"
                         onClick={() =>
-                          router.push(`/deployments?tab=botteams&flow=${m.flowId}`)
+                          router.push(`/dashboard`)
                         }
                         aria-label={`Open ${m.flowName} in Agent Teams`}
                       >
@@ -195,6 +196,22 @@ export default function TeamMembershipsPanel({
                     </div>
                   </div>
                 </div>
+
+                {/* Mini topology visualization */}
+                {(m as any).edges?.length > 0 && (
+                  <div className="px-2 py-3 border-b border-border/40">
+                    <TeamTopologyMiniGraph
+                      selfNodeId={m.nodeId}
+                      selfDeploymentId={deploymentId}
+                      selfName={(deploymentQuery.data as any)?.name ?? "This agent"}
+                      selfRoleLabel={m.roleLabel}
+                      selfIsEntry={m.isEntry}
+                      entryNodeId={m.entryNodeId}
+                      teammates={m.teammates}
+                      edges={(m as any).edges}
+                    />
+                  </div>
+                )}
 
                 {/* Teammates list */}
                 {m.teammates.length === 0 ? (

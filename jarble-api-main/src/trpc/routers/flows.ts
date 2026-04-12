@@ -452,6 +452,16 @@ export const flowsRouter = router({
         const isEntry = m.flowEntryNodeId === m.nodeId;
         const roleLabel =
           selfNode?.role || selfNode?.label || (isEntry ? "Entry" : "Member");
+        // Extract edges connecting nodes in this flow for the mini topology viz.
+        // Only include edges whose source AND target are known node IDs.
+        const nodeIds = new Set(nodes.map((n: any) => n?.id).filter(Boolean));
+        const flowEdges = (definition.edges || [])
+          .filter((e: any) => e?.source && e?.target && nodeIds.has(e.source) && nodeIds.has(e.target) && e.source !== e.target)
+          .map((e: any) => ({
+            sourceNodeId: e.source as string,
+            targetNodeId: e.target as string,
+            type: (e.type || e.label || "delegates") as string,
+          }));
         return {
           flowId: m.flowId,
           flowName: m.flowName,
@@ -461,6 +471,7 @@ export const flowsRouter = router({
           isEntry,
           roleLabel,
           teammateNodes,
+          flowEdges,
         };
       });
 
@@ -519,6 +530,8 @@ export const flowsRouter = router({
           isEntry: f.isEntry,
           roleLabel: f.roleLabel,
           teammates,
+          // Mini topology edges for the team visualization on /d/[id]
+          edges: f.flowEdges,
         };
       });
     }),
