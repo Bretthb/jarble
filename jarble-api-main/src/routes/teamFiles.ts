@@ -1,7 +1,9 @@
 import { Router, Request, Response } from "express";
 import { nanoid } from "nanoid";
+import { eq } from "drizzle-orm";
 import { Readable } from "stream";
 import { createModuleLogger } from "../utils/logger.js";
+import { db, tables } from "../db/index.js";
 import {
   uploadTeamFile,
   downloadTeamFile,
@@ -11,6 +13,24 @@ import {
 } from "../services/teamFileStore.js";
 // NOTE: authenticatePod is applied at mount level in index.ts — not needed here
 const logger = createModuleLogger("teamFiles");
+
+/**
+ * Verify that the requesting deployment is a member of the given flow.
+ * Skips the check when flowId equals the deployment ID (solo file storage)
+ * or is "default" (no flow context).
+ */
+async function verifyFlowMembership(deploymentId: string, flowId: string): Promise<boolean> {
+  if (!flowId || flowId === "default" || flowId === deploymentId) return true;
+  const membership = await db.query.flowDeploymentMemberships.findFirst({
+    where: eq(tables.flowDeploymentMemberships.deploymentId, deploymentId),
+  });
+  if (!membership) return false;
+  // Check if any of the deployment's flow memberships match the requested flowId
+  const memberships = await db.query.flowDeploymentMemberships.findMany({
+    where: eq(tables.flowDeploymentMemberships.deploymentId, deploymentId),
+  });
+  return memberships.some((m) => m.flowId === flowId);
+}
 
 export const teamFilesRouter = Router();
 
@@ -52,6 +72,13 @@ teamFilesRouter.post("/upload", async (req: Request, res: Response) => {
       return;
     }
 
+    // Verify the requesting deployment is a member of the flow
+    const deploymentId = req.headers["x-deployment-id"] as string;
+    if (!(await verifyFlowMembership(deploymentId, flowId))) {
+      res.status(403).json({ error: "Deployment is not a member of the specified flow" });
+      return;
+    }
+
     // Decode base64 and check size
     let buffer: Buffer;
     try {
@@ -74,7 +101,6 @@ teamFilesRouter.post("/upload", async (req: Request, res: Response) => {
     }
 
     const fileId = nanoid();
-    const deploymentId = req.headers["x-deployment-id"] as string;
 
     const { key, size } = await uploadTeamFile({
       flowId,
@@ -118,6 +144,12 @@ teamFilesRouter.get("/list", async (req: Request, res: Response) => {
       return;
     }
 
+    const deploymentId = req.headers["x-deployment-id"] as string;
+    if (!(await verifyFlowMembership(deploymentId, flowId))) {
+      res.status(403).json({ error: "Deployment is not a member of the specified flow" });
+      return;
+    }
+
     const files = await listTeamFiles(flowId, sessionId);
 
     res.json({
@@ -147,6 +179,12 @@ teamFilesRouter.get("/:fileId", async (req: Request, res: Response) => {
 
     if (!flowId || !sessionId) {
       res.status(400).json({ error: "Missing 'flowId' or 'sessionId' query parameters" });
+      return;
+    }
+
+    const deploymentId = req.headers["x-deployment-id"] as string;
+    if (!(await verifyFlowMembership(deploymentId, flowId))) {
+      res.status(403).json({ error: "Deployment is not a member of the specified flow" });
       return;
     }
 
