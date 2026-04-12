@@ -35,6 +35,7 @@ import StepName from "./onboarding/steps/StepName";
 import StepChooseRuntime from "./onboarding/steps/StepChooseRuntime";
 import StepLlmSetup from "./onboarding/steps/StepLlmSetup";
 import StepDeploy from "./onboarding/steps/StepDeploy";
+import { needsConsent, CURRENT_TOS_VERSION } from "@/lib/consent";
 
 // ─── Main Component ──────────────────────────────────────────────────
 
@@ -160,6 +161,30 @@ export default function OnboardingWizard() {
   const [memoryMb, setMemoryMb] = useState<number | null>(null);
   const [storageMb, setStorageMb] = useState<number | null>(null);
 
+  // JAR-TOS: consent gate state. Fetches the user profile to check if
+  // they have already accepted the current Terms and Privacy Policy.
+  // For brand-new users the profile is fresh and tosAcceptedAt is null,
+  // so the wizard's first step renders a ConsentGate that must be
+  // checked before Continue is enabled. Existing users who have already
+  // accepted see no gate. Returning users hit the global ConsentModal
+  // first (see layout providers) and never reach the wizard until they
+  // accept, so this inline gate is primarily for the first-signup path.
+  const profileQuery = trpc.user.getProfile.useQuery(undefined, {
+    enabled: isAuthenticated && !authLoading,
+    staleTime: 10_000,
+  });
+  const mustAcceptConsent = needsConsent(profileQuery.data);
+  const [consentChecked, setConsentChecked] = useState(false);
+  const utils = trpc.useUtils();
+  const acceptTermsMutation = trpc.user.acceptTerms.useMutation({
+    onSuccess: async () => {
+      await utils.user.getProfile.invalidate();
+    },
+    onError: (error: { message?: string }) => {
+      toast.error(error.message || "Failed to record consent. Please try again.");
+    },
+  });
+
   // Derived steps
   const steps = getWizardSteps(selectedRuntimeSlug);
   const currentStep = steps[currentStepIndex];
@@ -277,6 +302,11 @@ export default function OnboardingWizard() {
   const canProceed = (): boolean => {
     switch (currentStepId) {
       case "name":
+        // JAR-TOS: the first-step consent gate blocks Continue until the
+        // user has ticked the ConsentGate checkbox. Existing users who
+        // already accepted get mustAcceptConsent=false and skip this
+        // branch.
+        if (mustAcceptConsent && !consentChecked) return false;
         return deploymentName.trim().length >= 2;
       case "runtime":
         return selectedRuntimeId !== null;
@@ -294,6 +324,19 @@ export default function OnboardingWizard() {
   const hasDeployed = !!createdDeploymentId && !isDeploying && deployPhase !== "idle";
 
   const handleNext = async () => {
+    // JAR-TOS: if the consent gate is active on the name step, record
+    // acceptance before advancing. Blocks navigation if the mutation
+    // fails so the user cannot slip past the gate.
+    if (currentStepId === "name" && mustAcceptConsent && consentChecked) {
+      try {
+        await acceptTermsMutation.mutateAsync({ tosVersion: CURRENT_TOS_VERSION });
+      } catch {
+        // acceptTermsMutation.onError already toasts; keep the user on
+        // this step so they can retry.
+        return;
+      }
+    }
+
     if (currentStepId === "deploy" && !isDeploying && deployPhase === "idle") {
       setIsDeploying(true);
       if (!user?.email_verified) {
@@ -484,7 +527,13 @@ export default function OnboardingWizard() {
               transition={{ duration: 0.2, ease: "easeOut" }}
             >
               {currentStepId === "name" && (
-                <StepName name={deploymentName} setName={setDeploymentName} />
+                <StepName
+                  name={deploymentName}
+                  setName={setDeploymentName}
+                  showConsentGate={mustAcceptConsent}
+                  consentChecked={consentChecked}
+                  onConsentChange={setConsentChecked}
+                />
               )}
               {currentStepId === "runtime" && (
                 <StepChooseRuntime

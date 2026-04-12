@@ -28,6 +28,10 @@ export const users = sqliteTable("users", {
   pendingStripeSubscriptionId: text("pending_stripe_subscription_id"),
   freeDeploymentUsed: integer("free_deployment_used", { mode: "boolean" }).notNull().default(false),
   freeTrialExpiresAt: text("free_trial_expires_at"),
+  // JAR-TOS: consent tracking mirror of schema.pg.ts
+  tosAcceptedAt: text("tos_accepted_at"),
+  tosVersion: text("tos_version"),
+  privacyAcceptedAt: text("privacy_accepted_at"),
   createdAt: text("created_at").notNull().$defaultFn(now),
   updatedAt: text("updated_at").notNull().$defaultFn(now),
 });

@@ -4,10 +4,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CheckCircle2, Server } from "lucide-react";
 import { trpc } from "@/lib/trpc";
+import { ConsentGate } from "@/components/legal/ConsentGate";
 
 interface StepNameProps {
   name: string;
   setName: (name: string) => void;
+  /**
+   * JAR-TOS: when true, render the consent gate before the name input.
+   * Driven by the OnboardingWizard's profile query: only brand-new
+   * users with a null tosAcceptedAt see this.
+   */
+  showConsentGate?: boolean;
+  consentChecked?: boolean;
+  onConsentChange?: (checked: boolean) => void;
 }
 
 function ServerSlots() {
@@ -54,7 +63,13 @@ function ServerSlots() {
   );
 }
 
-export default function StepName({ name, setName }: StepNameProps) {
+export default function StepName({
+  name,
+  setName,
+  showConsentGate = false,
+  consentChecked = false,
+  onConsentChange,
+}: StepNameProps) {
   return (
     <div className="space-y-6">
       <div>
@@ -64,6 +79,17 @@ export default function StepName({ name, setName }: StepNameProps) {
         </p>
       </div>
       <ServerSlots />
+      {showConsentGate && (
+        <div
+          className="rounded-lg border border-border bg-secondary/30 p-4"
+          data-testid="consent-gate-wrapper"
+        >
+          <ConsentGate
+            checked={consentChecked}
+            onCheckedChange={onConsentChange}
+          />
+        </div>
+      )}
       <div>
         <Label htmlFor="deploymentName" className="mb-2 block">
           Deployment Name

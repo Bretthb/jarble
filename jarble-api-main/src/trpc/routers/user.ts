@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, publicProcedure, protectedProcedure } from "../middleware.js";
-import { tables } from "../../db/index.js";
+import { tables, dbDate } from "../../db/index.js";
 import { eq } from "drizzle-orm";
 import { env } from "../../utils/env.js";
 import { logger } from "../../utils/logger.js";
@@ -51,6 +51,38 @@ export const userRouter = router({
       return ctx.db.query.users.findFirst({
         where: eq(users.id, ctx.user.id),
       });
+    }),
+
+  // Record that the authenticated user has accepted the current Terms of
+  // Service and Privacy Policy. Writes tos_accepted_at, tos_version, and
+  // privacy_accepted_at. Both the signup-flow checkbox and the returning-
+  // user consent modal call this. Idempotent — calling it a second time
+  // just bumps the timestamps. JAR-TOS gate.
+  acceptTerms: protectedProcedure
+    .input(z.object({
+      // Version string the client was shown. Locked to a short list so a
+      // stale client can't claim acceptance of a version that never
+      // existed. Bumping this requires shipping a new client and a new
+      // backend version in the same deploy.
+      tosVersion: z.enum(["1.0"]),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      // dbDate() returns a real Date in Postgres and an ISO string under
+      // the SQLite test mirror, so the row update works in both runtimes.
+      const now = dbDate();
+      await ctx.db
+        .update(users)
+        .set({
+          tosAcceptedAt: now,
+          tosVersion: input.tosVersion,
+          privacyAcceptedAt: now,
+        } as any)
+        .where(eq(users.id, ctx.user.id));
+      logger.info(
+        { userId: ctx.user.id, tosVersion: input.tosVersion },
+        "User accepted Terms of Service and Privacy Policy",
+      );
+      return { success: true, tosVersion: input.tosVersion, acceptedAt: now };
     }),
 
   // Resend email verification via Auth0 Management API
