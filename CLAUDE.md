@@ -43,7 +43,7 @@ Each deployment gets a **web chat interface** (`/d/[id]`) with rich UI component
 │   ├── ORCHESTRATION-SPEC.md # Flow engine spec
 │   └── audits/          # Security/code audit reports
 ├── infrastructure/      # Terraform IaC + Auth0 config
-└── runtimes/            # Bot runtime implementations (openclaw, zeroclaw)
+└── runtimes/            # Agent runtime implementations (openclaw, zeroclaw)
 ```
 
 ## Common Commands
@@ -128,6 +128,22 @@ DAG-based pipeline executor with 6 node types, cycle support, HITL (`waitForInpu
 
 - **Never use em dashes (—) in user-facing frontend text.** Use commas, periods, or rewrite the sentence instead.
 
+### Terminology
+
+The platform uses "agent" in all user-facing copy and documentation (renamed from "bot" in PR #123). Internal code identifiers that still contain `bot` are intentional and kept for backwards compatibility — renaming them requires coordinated cross-file migrations tracked as follow-up work. Specifically these stay as-is:
+
+- File names: `botAsk.ts`, `botResponseErrorShape.ts`, `chatWithBot.ts`
+- Identifiers: `BotResponseError`, `botText`, `botResponse`, `botteams` DashboardTab union key
+- URL paths: `/api/bot/*`
+- SSE event types: `jarble.bot.*`
+- DB columns: `bot_*`
+- MCP tool names: `chatWithBot`
+- Env vars: `BOT_TOKEN`, `TELEGRAM_BOT_TOKEN`
+- Historical audit filenames: `docs/audits/bot-teams-*.md`
+- Lucide `Bot` icon (no `Agent` icon exists in `lucide-react`)
+
+When writing new user-facing strings, use "agent". When writing new internal code, prefer "agent" for new symbols but do not rename existing ones ad-hoc.
+
 ## Key Patterns
 
 ### Adding a New Runtime
@@ -160,6 +176,18 @@ DAG-based pipeline executor with 6 node types, cycle support, HITL (`waitForInpu
 2. Add a handler branch in `FlowEngine.executeStep()` — call the appropriate private method (follow the pattern of `executeTransformNode`, `executeConditionNode`, etc.)
 3. Add the new node type to the `@xyflow/react` node-type registry in `Jarble-mvp/views/Deployments.tsx` with a matching custom node component
 4. Update the `generateFromPrompt` system prompt in `flows.ts` so the LLM knows the new type exists
+
+### TOS Consent Gate (JAR-64)
+
+The `users` table has three nullable consent fields: `tosAcceptedAt`, `tosVersion`, `privacyAcceptedAt`. A null `tosAcceptedAt` is the signal that the user has not accepted the current version — this is deliberate, existing users are NOT backfilled.
+
+- **Backend**: `trpc.user.acceptTerms({ tosVersion })` writes all three fields. The `tosVersion` is a Zod enum locked to a short allow-list so a stale client cannot claim acceptance of a version that never existed. Uses `dbDate()` so it works under both Postgres and the SQLite test mirror.
+- **Frontend version source of truth**: `Jarble-mvp/lib/consent.ts:CURRENT_TOS_VERSION`. Must stay in sync with the backend zod enum. Bumping this forces every existing user to re-accept on their next login.
+- **Global modal**: `<ConsentModal />` mounted in `Jarble-mvp/app/providers.tsx` renders on every authenticated page when `needsConsent(profile)` is true. Blocks Escape, outside click, and close button. Self-hides on `/login`, `/register`, `/legal/*`, `/terms`, `/privacy`, `/about`, `/pricing`, and `/` so users can read the pages they are agreeing to.
+- **Inline gate**: `<ConsentGate />` renders inside the first onboarding wizard step (`StepName.tsx`) when the profile has a null `tosAcceptedAt`. `OnboardingWizard.tsx:canProceed` blocks the Continue button; `handleNext` awaits the `acceptTerms` mutation before advancing.
+- **Canonical legal URLs**: `/legal/terms` and `/legal/privacy` re-export the existing `Terms` and `Privacy` views and are the URLs linked from both gates. `/terms` and `/privacy` still work as aliases.
+
+To bump the TOS version: change `CURRENT_TOS_VERSION` in `lib/consent.ts` AND the `z.enum([...])` in `jarble-api-main/src/trpc/routers/user.ts::acceptTerms` in the same commit, deploy API + frontend together.
 
 ### Claude Max OAuth Tokens
 `sk-ant-oat*` tokens can't be validated via Anthropic API — auto-passed by prefix in `openrouter.ts:validateProviderKey`. Use Bearer auth (not `x-api-key`).
@@ -201,13 +229,31 @@ MySQL and SQLite providers were removed in commit `388018b "Remove MySQL, SQLite
 
 The `src/db/` directory now contains: `index.ts`, `init.ts`, `migrate.pg.ts`, `schema.pg.ts`, `seed.pg.ts`.
 
-`db/init.ts` is now a no-op stub kept for backward compatibility with the startup sequence. Schema changes are applied via `npm run db:migrate` (Drizzle migrations against Neon Postgres).
+`db/init.ts` is a no-op stub kept for backward compatibility with the startup sequence.
+
+### Applying schema changes — the custom migrator
+
+Production does NOT use `drizzle-kit migrate`. It uses a **custom migrator** at `jarble-api-main/src/db/migrate.pg.ts`, invoked by `entrypoint.sh` on every pod start. The custom migrator:
+
+1. Reads every `.sql` file in `drizzle-pg/` sorted by filename
+2. Tracks applied migrations in a `_jarble_applied_migrations` table (separate from drizzle's `__drizzle_migrations`)
+3. On first run with a legacy `schema-pushed-directly` marker, backfills the tracker so existing schema is marked applied
+4. Tolerates `already exists` / `duplicate column` errors so partially-applied migrations retry safely
+
+**The packaged `npm run db:migrate:pg` script runs `drizzle-kit migrate`, which short-circuits on the legacy marker and does NOT apply new migrations in production.** Running it locally will silently do nothing. To apply a migration locally against the Neon dev branch:
+
+```bash
+cd jarble-api-main && npx tsx src/db/migrate.pg.ts
+```
 
 When adding tables or columns:
 1. Edit `schema.pg.ts`
-2. Run `npm run db:generate:pg` to generate the migration
-3. Run `npm run db:migrate:pg` to apply it
+2. Hand-write the `.sql` file in `drizzle-pg/` with the next sequential number. The committed `_journal.json` is drifted and is not maintained by this repo — production ignores it, so do not waste time running `db:generate:pg` unless you need the snapshot locally
+3. Apply via the custom migrator above to verify on your Neon dev branch
 4. Update `db/index.ts` `tables` export if the new table needs to be accessible via the `tables` helper
+5. Mirror the column in `src/__tests__/helpers/testSchema.sqlite.ts` AND the raw `CREATE TABLE` block in `src/__tests__/helpers/testDb.ts` so Vitest coverage works
+
+On merge to main/develop, the next API pod restart runs `migrate.pg.ts` automatically and picks up the new `.sql` file.
 
 ### Unit test mirror (NOT a production provider)
 `jarble-api-main/src/__tests__/helpers/testSchema.sqlite.ts` is an in-memory SQLite mirror of the Postgres schema used exclusively by Vitest tests via `better-sqlite3`. It does not need to stay in sync automatically, but it should mirror any new tables added to `schema.pg.ts` so tests can cover the new paths.
