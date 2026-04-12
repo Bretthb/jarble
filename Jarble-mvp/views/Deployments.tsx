@@ -2866,6 +2866,8 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
   const [flowChatMessages, setFlowChatMessages] = useState<Array<{
     role: string;
     content: string;
+    /** Phase 2 group-chat: server-assigned message ID for matching CONTENT to the right bubble. */
+    _messageId?: string | null;
     /** Phase 2 group-chat: which bot produced this message. */
     sourceRole?: string | null;
     /** Phase 2 group-chat: deployment ID for avatar color. */
@@ -3513,6 +3515,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                   {
                     role: "assistant" as const,
                     content: "",
+                    _messageId: currentMsgId,
                     sourceRole: data.sourceRole || null,
                     sourceDeploymentId: data.sourceDeploymentId || null,
                     phase: data.phase || null,
@@ -3529,10 +3532,22 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
 
                 setFlowChatMessages((prevMsgs) => {
                   const msgs = [...prevMsgs];
-                  // Find the message for this messageId by walking backward
-                  // and matching the sourceRole/content association. For
-                  // backward compat with old servers (no per-specialist
-                  // messageId), fall back to updating the last assistant msg.
+                  // Match CONTENT to the correct message by _messageId.
+                  // This is critical for parallel fan-out: if Specialist's
+                  // START and Analyst's START both fire before any CONTENT
+                  // arrives (React batching), "find last assistant" would
+                  // update the WRONG message. Matching by _messageId is
+                  // deterministic regardless of batching order.
+                  if (mid) {
+                    for (let j = msgs.length - 1; j >= 0; j--) {
+                      if (msgs[j]._messageId === mid) {
+                        msgs[j] = { ...msgs[j], content: updated };
+                        return msgs;
+                      }
+                    }
+                  }
+                  // Fallback: no _messageId match (old server or missing ID).
+                  // Update the last assistant message.
                   for (let j = msgs.length - 1; j >= 0; j--) {
                     if (msgs[j].role === "assistant") {
                       msgs[j] = { ...msgs[j], content: updated };
