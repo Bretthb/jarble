@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useRef, useState } from "react";
 import { motion, useInView } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 
 export interface CanvasProgressProps {
   label?: string;
@@ -79,10 +80,7 @@ function CanvasProgressInner({ label, value, variant = "default" }: CanvasProgre
   const countUp = useCountUp(clamped, 1400);
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+    <FadeIn
       className={[
         "relative overflow-hidden p-4 h-full flex flex-col justify-center gap-3",
         "rounded-xl border border-border/40",
@@ -135,7 +133,7 @@ function CanvasProgressInner({ label, value, variant = "default" }: CanvasProgre
           />
         </div>
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 

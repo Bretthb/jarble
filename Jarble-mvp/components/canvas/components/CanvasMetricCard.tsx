@@ -7,7 +7,8 @@ import {
   ResponsiveContainer,
   YAxis,
 } from "recharts";
-import { motion, useInView } from "framer-motion";
+import { useInView } from "framer-motion";
+import { FadeIn } from "../FadeIn";
 
 export interface CanvasMetricCardProps {
   label?: string;
@@ -153,12 +154,9 @@ function CanvasMetricCardInner({
   const countUp = useCountUp(isWholeNumber ? numericValue! : 0, 1400);
 
   return (
-    <motion.div
+    <FadeIn
       role="article"
       aria-label={`${label}: ${value}${change ? `, ${change}` : ""}`}
-      initial={{ opacity: 0, y: 8, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
       className={[
         "relative overflow-hidden p-4 h-full rounded-xl",
         "border-l-[3px]",
@@ -264,7 +262,7 @@ function CanvasMetricCardInner({
           </div>
         )}
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 

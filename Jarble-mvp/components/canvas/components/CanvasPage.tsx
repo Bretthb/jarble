@@ -2,6 +2,7 @@
 
 import { memo } from "react";
 import CanvasRenderer from "../CanvasRenderer";
+import { FadeIn } from "../FadeIn";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -440,7 +441,7 @@ function CanvasPageInner({ type, title, subtitle, sections, navigation }: Canvas
   })();
 
   return (
-    <div className="p-4 h-full overflow-auto">
+    <FadeIn className="p-4 h-full overflow-auto">
       {/* Title area */}
       <div className="mb-6">
         <h1 className="text-xl font-bold text-foreground">{title}</h1>
@@ -449,7 +450,7 @@ function CanvasPageInner({ type, title, subtitle, sections, navigation }: Canvas
         )}
       </div>
       {layoutContent}
-    </div>
+    </FadeIn>
   );
 }
 

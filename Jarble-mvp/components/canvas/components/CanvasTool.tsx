@@ -4,6 +4,7 @@ import React, { memo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronRight, Wrench, Check, Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FadeIn } from "../FadeIn";
 
 export interface CanvasToolProps {
   name: string;
@@ -63,12 +64,7 @@ function CanvasToolInner({ name, description, status, inputs, output, error, dur
   const Icon = cfg.icon;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25 }}
-      className="p-3 h-full space-y-2"
-    >
+    <FadeIn className="p-3 h-full space-y-2">
       <div className="flex items-center gap-2">
         <Wrench className="w-4 h-4 text-muted-foreground-subtle shrink-0" />
         <code className="text-sm font-medium font-mono text-foreground/90">{name}</code>
@@ -110,7 +106,7 @@ function CanvasToolInner({ name, description, status, inputs, output, error, dur
           </Section>
         </div>
       )}
-    </motion.div>
+    </FadeIn>
   );
 }
 

@@ -2,6 +2,7 @@
 
 import { memo } from "react";
 import dynamic from "next/dynamic";
+import { FadeIn } from "../FadeIn";
 
 // Leaflet CSS must be imported for proper rendering
 import "leaflet/dist/leaflet.css";
@@ -45,7 +46,7 @@ function CanvasMapInner({
     : {};
 
   return (
-    <div className="p-4 h-full" style={containerStyle} role="region" aria-label={title || "Interactive map"}>
+    <FadeIn className="p-4 h-full" style={containerStyle} role="region" aria-label={title || "Interactive map"}>
       {title && (
         <h3 className="text-sm font-semibold text-foreground mb-3 shrink-0">{title}</h3>
       )}
@@ -67,7 +68,7 @@ function CanvasMapInner({
           ))}
         </MapContainer>
       </div>
-    </div>
+    </FadeIn>
   );
 }
 

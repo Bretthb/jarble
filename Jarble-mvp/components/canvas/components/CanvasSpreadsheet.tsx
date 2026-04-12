@@ -2,6 +2,7 @@
 
 import { memo } from "react";
 import dynamic from "next/dynamic";
+import { FadeIn } from "../FadeIn";
 
 const Workbook = dynamic(
   () => import("@fortune-sheet/react").then((m) => m.Workbook),
@@ -40,14 +41,14 @@ function CanvasSpreadsheetInner({
     : [{ name: "Sheet1" }];
 
   return (
-    <div className="p-4 h-full" role="region" aria-label={title || "Spreadsheet"}>
+    <FadeIn className="p-4 h-full" role="region" aria-label={title || "Spreadsheet"}>
       {title && (
         <h3 className="text-sm font-semibold text-foreground mb-3">{title}</h3>
       )}
       <div style={{ height }}>
         <Workbook data={sheetData} />
       </div>
-    </div>
+    </FadeIn>
   );
 }
 

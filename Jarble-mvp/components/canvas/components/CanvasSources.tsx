@@ -4,6 +4,7 @@ import React, { memo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronRight, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FadeIn } from "../FadeIn";
 
 export interface CanvasSourcesProps {
   items: Array<{
@@ -90,12 +91,9 @@ function SourceRow({ item, index }: { item: CanvasSourcesProps["items"][number];
 
 function CanvasSourcesInner({ items, title = "Sources" }: CanvasSourcesProps) {
   return (
-    <motion.div
+    <FadeIn
       role="list"
       aria-label={title}
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25 }}
       className="p-3 h-full"
     >
       <div className="flex items-center gap-2 mb-2">
@@ -108,7 +106,7 @@ function CanvasSourcesInner({ items, title = "Sources" }: CanvasSourcesProps) {
           <SourceRow key={i} item={item} index={i} />
         ))}
       </div>
-    </motion.div>
+    </FadeIn>
   );
 }
 

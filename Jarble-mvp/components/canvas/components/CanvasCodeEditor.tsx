@@ -2,6 +2,7 @@
 
 import { memo } from "react";
 import dynamic from "next/dynamic";
+import { FadeIn } from "../FadeIn";
 
 const Editor = dynamic(() => import("@monaco-editor/react").then((m) => m.default), {
   ssr: false,
@@ -26,7 +27,7 @@ function CanvasCodeEditorInner({
   height = 300,
 }: CanvasCodeEditorProps) {
   return (
-    <div className="p-4 h-full" role="region" aria-label={title || `Code editor: ${language}`}>
+    <FadeIn className="p-4 h-full" role="region" aria-label={title || `Code editor: ${language}`}>
       {title && (
         <h3 className="text-sm font-semibold text-foreground mb-3">{title}</h3>
       )}
@@ -49,7 +50,7 @@ function CanvasCodeEditorInner({
           }}
         />
       </div>
-    </div>
+    </FadeIn>
   );
 }
 

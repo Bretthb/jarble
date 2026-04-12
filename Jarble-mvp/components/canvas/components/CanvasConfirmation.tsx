@@ -3,6 +3,7 @@
 import { memo, useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useCanvasAction } from "../CanvasActionContext";
+import { FadeIn } from "../FadeIn";
 
 interface ActionDef {
   id: string;
@@ -170,10 +171,7 @@ function CanvasConfirmationInner({
   );
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
+    <FadeIn
       className={`p-3 h-full rounded-lg border ${config.border} ${config.bg}`}
       role="alertdialog"
       aria-label={title}
@@ -240,7 +238,7 @@ function CanvasConfirmationInner({
 
       {/* Status badge */}
       {statusBadge}
-    </motion.div>
+    </FadeIn>
   );
 }
 

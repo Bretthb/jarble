@@ -4,6 +4,7 @@ import React, { memo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronRight, Brain, Check, Loader2, Circle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FadeIn } from "../FadeIn";
 
 export interface CanvasReasoningProps {
   title?: string;
@@ -33,12 +34,7 @@ function CanvasReasoningInner({
   const [open, setOpen] = useState(!collapsed);
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.25 }}
-      className="p-3 h-full"
-    >
+    <FadeIn className="p-3 h-full">
       <button
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-2 w-full text-left group"
@@ -96,7 +92,7 @@ function CanvasReasoningInner({
           </motion.div>
         )}
       </AnimatePresence>
-    </motion.div>
+    </FadeIn>
   );
 }
 

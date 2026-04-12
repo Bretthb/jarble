@@ -1,8 +1,8 @@
 "use client";
 
 import { memo, useState, useEffect, useCallback, useRef } from "react";
-import { motion } from "framer-motion";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { FadeIn } from "../FadeIn";
 
 export interface CanvasCarouselProps {
   items: { title?: string; description?: string; image?: string }[];
@@ -38,12 +38,7 @@ function CanvasCarouselInner({
   const currentItem = items[currentIndex];
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-      className="p-4 h-full"
-    >
+    <FadeIn className="p-4 h-full">
       <div className="relative" role="region" aria-label="Carousel" aria-roledescription="carousel">
         {/* Slide content */}
         <div className="flex flex-col items-center justify-center gap-3 p-6 min-h-[200px]">
@@ -108,7 +103,7 @@ function CanvasCarouselInner({
       <span className="sr-only" aria-live="polite" aria-atomic="true">
         Slide {currentIndex + 1} of {items.length}
       </span>
-    </motion.div>
+    </FadeIn>
   );
 }
 

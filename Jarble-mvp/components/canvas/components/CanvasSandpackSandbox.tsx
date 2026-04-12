@@ -4,6 +4,7 @@ import { memo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useCanvasAction } from "../CanvasActionContext";
 import { useSandboxTheme } from "../SandboxThemeContext";
+import { FadeIn } from "../FadeIn";
 
 // Lazy-load Sandpack (no SSR - needs browser APIs)
 const SandpackProvider = dynamic(
@@ -74,6 +75,7 @@ function CanvasSandpackSandboxInner({
   }
 
   return (
+    <FadeIn className="h-full w-full">
     <div
       ref={containerRef}
       className="relative h-full w-full overflow-hidden rounded"
@@ -107,6 +109,7 @@ function CanvasSandpackSandboxInner({
         />
       </SandpackProvider>
     </div>
+    </FadeIn>
   );
 }
 

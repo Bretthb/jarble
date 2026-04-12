@@ -1,7 +1,6 @@
 "use client";
 
 import { memo } from "react";
-import { motion } from "framer-motion";
 import {
   Accordion,
   AccordionItem,
@@ -9,6 +8,7 @@ import {
   AccordionContent,
 } from "@/components/ui/accordion";
 import CanvasRenderer from "../CanvasRenderer";
+import { FadeIn } from "../FadeIn";
 
 interface AccordionChild {
   component: string;
@@ -32,15 +32,9 @@ function AccordionItems({ items }: { items: AccordionItemDef[] }) {
   return (
     <>
       {items.map((item, i) => (
-        <motion.div
+        <FadeIn
           key={`${item.title}-${i}`}
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{
-            duration: 0.3,
-            delay: i * 0.05,
-            ease: [0.25, 0.46, 0.45, 0.94],
-          }}
+          delay={i * 50}
         >
           <AccordionItem
             value={`item-${i}`}
@@ -76,7 +70,7 @@ function AccordionItems({ items }: { items: AccordionItemDef[] }) {
               )}
             </AccordionContent>
           </AccordionItem>
-        </motion.div>
+        </FadeIn>
       ))}
     </>
   );
@@ -90,10 +84,7 @@ function CanvasAccordionInner({ items, type = "multiple" }: CanvasAccordionProps
     .filter(Boolean) as string[];
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 8, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+    <FadeIn
       className={[
         "overflow-hidden rounded-xl",
         "border border-border/40",
@@ -109,7 +100,7 @@ function CanvasAccordionInner({ items, type = "multiple" }: CanvasAccordionProps
           <AccordionItems items={items} />
         </Accordion>
       )}
-    </motion.div>
+    </FadeIn>
   );
 }
 

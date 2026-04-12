@@ -3,6 +3,7 @@
 import { memo, useState, useEffect, useRef, useCallback } from "react";
 import { Copy, Check, ChevronDown, ChevronUp, Pencil, Eye } from "lucide-react";
 import { useCanvasAction } from "@/components/canvas/CanvasActionContext";
+import { FadeIn } from "@/components/canvas/FadeIn";
 
 export interface CanvasCodeBlockProps {
   code: string;
@@ -125,7 +126,7 @@ function CanvasCodeBlockInner({ code, language, title }: CanvasCodeBlockProps) {
   };
 
   return (
-    <div
+    <FadeIn
       role="region"
       aria-label={`Code${language ? `: ${language}` : ""}${title ? ` - ${title}` : ""}`}
       className="h-full flex flex-col overflow-hidden rounded-xl bg-[#0d1117] border border-zinc-800/50"
@@ -234,7 +235,7 @@ function CanvasCodeBlockInner({ code, language, title }: CanvasCodeBlockProps) {
           {lineCount} lines collapsed
         </div>
       )}
-    </div>
+    </FadeIn>
   );
 }
 
