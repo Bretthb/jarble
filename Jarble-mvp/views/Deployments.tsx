@@ -101,6 +101,7 @@ import {
   ReactFlowProvider,
   BaseEdge,
   getBezierPath,
+  getSmoothStepPath,
   getStraightPath,
   EdgeLabelRenderer,
   type EdgeProps,
@@ -480,8 +481,8 @@ function getFlowLayoutedElements(
   g.setDefaultEdgeLabel(() => ({}));
   g.setGraph({
     rankdir: direction,
-    nodesep: direction === "LR" ? 80 : 120,
-    ranksep: direction === "LR" ? 220 : 180,
+    nodesep: direction === "LR" ? 100 : 140,
+    ranksep: direction === "LR" ? 260 : 200,
     marginx: 60,
     marginy: 60,
   });
@@ -498,7 +499,21 @@ function getFlowLayoutedElements(
     if (edge.source !== edge.target) g.setEdge(edge.source, edge.target);
   }
 
+  // Anchor the entry point at rank 0 (leftmost for LR, topmost for TB)
+  // by adding a phantom source node that only connects to the entry point.
+  // This forces dagre to put the entry point at the lowest rank regardless
+  // of what the delegation edges say — so the visual flow reads from the
+  // bot users talk to (entry) outward to specialists.
+  const entryNode = connected.find((n) => n.data?.isEntryPoint);
+  if (entryNode) {
+    g.setNode("__phantom_entry_anchor__", { width: 0, height: 0 });
+    g.setEdge("__phantom_entry_anchor__", entryNode.id);
+  }
+
   dagre.layout(g);
+
+  // Remove the phantom node from results
+  g.removeNode("__phantom_entry_anchor__");
 
   const layouted: Node<FlowNodeData>[] = connected.map((node) => {
     const pos = g.node(node.id);
@@ -1403,13 +1418,18 @@ function FlowEdge({
   const color = isExecuting ? executionEdgeColor(execStatus) : edgeTypeColor(edgeType);
   const isRunning = execStatus === "running";
 
-  const [edgePath, labelX, labelY] = getBezierPath({
+  // SmoothStep produces clean right-angle (orthogonal) paths instead of
+  // swooping bezier curves. With 4-sided handles on each node, edges
+  // route horizontally/vertically with crisp 90-degree turns — no more
+  // spaghetti tangles when edges cross.
+  const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
     sourcePosition,
     targetX,
     targetY,
     targetPosition,
+    borderRadius: 12,
   });
 
   const dashArray = isRunning ? "8 4" : edgeTypeDashArray(edgeType);
