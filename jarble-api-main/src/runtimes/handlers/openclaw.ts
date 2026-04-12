@@ -341,20 +341,18 @@ export const openclawHandler: RuntimeHandler = {
       );
       if (customAgents.length > 0) {
         const lines = customAgents.map((a) =>
-          `- **${a.slug}** - ${a.description || a.name}`
+          `- **agent_${a.slug}** — ${a.description || a.name}`
         );
         poolSections.push(
           `### Custom Subagents\n` +
           lines.join("\n") + `\n\n` +
-          `**How to call subagents**: Emit a \`jarble_delegate\` fenced code block. The platform intercepts it and routes to your subagent's LLM with its specialized system prompt.\n` +
-          `\`\`\`jarble_delegate\n{ "to": "${customAgents[0].slug}", "task": "describe the task here", "context": "any extra data" }\n\`\`\`\n\n` +
+          `**How to call subagents**: Call them as MCP tools. Each subagent is an MCP tool you can invoke directly — the same way you call \`render_ui\` or \`web_search\`. Pass a \`task\` string argument describing what to build.\n\n` +
+          `Example: \`agent_${customAgents[0].slug}({ "task": "describe the task here", "context": "any extra data" })\`\n\n` +
+          `Each subagent has its own specialized system prompt and design system. When you call it, the platform routes the task to its dedicated LLM and returns the result.\n\n` +
           `Rules:\n` +
-          `1. The \`to\` field MUST match one of the subagent slugs listed above.\n` +
-          `2. You MAY emit multiple \`jarble_delegate\` blocks in one reply to call multiple subagents in parallel.\n` +
-          `3. After delegating, STOP. The platform will run each subagent, send you a \`[DELEGATION_RESULTS]\` follow-up with their responses, then you synthesize a final answer.\n` +
-          `4. Your subagents can render UI components (render_ui, sandbox) on the user's canvas. They have the same rendering capabilities you do.\n` +
-          `5. If no delegation is needed, just answer the user directly.\n` +
-          `6. Do NOT use \`call_agent\`, \`discover_agents\`, or MCP tool calls for subagent delegation. Use the \`jarble_delegate\` block above.`
+          `1. ALWAYS call the \`agent_*\` tool directly — do NOT use \`compose_dashboard\` or \`create_component\`.\n` +
+          `2. Your subagents can render UI components on the canvas using \`render_ui\` and \`sandbox\` — they have full rendering capabilities.\n` +
+          `3. If no subagent fits, build it yourself using \`render_ui\` with the \`sandbox\` component.`
         );
       }
 
@@ -378,18 +376,15 @@ export const openclawHandler: RuntimeHandler = {
         const hasCustomSubagents = customAgents.length > 0;
 
         const delegationGuidance = hasCustomSubagents
-          ? // Custom subagents exist — route through them, not platform orchestration
+          ? // Custom subagents exist — route through them via MCP tool calls
             `### When to Delegate\n` +
-            `- **Simple request** (single chart, quick answer, one component): Handle it yourself with render_ui or sandbox. Fast and direct.\n` +
-            `- **Dashboard, multi-component, or complex UI request**: Route to your custom subagents. Each one is a specialist with its own design system. Call the agent tool directly with a "task" string.\n` +
-            `- **Data processing**: Call \`delegate_to_data_agent\` if you need data analysis before visualization.\n` +
-            `- Do NOT use \`compose_dashboard\`. Route component generation through your custom subagents instead.\n\n` +
-            `### How to Call Agents\n` +
-            `All agents are MCP tools. Call them the same way you call render_ui or web_search. Pass a "task" string argument.\n` +
-            `IMPORTANT: Do NOT use call_agent or discover_agents for these. Call the tool name directly.\n\n` +
-            `### Platform Awareness\n` +
-            `You are on the Jarble platform. Your subagents can use \`render_ui\` with built-in components (stat_grid, chart, data_table, etc.) OR the \`sandbox\` component for custom HTML/CSS/JS. ` +
-            `They render directly on the user's canvas at /d/[id]. Subagents should use the sandbox component for premium-quality output.\n\n`
+            `- **Simple request** (single chart, quick answer): Handle it yourself with \`render_ui\` or \`sandbox\`.\n` +
+            `- **Any UI component request**: Call the matching \`agent_*\` tool directly. These are your specialist subagents — they have dedicated design systems and produce premium output.\n` +
+            `- Do NOT use \`compose_dashboard\` or \`create_component\` — they are unavailable. Your \`agent_*\` subagents replace them.\n\n` +
+            `### How to Call Subagents\n` +
+            `Your subagents are MCP tools. Call them exactly like \`render_ui\` or \`web_search\`:\n` +
+            `\`agent_dashboard_builder({ "task": "Build a KPI grid with...", "context": "" })\`\n\n` +
+            `The platform routes the task to the subagent's dedicated LLM with its specialized system prompt and returns the result.\n\n`
           : // No custom subagents — use platform orchestration (default for new users)
             `### When to Delegate\n` +
             `- **Simple request** (single chart, quick answer, one component): Handle it yourself with render_ui or sandbox. Fast and direct.\n` +

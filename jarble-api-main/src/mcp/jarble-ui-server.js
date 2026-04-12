@@ -7784,13 +7784,22 @@ async function handleMessage(msg) {
         inputSchema: t.inputSchema,
       };
     });
-    // When custom subagents exist, hide compose_dashboard so the bot
-    // routes through its own specialist subagents instead of the platform
-    // orchestration pipeline. Platform agents (Component/Data/Workflow) are
-    // still available as fallbacks but compose_dashboard is suppressed.
+    // When custom subagents exist, hide platform orchestration tools so the
+    // bot calls its custom agent_* tools directly instead. This removes:
+    //   - compose_dashboard (5-step pipeline)
+    //   - create_component (3-step pipeline)
+    // The bot still has render_ui, sandbox, and all other tools. The custom
+    // agent_* subagent tools (from subagent-tools.json) replace the platform
+    // orchestration for component generation.
     var coreTools = TOOLS;
-    if (SUBAGENT_TOOLS.length > 0) {
-      coreTools = TOOLS.filter(function(t) { return t.name !== "compose_dashboard"; });
+    var filteredAgentTools = agentToolDefs;
+    // Only filter if there are NON-platform subagents (user-created specialists)
+    var hasCustomSubagents = SUBAGENT_TOOLS.some(function(t) {
+      return !t.name.match(/^agent_(component_agent|data_agent|workflow_agent)$/);
+    });
+    if (hasCustomSubagents) {
+      var orchestrationTools = new Set(["compose_dashboard", "create_component"]);
+      coreTools = TOOLS.filter(function(t) { return !orchestrationTools.has(t.name); });
     }
     return {
       jsonrpc: "2.0",
@@ -7800,7 +7809,7 @@ async function handleMessage(msg) {
           ...coreTools,
           ...PER_COMPONENT_TOOLS,
           ...serviceToolDefs,
-          ...agentToolDefs,
+          ...filteredAgentTools,
           ...subagentToolDefs,
           ...delegationToolDefs,
         ]),
