@@ -418,7 +418,7 @@ function ResourceEdge({
               </TooltipTrigger>
               <TooltipContent side="top" className="max-w-[260px] text-[11px] leading-relaxed">
                 <div className="font-semibold mb-1">
-                  {relationships.length} relationships between these bots
+                  {relationships.length} relationships between these agents
                 </div>
                 <ul className="space-y-0.5">
                   {relationships.map((r, i) => (
@@ -640,7 +640,7 @@ function DeploymentEnvPanel({ deploymentId, deployment, onClose, sharedSecretKey
         {botVars.length > 0 && (
           <div>
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">
-              Bot Environment ({botVars.length})
+              Agent Environment ({botVars.length})
             </p>
             <div className="space-y-1 text-xs">
               {botVars.map((v: any) => (
@@ -677,7 +677,7 @@ function DeploymentEnvPanel({ deploymentId, deployment, onClose, sharedSecretKey
                 </div>
               ))}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">System credentials are used by the runtime. The bot cannot read these directly.</p>
+            <p className="text-[10px] text-muted-foreground mt-1">System credentials are used by the runtime. The agent cannot read these directly.</p>
           </div>
         )}
 
@@ -885,7 +885,7 @@ function ResourceMapGraph({
             No resource connections yet
           </h3>
           <p className="text-sm text-muted-foreground leading-relaxed">
-            Deploy more bots to see how they connect! Resource sharing happens
+            Deploy more agents to see how they connect! Resource sharing happens
             automatically when you link API keys or create flows.
           </p>
         </motion.div>

@@ -6,7 +6,7 @@
 
 ## Summary
 
-Two hardening changes landed together as part of the Bot Teams rescue
+Two hardening changes landed together as part of the Agent Teams rescue
 follow-up:
 
 1. **actionlint** — a new dedicated workflow validates every change to
@@ -17,7 +17,7 @@ follow-up:
    workflow now optionally annotates a cluster-side ConfigMap when new
    runtime images are published, giving ops a single source of truth
    for the latest available image without automatically restarting
-   user bot pods.
+   user agent pods.
 
 ## 1. actionlint
 
@@ -107,7 +107,7 @@ The original task options were:
 
 We chose **(c) annotate a sentinel ConfigMap**.
 
-**Why not (a) automatic rollout**: each Jarble bot pod is a separate
+**Why not (a) automatic rollout**: each Jarble agent pod is a separate
 K8s Deployment and may be mid-conversation. Automatically restarting
 every user's pod on every runtime push would:
 
@@ -128,7 +128,7 @@ historical Slack messages is awkward.
 **Why (c) annotate**: the ConfigMap is a passive, cluster-native record
 of "what is the latest available runtime image". Ops tooling (an admin
 panel, a CLI script, or a scheduled rolling-update job) can read it to
-decide when and how to roll individual bots — one at a time, during
+decide when and how to roll individual agents — one at a time, during
 off-hours, skipping pods with active sessions, etc. The admin
 `forceRefresh` tRPC procedure (see `jarble-api-main/src/trpc/routers/admin.ts`)
 can be extended to consult this ConfigMap for the target image digest.
@@ -181,7 +181,7 @@ It cannot:
 - Affect any other namespace
 
 This is the minimum-permissions default. Even a compromised GitHub
-Actions runner can't use this pipeline to restart or delete user bots.
+Actions runner can't use this pipeline to restart or delete user agents.
 
 ## Validation
 

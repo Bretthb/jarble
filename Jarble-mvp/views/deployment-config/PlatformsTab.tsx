@@ -95,7 +95,7 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
     telegramTimeoutRef.current = setTimeout(() => {
       stopTelegramPolling();
       setTelegramPhase("error");
-      setTelegramError("Timed out waiting for a pairing request. Make sure the bot is running and send it a message.");
+      setTelegramError("Timed out waiting for a pairing request. Make sure the agent is running and send it a message.");
     }, 8 * 60 * 1000);
   }, [deploymentId, pollTelegramMutation, stopTelegramPolling]);
 
@@ -382,7 +382,7 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
               Pair with Telegram
             </DialogTitle>
             <DialogDescription className="text-muted-foreground">
-              Link your Telegram account to start chatting with your bot
+              Link your Telegram account to start chatting with your agent
             </DialogDescription>
           </DialogHeader>
 
@@ -391,7 +391,7 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
               <div className="flex flex-col items-center gap-4 py-6">
                 <Loader2 className="w-10 h-10 animate-spin text-primary" />
                 <div className="text-center">
-                  <p className="font-medium text-sm">Starting your bot...</p>
+                  <p className="font-medium text-sm">Starting your agent...</p>
                   <p className="text-xs text-muted-foreground mt-1">
                     This may take a minute on first boot
                   </p>
@@ -405,9 +405,9 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
                   ✈️
                 </div>
                 <div className="text-center">
-                  <p className="font-medium">Open Telegram and message your bot</p>
+                  <p className="font-medium">Open Telegram and message your agent</p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Send any message to your bot - it will auto-approve the pairing request
+                    Send any message to your agent - it will auto-approve the pairing request
                   </p>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -425,7 +425,7 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
                 <div className="text-center">
                   <p className="font-medium text-lg">Paired successfully!</p>
                   <p className="text-sm text-muted-foreground mt-1">
-                    Your Telegram account is now linked to this bot
+                    Your Telegram account is now linked to this agent
                   </p>
                 </div>
                 <Button onClick={closeTelegramPairing} className="bg-primary hover:bg-primary/90 text-primary-foreground">
@@ -492,7 +492,7 @@ export function PlatformsTab({ formData, updateFormData, deploymentId }: Platfor
                         <CheckCircle2 className="w-10 h-10 text-primary mx-auto mb-2" />
                         <p className="text-sm text-foreground font-medium">WhatsApp is connected</p>
                         <p className="text-xs text-muted-foreground mt-1">
-                          Your bot is linked to WhatsApp via Baileys
+                          Your agent is linked to WhatsApp via Baileys
                         </p>
                         <Button
                           variant="outline"

@@ -2,14 +2,14 @@
 
 **Date:** 2026-04-07
 **Status:** APPLIED (code changes landed; awaits `terraform apply` + Kubero env var)
-**Related:** Phase 5 of Bot Teams rescue (commit `bc8735b`) — enforced 1:1 VPS-per-agent isolation
+**Related:** Phase 5 of Agent Teams rescue (commit `bc8735b`) — enforced 1:1 VPS-per-agent isolation
 **Owner:** Infrastructure / Platform Security
 
 ---
 
 ## Problem
 
-After Phase 5 of the Bot Teams rescue, every bot pod runs on its own dedicated
+After Phase 5 of the Agent Teams rescue, every agent pod runs on its own dedicated
 Hetzner Cloud VPS via K8s scheduling constraints. This walls off **cross-tenant
 compute** at the hypervisor (KVM) boundary. But the **network egress story is
 wide open**:
@@ -17,7 +17,7 @@ wide open**:
 1. The shared `hcloud_firewall.cluster` (`infrastructure/terraform/main.tf:61`)
    only declares INGRESS rules. Hetzner Cloud firewalls default to
    "outbound: allow all" until at least one egress rule is declared.
-2. A compromised bot can therefore:
+2. A compromised agent can therefore:
    - Query the Hetzner metadata service at `169.254.169.254` (SSRF) and read
      `cloud-init` user-data — which embeds `K3S_JOIN_TOKEN`. Joining the cluster
      as a rogue agent becomes trivial after that.
@@ -233,7 +233,7 @@ To force them onto the new posture, either:
 
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
-| Egress allowlist blocks legitimate bot traffic | Low | Medium | All major LLM APIs (Anthropic, OpenAI, OpenRouter, Google) and MCP servers use HTTPS:443. WebSockets ride on 443 too. NTP/DNS/HTTP covered. Worst case: temporarily detach the firewall via Hetzner console. |
+| Egress allowlist blocks legitimate agent traffic | Low | Medium | All major LLM APIs (Anthropic, OpenAI, OpenRouter, Google) and MCP servers use HTTPS:443. WebSockets ride on 443 too. NTP/DNS/HTTP covered. Worst case: temporarily detach the firewall via Hetzner console. |
 | iptables-persistent install hangs cloud-init | Low | High (worker fails to join) | `DEBIAN_FRONTEND=noninteractive` prevents the prompt. |
 | Existing workers unprotected | Certain | Medium | Documented in "Existing workers" section. Drain-and-replace recommended. |
 | Master/Coolify accidentally affected | Very Low | High | New firewall is ONLY referenced from `nodeManager.ts`. Terraform never attaches it to master or coolify. |
@@ -265,7 +265,7 @@ If something breaks:
   exfiltrate data over HTTPS:443 to any IP that resolves. Mitigating this
   requires a forward proxy (Squid, mitmproxy, or Cloudflare Gateway) with an
   allowlist of LLM provider hostnames.
-- **DNS filtering** — Bots can still issue arbitrary DNS queries. Pointing
+- **DNS filtering** — Agents can still issue arbitrary DNS queries. Pointing
   resolv.conf at a filtered DNS server (e.g., NextDNS, AdGuard, or a
   self-hosted Pi-hole) would close DNS-based exfil.
 - **Egress NetworkPolicy at the K8s layer** — Calico/Cilium NetworkPolicies

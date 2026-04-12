@@ -87,7 +87,7 @@ function ChatErrorCardInner({
         {error.canStart && onStartBot && (
           <Button variant="default" size="sm" onClick={onStartBot} className="h-7 text-xs gap-1.5">
             <Play className="w-3 h-3" />
-            Start Bot
+            Start Agent
           </Button>
         )}
       </div>

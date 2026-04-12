@@ -251,10 +251,10 @@ export interface ManagedKeyPlanDef {
 }
 
 export const MANAGED_KEY_PLANS: ManagedKeyPlanDef[] = [
-  { value: 5,   label: "$5/mo",   description: "Light usage - great for testing & small bots",   isDefault: true },
+  { value: 5,   label: "$5/mo",   description: "Light usage - great for testing & small agents",   isDefault: true },
   { value: 10,  label: "$10/mo",  description: "Moderate usage - handles a few hundred messages" },
-  { value: 25,  label: "$25/mo",  description: "Active usage - supports busy bots with frequent conversations" },
-  { value: 50,  label: "$50/mo",  description: "Heavy usage - high-volume bots and power users" },
+  { value: 25,  label: "$25/mo",  description: "Active usage - supports busy agents with frequent conversations" },
+  { value: 50,  label: "$50/mo",  description: "Heavy usage - high-volume agents and power users" },
   { value: 100, label: "$100/mo", description: "Enterprise - maximum capacity for production workloads" },
 ];
 
@@ -355,10 +355,10 @@ export interface CreditPlanDef {
 }
 
 export const CREDIT_PLANS: CreditPlanDef[] = [
-  { value: 5,   label: "$5/mo",   description: "Light usage - great for testing & small bots",   isDefault: true },
+  { value: 5,   label: "$5/mo",   description: "Light usage - great for testing & small agents",   isDefault: true },
   { value: 10,  label: "$10/mo",  description: "Moderate usage - handles a few hundred messages" },
-  { value: 25,  label: "$25/mo",  description: "Active usage - supports busy bots with frequent conversations" },
-  { value: 50,  label: "$50/mo",  description: "Heavy usage - high-volume bots and power users" },
+  { value: 25,  label: "$25/mo",  description: "Active usage - supports busy agents with frequent conversations" },
+  { value: 50,  label: "$50/mo",  description: "Heavy usage - high-volume agents and power users" },
   { value: 100, label: "$100/mo", description: "Enterprise - maximum capacity for production workloads" },
 ];
 

@@ -1,6 +1,6 @@
 ---
 name: openclaw-diagnostics
-description: "Use this agent to diagnose OpenClaw deployment issues — gateway timeouts, chat failures, model switch failures, config sync problems, pod readiness issues, and session errors. This agent reads pod logs, checks the actual running config via exec, verifies gateway connectivity, and traces the full request path from frontend chat to pod response. It understands the full OpenClaw architecture including the WS protocol, Ed25519 auth, config sync tiers, MCP server hot-sync, and the dual-mode (legacy/operator) deployment model.\n\nExamples:\n\n- User: \"My bot isn't responding, gateway timed out\"\n  Assistant: \"Let me use the openclaw-diagnostics agent to check the pod status, gateway health, and trace the chat request path.\"\n\n- User: \"I switched models but the bot is still using the old one\"\n  Assistant: \"Let me use the openclaw-diagnostics agent to check what model the pod is actually running vs what the DB says.\"\n\n- User: \"Chat works sometimes but randomly fails\"\n  Assistant: \"Let me use the openclaw-diagnostics agent to check for exec timeouts, K8s API pressure, and pod stability.\"\n\n- User: \"The bot started giving errors after I changed the system prompt\"\n  Assistant: \"Let me use the openclaw-diagnostics agent to verify the config sync completed and the pod has the new prompt.\""
+description: "Use this agent to diagnose OpenClaw deployment issues — gateway timeouts, chat failures, model switch failures, config sync problems, pod readiness issues, and session errors. This agent reads pod logs, checks the actual running config via exec, verifies gateway connectivity, and traces the full request path from frontend chat to pod response. It understands the full OpenClaw architecture including the WS protocol, Ed25519 auth, config sync tiers, MCP server hot-sync, and the dual-mode (legacy/operator) deployment model.\n\nExamples:\n\n- User: \"My agent isn't responding, gateway timed out\"\n  Assistant: \"Let me use the openclaw-diagnostics agent to check the pod status, gateway health, and trace the chat request path.\"\n\n- User: \"I switched models but the agent is still using the old one\"\n  Assistant: \"Let me use the openclaw-diagnostics agent to check what model the pod is actually running vs what the DB says.\"\n\n- User: \"Chat works sometimes but randomly fails\"\n  Assistant: \"Let me use the openclaw-diagnostics agent to check for exec timeouts, K8s API pressure, and pod stability.\"\n\n- User: \"The agent started giving errors after I changed the system prompt\"\n  Assistant: \"Let me use the openclaw-diagnostics agent to verify the config sync completed and the pod has the new prompt.\""
 model: opus
 color: cyan
 memory: project
@@ -54,7 +54,7 @@ When investigating, follow this sequence:
 
 1. **soul.md** — System prompt + JARBLE_UI_PROMPT (~1,800 tokens) + installed services/components
    - Written to BOTH `/data/soul.md` AND `$HOME/.openclaw/.openclaw/workspace/SOUL.md`
-   - Contains: bot identity, system prompt, service snippets, component list, UI rendering instructions, theming, component chooser table
+   - Contains: agent identity, system prompt, service snippets, component list, UI rendering instructions, theming, component chooser table
 
 2. **openclaw.json** — Agent + channel + gateway config
    ```json

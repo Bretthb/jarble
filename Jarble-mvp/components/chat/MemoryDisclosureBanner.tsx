@@ -47,7 +47,7 @@ export function MemoryDisclosureBanner({ scope, className }: MemoryDisclosureBan
         )}
       >
         <BrainCircuit className="h-3.5 w-3.5 shrink-0" />
-        <span>Long-term memory is off for this bot. It will not remember anything after this chat ends.</span>
+        <span>Long-term memory is off for this agent. It will not remember anything after this chat ends.</span>
       </div>
     );
   }
@@ -65,7 +65,7 @@ export function MemoryDisclosureBanner({ scope, className }: MemoryDisclosureBan
         <div className="flex-1">
           <span>
             Memory is scoped to this chat (best-effort). Jarble's memory tools are partitioned per conversation,
-            but the bot runtime may retain its own memory separately, so full isolation is not guaranteed. For
+            but the agent runtime may retain its own memory separately, so full isolation is not guaranteed. For
             the strongest guarantee, set memory to Off.
           </span>
         </div>
@@ -88,17 +88,17 @@ export function MemoryDisclosureBanner({ scope, className }: MemoryDisclosureBan
         <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-500" />
         <div className="flex-1 min-w-0">
           <p className="font-semibold text-amber-700 dark:text-amber-300">
-            This bot remembers things across every chat.
+            This agent remembers things across every chat.
           </p>
           <p className="mt-0.5 text-amber-700/90 dark:text-amber-200/90 leading-snug">
-            Anything you tell it here may be recalled in other conversations with the same bot, on any
+            Anything you tell it here may be recalled in other conversations with the same agent, on any
             platform (web, Discord, WhatsApp, Slack, Telegram). Avoid sharing anything you do not want
             surfaced elsewhere.
           </p>
           {expanded && (
             <div className="mt-2 space-y-1.5 text-amber-700/90 dark:text-amber-200/90 leading-snug">
               <p>
-                <strong>Why:</strong> the bot runtime keeps a single long-term memory pool per deployment.
+                <strong>Why:</strong> the agent runtime keeps a single long-term memory pool per deployment.
                 Conversations are independent in the UI, but the underlying agent can recall facts from any
                 prior chat.
               </p>
@@ -108,8 +108,8 @@ export function MemoryDisclosureBanner({ scope, className }: MemoryDisclosureBan
                 memory tools entirely).
               </p>
               <p>
-                <strong>Scope:</strong> memory only persists for chats with this same bot by this same user
-                account. Other users of the same bot cannot see your memories.
+                <strong>Scope:</strong> memory only persists for chats with this same agent by this same user
+                account. Other users of the same agent cannot see your memories.
               </p>
             </div>
           )}
@@ -154,7 +154,7 @@ export function MemoryDisclosureInline({ scope }: { scope: MemoryScope | null | 
       : "text-muted-foreground";
   const text =
     effective === "global"
-      ? "Memory: shared across all chats with this bot"
+      ? "Memory: shared across all chats with this agent"
       : effective === "session"
       ? "Memory: scoped to this chat"
       : "Memory: off";

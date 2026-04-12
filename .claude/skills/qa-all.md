@@ -9,7 +9,7 @@ Run all QA feature skills in sequence against dev.jarble.ai. Track results and p
 Run these skills one at a time, in this order (fastest/safest first):
 
 1. `/qa-config-panel` (browser, ~2 min, no side effects)
-2. `/qa-api-keys` (API, ~2 min, restarts bot temporarily)
+2. `/qa-api-keys` (API, ~2 min, restarts agent temporarily)
 3. `/qa-memory-scope` (API + browser, ~2 min, modifies t3 config then restores)
 4. `/qa-components` (browser + chat, ~3 min, sends chat messages)
 5. `/qa-bot-teams` (API + browser, ~3 min, creates/deletes flows)

@@ -17,7 +17,7 @@
 - Prod API auth wall solid under basic chaos probes (XSS in ids, SQL-ish payloads, rapid-fire concurrency, GET-on-mutation) - no stack leakage, no DoS surface pre-auth
 
 **Issues found (none catastrophic):**
-- **P1** `/tmp/mcp-jarble-ui.log` file sink missing on ALL 4 bot pods - PR #64/#72 log sink is either not being written or is keyed to a different path
+- **P1** `/tmp/mcp-jarble-ui.log` file sink missing on ALL 4 agent pods - PR #64/#72 log sink is either not being written or is keyed to a different path
 - **P1** `mcporter` binary NOT on `$PATH` inside runtime container on t3 - `sh: 1: mcporter: not found`. The mcporter.json config is present but the CLI is not installed. Unclear whether OpenClaw invokes it via a different path (e.g., npx, absolute path, or direct node spawn).
 - **P1** `dev.jarble.ai` returns HTTP 401 at `/` - frontend landing page requires auth, blocking unauthenticated visitors / marketing surface. Likely Coolify basic-auth or Next middleware misconfig.
 - **P2** t1 (`dep-z888fle0j33t`) has empty `JARBLE_MEMORY_SCOPE` - this pod was created 13 h ago, predates PR #73, and has not been restarted. Cosmetic - will self-heal on next config change or restart. Flag for regression watchlist: verify new deployments always get a default scope written even if the user has not toggled it.
@@ -49,7 +49,7 @@ dep-99i1thbvf1c9 (t3)        = session          PASS
 dep-f30qkp1rzy1x             = off              PASS
 ```
 
-**Verdict:** Backend half of the trilogy (DB + configSync + env propagation) is **green**. Runtime enforcement (bot-side tool-stripping, session-id gating) and the frontend disclosure banner were not directly exercised and remain untested by this run.
+**Verdict:** Backend half of the trilogy (DB + configSync + env propagation) is **green**. Runtime enforcement (agent-side tool-stripping, session-id gating) and the frontend disclosure banner were not directly exercised and remain untested by this run.
 
 ---
 
@@ -169,13 +169,13 @@ _None._
 
 ### P1 (ship blocker for the feature, not the platform)
 
-**P1-1. `/tmp/mcp-jarble-ui.log` missing on all 4 bot pods**
+**P1-1. `/tmp/mcp-jarble-ui.log` missing on all 4 agent pods**
 - **Impact:** No visibility into MCP tool invocations. Debugging sandbox/component rendering failures becomes much harder.
 - **Repro:** `kubectl -n jarble exec <any-pod> -- ls /tmp/mcp-jarble-ui.log` -> "No such file or directory"
 - **Fix direction:** Grep `jarble-api-main/src/mcp/jarble-ui-server.js` for the log path constant; reconcile with runtime cwd. Consider moving the sink onto the PVC (e.g. `/data/logs/mcp-jarble-ui.log`) so it survives pod restarts and is inspectable post-mortem. Rebuild openclaw runtime image via `deploy-runtimes.yml`.
 
 **P1-2. `mcporter` CLI not on PATH in runtime container**
-- **Impact:** Unclear. If OpenClaw never shells out to `mcporter` and only spawns the configured `node` command directly, this is a docs-only bug. If OpenClaw does expect the CLI, bots cannot discover jarble-ui tools at runtime.
+- **Impact:** Unclear. If OpenClaw never shells out to `mcporter` and only spawns the configured `node` command directly, this is a docs-only bug. If OpenClaw does expect the CLI, agents cannot discover jarble-ui tools at runtime.
 - **Repro:** `kubectl -n jarble exec dep-99i1thbvf1c9-5bff5c754-2x78c -- sh -c 'which mcporter'` -> "not found"
 - **Fix direction:**
   1. confirm whether OpenClaw actually uses `mcporter` CLI or just reads `mcporter.json` and spawns its `command` itself.
@@ -213,7 +213,7 @@ The following items from the original brief were not directly exercised and shou
 
 - Disclosure banner appearance in chat UI across all 3 memory modes (frontend)
 - Chat UI toggle of memoryScope via ConfigPanel and DB round-trip verification
-- `store_memory` without session_id in SESSION mode returns a validation error (requires live bot invocation)
+- `store_memory` without session_id in SESSION mode returns a validation error (requires live agent invocation)
 - MCP `jarble-ui` tool count via `mcporter list` (blocked on P1-2 resolution)
 - Chat-triggered canvas render of `stat_grid` on t3 (end-to-end UI verification)
 - Authenticated chaos: XSS in chat input, oversized payloads, deployment.update / restart race

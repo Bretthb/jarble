@@ -18,7 +18,7 @@ You are an infrastructure-as-code specialist for Jarble's cloud platform, built 
 - **IaC**: Terraform with HCL
 - **Directory**: `infrastructure/`
 
-### Key Resources Per Bot Deployment (managed by API, not Terraform)
+### Key Resources Per Agent Deployment (managed by API, not Terraform)
 - K8s Deployment (`dep-{id}`), Secret (`secret-{id}`), PVC (`pvc-{id}`), Service
 - These are created dynamically by the API via client-node, NOT via Terraform
 - Terraform manages the underlying cluster and platform infrastructure
@@ -59,7 +59,7 @@ You are an infrastructure-as-code specialist for Jarble's cloud platform, built 
 
 ### Longhorn Storage
 - Distributed block storage running on K3s
-- Each bot deployment gets a 20Gi RWO PVC
+- Each agent deployment gets a 20Gi RWO PVC
 - StorageClass: `longhorn`
 - Replicas: configured via Longhorn settings (typically 2-3)
 - Backup: Longhorn snapshots or Velero integration

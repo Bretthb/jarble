@@ -25,7 +25,7 @@ describe("MemoryDisclosureBanner", () => {
 
     it("renders the headline copy about cross-chat memory", () => {
       render(<MemoryDisclosureBanner scope="global" />);
-      expect(screen.getByText("This bot remembers things across every chat.")).toBeDefined();
+      expect(screen.getByText("This agent remembers things across every chat.")).toBeDefined();
     });
 
     it("mentions all supported messaging platforms", () => {

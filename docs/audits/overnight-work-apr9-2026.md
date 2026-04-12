@@ -1,13 +1,13 @@
 # Overnight Session — 2026-04-09
 
 **Duration:** ~7 hours autonomous work while user sleeps
-**Focus (per user directive):** bot teams working end-to-end with full Langfuse visibility, extensive QA, fix known bugs
+**Focus (per user directive):** agent teams working end-to-end with full Langfuse visibility, extensive QA, fix known bugs
 
 ## TL;DR
 
-Bot teams work end-to-end. The entire observability stack is load-bearing and verified live in Langfuse + the new Debug Traces UI. Six more PRs shipped on top of tonight's earlier 12, plus targeted bug fixes and infrastructure cleanup.
+Agent teams work end-to-end. The entire observability stack is load-bearing and verified live in Langfuse + the new Debug Traces UI. Six more PRs shipped on top of tonight's earlier 12, plus targeted bug fixes and infrastructure cleanup.
 
-**Bot teams status:** VERIFIED
+**Agent teams status:** VERIFIED
 - t2 (coordinator) → t1 (specialist) delegation runs successfully via `chatViaExec` path
 - Each hop produces distinct `jarble.delegation.exec` OTel span in Langfuse
 - Both hops share the same `trace_id` with matching `parent_span_id` chain
@@ -58,7 +58,7 @@ Bot teams work end-to-end. The entire observability stack is load-bearing and ve
 ## Infrastructure housekeeping
 
 - **Neon DB** cleaned: managed_nodes 195 → 21 (dropped 174 dead Hetzner rows older than 24h), 1 stuck flow_execution flipped to abandoned, script committed as `scripts/neon-cleanup.mjs` for future use.
-- **Bot pods** restarted: t1 (z888fle0j33t) to pick up PR #73's new `JARBLE_MEMORY_SCOPE` env var
+- **Agent pods** restarted: t1 (z888fle0j33t) to pick up PR #73's new `JARBLE_MEMORY_SCOPE` env var
 - **Kubero UI diagnosis** (from earlier session): stale trivy vuln scan job killed, Kubero pod restarted
 
 ## Live verification matrix
@@ -69,7 +69,7 @@ Each PR was hit with a real end-to-end probe in prod. This is what I confirmed w
 - ✅ UI: Memory disclosure banner renders with 3 distinct variants (global / session / off)
 - ✅ API: `deployment.update` persists `memoryScope` to Neon
 - ✅ Backend: `configSync` writes `JARBLE_MEMORY_SCOPE` env var to Secret (after PR #73 fix)
-- ✅ Pod: env var propagates to running bot pod after tier-3 restart
+- ✅ Pod: env var propagates to running agent pod after tier-3 restart
 - ✅ MCP (off mode): `store_memory` returns "disabled" error; tool filtered from tools/list
 - ⚠️  MCP (session mode): server-side fallback (PR #81) resolves session_id from env, but only works on `chatViaExec` path (not gateway/http). See "Known gaps" below.
 - ✅ Disclosure banner text flips immediately on toggle
@@ -78,7 +78,7 @@ Each PR was hit with a real end-to-end probe in prod. This is what I confirmed w
 - ✅ `/data/.mcporter/mcporter.json` rendered by `openclaw.ts:renderConfigs` on every deploy
 - ✅ mcporter can spawn `jarble-ui` → returns 63 tools
 - ✅ `/tmp/mcp-jarble-ui.log` file sink created on explicit mcporter invocation
-- ⚠️  During normal bot chats, the MCP server is NOT actually invoked by openclaw — see architectural finding below.
+- ⚠️  During normal agent chats, the MCP server is NOT actually invoked by openclaw — see architectural finding below.
 
 ### PVC 20 GiB cap (PR #71)
 - ✅ All 4 running pods have PVCs ≤ 20 GiB
@@ -109,13 +109,13 @@ Each PR was hit with a real end-to-end probe in prod. This is what I confirmed w
 
 ### Finding 1 — OpenClaw uses its NATIVE memory tools, not ours
 
-During normal bot chat, openclaw exposes its own tool list (`read`, `edit`, `exec`, `memory_search`, `memory_get`, etc.) — NOT the Jarble MCP server's `store_memory` / `recall_memory` / `render_ui` tools. The Jarble MCP server is reachable via mcporter when explicitly invoked, but openclaw itself doesn't use it during the chat loop.
+During normal agent chat, openclaw exposes its own tool list (`read`, `edit`, `exec`, `memory_search`, `memory_get`, etc.) — NOT the Jarble MCP server's `store_memory` / `recall_memory` / `render_ui` tools. The Jarble MCP server is reachable via mcporter when explicitly invoked, but openclaw itself doesn't use it during the chat loop.
 
-**Implication:** tonight's memory scope enforcement (PR #69, #75, #81) is **architecturally sound but behaviorally dormant** unless the bot explicitly shells out to `mcporter call jarble-ui.store_memory` via its `exec` tool. Rendering works because the bot emits `jarble_ui` fenced markdown parsed server-side by `uiBlockParser.ts`, NOT via MCP tool calls.
+**Implication:** tonight's memory scope enforcement (PR #69, #75, #81) is **architecturally sound but behaviorally dormant** unless the agent explicitly shells out to `mcporter call jarble-ui.store_memory` via its `exec` tool. Rendering works because the agent emits `jarble_ui` fenced markdown parsed server-side by `uiBlockParser.ts`, NOT via MCP tool calls.
 
 **Recommendation:** Two paths to make memory scope enforcement load-bearing:
 1. **Option A (preferred):** Write an openclaw plugin that hooks `store_memory` / `recall_memory` native tool calls and routes them through the Jarble MCP server (see `cross-pod-traceparent-consume-apr9.md` for plugin SDK details). Then memory scope enforcement applies automatically.
-2. **Option B:** Prompt-engineer the bot's system prompt to always prefer mcporter's `jarble-ui.store_memory` / `jarble-ui.recall_memory` over openclaw's native `memory_search` / `memory_get`. Fragile, bot-compliance dependent.
+2. **Option B:** Prompt-engineer the agent's system prompt to always prefer mcporter's `jarble-ui.store_memory` / `jarble-ui.recall_memory` over openclaw's native `memory_search` / `memory_get`. Fragile, agent-compliance dependent.
 
 ### Finding 2 — dev.jarble.ai uses exec-only chat path
 
@@ -144,22 +144,22 @@ Our API-side injection of `TRACEPARENT` env var (#79 #81) and HTTP header (#86) 
 
 ## Known gaps (not bugs, but deliberate follow-ups)
 
-1. **Session mode on WS/HTTP paths:** `JARBLE_CURRENT_SESSION_ID` env injection (PR #81) only works for the `chatViaExec` path because WS/HTTP use a long-lived openclaw process whose env is fixed at pod boot. For WS/HTTP, the bot must pass `session_id` as a tool arg (fragile, prompt-engineering dependent).
+1. **Session mode on WS/HTTP paths:** `JARBLE_CURRENT_SESSION_ID` env injection (PR #81) only works for the `chatViaExec` path because WS/HTTP use a long-lived openclaw process whose env is fixed at pod boot. For WS/HTTP, the agent must pass `session_id` as a tool arg (fragile, prompt-engineering dependent).
 2. **OpenClaw plugin for cross-pod traces:** designed, documented, not yet built.
 3. **Dev.jarble.ai NODE_ENV=development:** config smell, not a bug. Flipping is safe but recommend doing in a quiet window.
-4. **gen_ai.* spans empty in real prod traffic:** `llmProxy.ts` (#82) is instrumented but only a few code paths use it (agentLlm, compose, flows.generateFromPrompt). Most LLM calls happen INSIDE bot pods via openclaw, which we can't instrument from the API side.
+4. **gen_ai.* spans empty in real prod traffic:** `llmProxy.ts` (#82) is instrumented but only a few code paths use it (agentLlm, compose, flows.generateFromPrompt). Most LLM calls happen INSIDE agent pods via openclaw, which we can't instrument from the API side.
 
 ## QA findings (from background qa-orchestrator agent)
 
 The first qa-orchestrator agent completed and wrote `docs/audits/overnight-qa-apr9-2026.md`. Key findings, triaged:
 
-- **P1-1: /tmp/mcp-jarble-ui.log missing on bot pods** — not a bug. The MCP server isn't invoked during normal bot chat (see Finding 1 above). The log file appears immediately when mcporter IS invoked (verified by manual `mcporter call` earlier tonight).
+- **P1-1: /tmp/mcp-jarble-ui.log missing on agent pods** — not a bug. The MCP server isn't invoked during normal agent chat (see Finding 1 above). The log file appears immediately when mcporter IS invoked (verified by manual `mcporter call` earlier tonight).
 - **P1-2: mcporter CLI not on $PATH** — false alarm. Binary is at `/opt/openclaw/node_modules/.bin/mcporter`. Openclaw invokes it via direct path, not PATH lookup.
 - **P1-3: dev.jarble.ai returns 401** — expected. Coolify basic-auth enabled: `jarble` / `JarbleDev2026!`.
 - **P2-1: t1 pod has empty JARBLE_MEMORY_SCOPE** — resolved. Pod restarted tonight to pick up PR #73's env var.
 - **P2-2: jarble.delegation.gateway span not observed** — resolved by Finding 2 above. Not a bug; dev-mode shortcut means gateway path isn't exercised.
 
-The second qa-orchestrator agent (bot-teams specialist) was still running at the time of this report.
+The second qa-orchestrator agent (agent-teams specialist) was still running at the time of this report.
 
 ## Recommended tomorrow morning actions
 
@@ -167,7 +167,7 @@ The second qa-orchestrator agent (bot-teams specialist) was still running at the
 2. **Flip Kubero NODE_ENV=production** — unlocks the HTTP chat path + enables production-only behaviors. Quick smoke test after roll.
 3. **Decide on openclaw plugin bridge** — is cross-pod tracing valuable enough to invest 1-2 days in building a custom openclaw plugin? If yes, ship as follow-up PR. If no, accept API-side-only coverage as the steady state.
 4. **Read the QA reports** — `overnight-qa-apr9-2026.md` + `bot-teams-deep-qa-apr9-2026.md` (may still be in flight) for additional findings.
-5. **Enable the Jarble MCP tools in openclaw's tool list** — currently the bot only sees openclaw's native tools. A prompt or plugin change would expose `render_ui`, `store_memory`, etc. Makes tonight's memory scope enforcement actually load-bearing.
+5. **Enable the Jarble MCP tools in openclaw's tool list** — currently the agent only sees openclaw's native tools. A prompt or plugin change would expose `render_ui`, `store_memory`, etc. Makes tonight's memory scope enforcement actually load-bearing.
 
 ## Files of note
 

@@ -3,11 +3,11 @@
 **Status**: Alert #1 IMPLEMENTED (in-API ticker). Alerts #2 + #3 still
 need a cluster-side `sentry-kubernetes` daemon — tracked as follow-ups.
 **Date**: 2026-04-07 (spec), Alert #1 implemented 2026-04-07
-**Author**: CI/observability follow-up agent (Bot Teams rescue post-mortem)
+**Author**: CI/observability follow-up agent (Agent Teams rescue post-mortem)
 
 ## Background
 
-During the Bot Teams rescue (2026-04-07), three user deployments were
+During the Agent Teams rescue (2026-04-07), three user deployments were
 found stuck in the `creating` state for **45+ minutes** with zero alerts.
 Root cause was a mix of `FailedAttachVolume` events on Longhorn PVCs and
 silent `Pending` pods that never got rescheduled.

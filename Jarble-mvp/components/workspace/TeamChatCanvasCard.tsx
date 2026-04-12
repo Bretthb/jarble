@@ -61,7 +61,7 @@ function TeamChatCanvasCardInner({ card, onRemove }: TeamChatCanvasCardProps) {
 
   const originLabel =
     card.origin === "entry"
-      ? "Entry bot"
+      ? "Entry agent"
       : card.origin === "synthesis"
         ? "Synthesis"
         : card.producerRole;

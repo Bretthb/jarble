@@ -37,9 +37,9 @@
 
 ## 1. What Is Jarble?
 
-Jarble is a **no-code AI bot deployment platform**. Users sign up, pick a bot runtime (like OpenClaw or ZeroClaw), configure it with an LLM (like GPT-4 or Claude), and deploy it to messaging platforms (WhatsApp, Discord, Slack, Telegram) — all without writing code.
+Jarble is a **no-code AI agent deployment platform**. Users sign up, pick an agent runtime (like OpenClaw or ZeroClaw), configure it with an LLM (like GPT-4 or Claude), and deploy it to messaging platforms (WhatsApp, Discord, Slack, Telegram) — all without writing code.
 
-**Think of it like Shopify, but for AI bots.** Shopify lets non-technical people set up online stores. Jarble lets non-technical people set up AI-powered chatbots.
+**Think of it like Shopify, but for AI agents.** Shopify lets non-technical people set up online stores. Jarble lets non-technical people set up AI-powered chatbots.
 
 ---
 
@@ -76,7 +76,7 @@ graph LR
 **In plain English:**
 - The **frontend** is what users see in their browser (React/Next.js)
 - The **API** is the brain that handles all business logic (Express/Node.js)
-- **Kubernetes** is where user bots actually run (like a managed server room)
+- **Kubernetes** is where user agents actually run (like a managed server room)
 - **Auth0** handles login (so we don't store passwords)
 - **Stripe** handles payments
 - **OpenRouter** provides LLM API keys for users who don't have their own
@@ -114,7 +114,7 @@ Think of Jarble as a **restaurant franchise system**:
 | **Resource Tier** | The size of the kitchen we provide to a platform chef: small (0.5 vCPU/1GB), medium (1 vCPU/2GB), large (2 vCPU/3GB) |
 | **Dashboard Compose** | The expediting station — one order (compose call) fans out to multiple prep stations (component agents) running in parallel |
 
-When a user "deploys" a bot, they're essentially **opening a new restaurant location** — we set up the building (K8s Pod), stock the fridge (PVC), put the supplier passwords in the safe (Secret), and print the menus (config files).
+When a user "deploys" an agent, they're essentially **opening a new restaurant location** — we set up the building (K8s Pod), stock the fridge (PVC), put the supplier passwords in the safe (Secret), and print the menus (config files).
 
 ---
 
@@ -160,16 +160,16 @@ graph LR
 
 | Page | URL | What It Does |
 |---|---|---|
-| Home | `/` | Marketing page — "Deploy AI bots in 2 minutes" |
+| Home | `/` | Marketing page — "Deploy AI agents in 2 minutes" |
 | About | `/about` | About page |
 | Login | `/login` | Auth0 login (Google, GitHub, email) |
 | Register | `/register` | Registration page |
 | Pricing | `/pricing` | Shows runtime options and costs |
-| **Dashboard** | `/dashboard` | Lists all your bots with status, controls |
-| **Onboarding** | `/onboarding/[id]` | Step-by-step wizard to create a new bot |
+| **Dashboard** | `/dashboard` | Lists all your agents with status, controls |
+| **Onboarding** | `/onboarding/[id]` | Step-by-step wizard to create a new agent |
 | **Chat** | `/d/[id]` | Deployment chat interface — Tambo + canvas grid |
-| **Config** | `/d/[id]/configure` | Edit an existing bot (6 tabs) |
-| Linked Deployments | `/deployments` | Shows credit pool sharing between bots |
+| **Config** | `/d/[id]/configure` | Edit an existing agent (6 tabs) |
+| Linked Deployments | `/deployments` | Shows credit pool sharing between agents |
 | Analytics | `/analytics` | Usage stats, credit meters, sortable table |
 | **Billing** | `/billing` | Billing overview, subscriptions, invoices |
 | Settings | `/settings` | Profile, theme, password reset |
@@ -296,9 +296,9 @@ Plain HTTP routes for things that can't use tRPC:
 Four background services start automatically at API boot (skipped in dev/SQLite mode):
 
 **Subscription Enforcement** (every 5 minutes):
-- Stops free-trial bots past their expiration date
-- Stops paid bots without a valid Stripe subscription
-- Stops bots at end of cancelled billing period
+- Stops free-trial agents past their expiration date
+- Stops paid agents without a valid Stripe subscription
+- Stops agents at end of cancelled billing period
 - Validates active subscriptions against Stripe API
 - Cleans up orphaned deployments (every 30 min)
 
@@ -325,7 +325,7 @@ Monthly subscription price is calculated dynamically from hardware specs:
 | RAM | $2.50/mo per GB |
 | Storage | $0.08/mo per GB |
 
-The `calculateMonthlyPriceCents()` utility in `src/utils/pricing.ts` computes this. Example: a bot with 2 vCPU, 2 GB RAM, 30 GB storage = $20 + $5 + $2.40 = **$27.40/month**.
+The `calculateMonthlyPriceCents()` utility in `src/utils/pricing.ts` computes this. Example: an agent with 2 vCPU, 2 GB RAM, 30 GB storage = $20 + $5 + $2.40 = **$27.40/month**.
 
 ### How Auth Works on the Backend
 
@@ -473,7 +473,7 @@ This is probably the most unfamiliar piece, so let's break it down carefully.
 
 - The **cluster** is the apartment building itself (multiple servers working together)
 - Each **node** is a floor of the building (one physical/virtual server)
-- Each **pod** is an apartment (one running container — one user's bot)
+- Each **pod** is an apartment (one running container — one user's agent)
 - The **namespace** is like a wing of the building (we use `jarble` for all our stuff)
 
 The building manager's job:
@@ -504,7 +504,7 @@ The adaptive readiness polling tiers in `configSync.ts`:
 
 ### The Three K8s Resources We Create Per Deployment
 
-When a user deploys a bot, we create exactly three things:
+When a user deploys an agent, we create exactly three things:
 
 ```mermaid
 graph TB
@@ -791,7 +791,7 @@ It can NOT do things like modify other namespaces, access the master node, or ch
 
 ## 7. The Deployment Lifecycle
 
-Here's the complete journey from "user clicks Deploy" to "bot is running":
+Here's the complete journey from "user clicks Deploy" to "agent is running":
 
 ```mermaid
 sequenceDiagram
@@ -888,7 +888,7 @@ Every boot:
   2. Start the bot gateway (main process)
 ```
 
-### Step 5: Bot Goes Online
+### Step 5: Agent Goes Online
 
 The gateway starts listening for messages from WhatsApp/Discord/Slack/etc.
 
@@ -934,7 +934,7 @@ Platform mode is set when an admin uses `deployment.platformFork` to clone a use
 
 ### How Credit Pools Work
 
-Multiple bots can share the same LLM budget. This is the **Owner/Linked** model:
+Multiple agents can share the same LLM budget. This is the **Owner/Linked** model:
 
 ```mermaid
 graph TD
@@ -959,20 +959,20 @@ graph TD
     style POOL fill:#f59e0b,color:#fff
 ```
 
-All three bots draw from the same $25/month pool.
+All three agents draw from the same $25/month pool.
 
 **How linking works under the hood:**
-1. Bot A gets provisioned with an OpenRouter key (`sk-or-xxx`, hash `abc`)
-2. When creating Bot B, user selects "Link to Bot A"
-3. We copy Bot A's encrypted key directly into Bot B's record
-4. Both bots have the same `llmApiKeyId` (hash), so OpenRouter tracks them as one
+1. Agent A gets provisioned with an OpenRouter key (`sk-or-xxx`, hash `abc`)
+2. When creating Agent B, user selects "Link to Agent A"
+3. We copy Agent A's encrypted key directly into Agent B's record
+4. Both agents have the same `llmApiKeyId` (hash), so OpenRouter tracks them as one
 
 **Analogy:** Imagine a corporate credit card. The CEO (owner) has the card. Employees (linked) get copies of the same card number. They all draw from the same monthly limit. If the CEO cancels the card, everyone loses access.
 
 **Rules:**
-- You can't delete an owner bot if it has linked children (must unlink first)
+- You can't delete an owner agent if it has linked children (must unlink first)
 - You can't switch an owner from "included" to "BYOK" if it has children
-- Usage queries for linked bots resolve to the owner's key hash
+- Usage queries for linked agents resolve to the owner's key hash
 - Credit limit changes must happen at the owner level
 
 ### The ModelTab UI (3 Sections)
@@ -1044,7 +1044,7 @@ When an admin sees an agent worth promoting, they call `deployment.platformFork`
 
 ## 9. Platform Credentials
 
-When a user connects their bot to Discord, Slack, etc., they provide API tokens. Here's how we handle them:
+When a user connects their agent to Discord, Slack, etc., they provide API tokens. Here's how we handle them:
 
 ### Storage
 
@@ -1065,7 +1065,7 @@ sequenceDiagram
     FE-->>User: Shows "Configured ✓"
 ```
 
-### How Credentials Get to the Bot
+### How Credentials Get to the Agent
 
 When deploying or syncing configs, the runtime handler transforms credentials into two formats:
 
@@ -1170,7 +1170,7 @@ sequenceDiagram
 
 **The Problem:** Config changes can happen in two places:
 1. **Frontend** — User edits system prompt, changes LLM model, adds Discord token
-2. **Inside the container** — Someone (or the bot itself) modifies config files on disk
+2. **Inside the container** — Someone (or the agent itself) modifies config files on disk
 
 We need both to stay in sync. This is the **two-way mirror** — changes in one place reflect in the other.
 
@@ -1283,9 +1283,9 @@ This prevents **circular sync**:
 
 ## 11. Canvas Components & The Shared Manifest
 
-### How Bots Render Rich UI
+### How Agents Render Rich UI
 
-When a bot wants to display a chart, table, or interactive widget, it outputs a special fenced code block:
+When an agent wants to display a chart, table, or interactive widget, it outputs a special fenced code block:
 
 ```
 ```jarble_ui
@@ -1326,7 +1326,7 @@ graph TD
 
 ### Sandbox-First Rendering Strategy
 
-The bot system prompt now designates the **sandbox component as the default** for dashboards, analytics, charts, and any visualization involving two or more visual elements. The `promptGuidance` fields in the component manifest encode this policy directly so every LLM sees it:
+The agent system prompt now designates the **sandbox component as the default** for dashboards, analytics, charts, and any visualization involving two or more visual elements. The `promptGuidance` fields in the component manifest encode this policy directly so every LLM sees it:
 
 | Component | Guidance |
 |---|---|
@@ -1362,7 +1362,7 @@ Sentry breadcrumbs record every repair that fires, so we can identify which rule
 
 ### Canvas Grid
 
-The `/d/[id]` page shows a CSS grid where bot responses appear as cards:
+The `/d/[id]` page shows a CSS grid where agent responses appear as cards:
 
 ```
 User message → bot streams text + UI blocks → cards appear in grid
@@ -1473,7 +1473,7 @@ Think of it like `tail -f` but in your browser.
 
 ### Agent Orchestration Events
 
-When one bot calls another through the marketplace Agent Hub, the chat SSE stream surfaces that delegation in real time. The flow uses an **in-process EventEmitter bridge** so the Agent Hub HTTP handler can notify active SSE streams without shared state or a message broker:
+When one agent calls another through the marketplace Agent Hub, the chat SSE stream surfaces that delegation in real time. The flow uses an **in-process EventEmitter bridge** so the Agent Hub HTTP handler can notify active SSE streams without shared state or a message broker:
 
 ```mermaid
 sequenceDiagram
@@ -1512,7 +1512,7 @@ The browser's `EventSource` API (used for SSE) can't set custom headers. So we p
 
 ### What Is a Flow?
 
-A **flow** is a visual DAG (directed acyclic graph) of nodes connected by edges. Each node represents one step of work — calling a deployment (bot), running a transform, evaluating a condition, or rendering an output. Flows let you chain multiple bots and services into multi-step agent pipelines without writing code.
+A **flow** is a visual DAG (directed acyclic graph) of nodes connected by edges. Each node represents one step of work — calling a deployment (agent), running a transform, evaluating a condition, or rendering an output. Flows let you chain multiple agents and services into multi-step agent pipelines without writing code.
 
 **Analogy:** Think of a flow like a **factory assembly line**. Each station (node) does one job, then passes the product to the next station (edge). The line can branch (condition node) or merge (multiple inputs to one node). A human-in-the-loop node is like a quality control checkpoint — the line pauses until a human approves and the line resumes.
 
@@ -1520,7 +1520,7 @@ A **flow** is a visual DAG (directed acyclic graph) of nodes connected by edges.
 
 | Type | What It Does |
 |---|---|
-| `deployment` | Calls a bot deployment (sends a message, gets a response) |
+| `deployment` | Calls an agent deployment (sends a message, gets a response) |
 | `transform` | Transforms the previous node's output (filter, format, extract) |
 | `condition` | Branches to different nodes based on a condition expression |
 | `output` | Renders the result (renders a UI component, logs, returns to caller) |
@@ -1614,7 +1614,7 @@ When someone logs in for the first time:
 
 ### Email Verification
 
-Users must verify their email before deploying bots (prevents abuse). The flow:
+Users must verify their email before deploying agents (prevents abuse). The flow:
 1. Auth0 sends verification email on signup
 2. We check `emailVerified` flag on every deploy attempt
 3. If not verified: show banner + block deployment
@@ -1749,7 +1749,7 @@ graph LR
 ### When Keys Get Decrypted
 
 Keys are decrypted ONLY when they need to leave our system:
-- Injecting into K8s Secrets (so the bot container can use them)
+- Injecting into K8s Secrets (so the agent container can use them)
 - Config sync (writing openclaw.json with actual tokens)
 - Key validation (checking if a user's BYOK key works)
 
@@ -2574,7 +2574,7 @@ Check in this order:
 
 ### "I need to understand the AutoFix system"
 
-When a bot renders a UI block, the flow is:
+When an agent renders a UI block, the flow is:
 ```
 Bot output: ```jarble_ui { "component": "DataTable", "props": {...} } ```
   ↓
@@ -2607,21 +2607,21 @@ Sentry breadcrumbs track: which repairs fired (for future rule improvements)
 | Term | What It Means |
 |---|---|
 | **Auth0** | Third-party login service. We never store passwords. |
-| **Agent Hub** | `POST /api/agent-hub/call` — allows one bot to delegate work to another published marketplace service. Uses `agentCallEvents` EventEmitter to fan SSE events to the active chat stream |
+| **Agent Hub** | `POST /api/agent-hub/call` — allows one agent to delegate work to another published marketplace service. Uses `agentCallEvents` EventEmitter to fan SSE events to the active chat stream |
 | **agentCallEvents** | Module-level EventEmitter (`src/utils/agentCallEvents.ts`) that bridges the Agent Hub HTTP handler with active chat SSE streams in the same Node.js process |
 | **AutoFix** | Pre-Zod prop repair system. 20 rules in `lib/autoFixProps.ts` fix common LLM output errors before validation |
 | **@assistant-ui/react** | React library for chat UI. We use `ExternalStoreRuntime` to wrap our `useCanvasChat` hook |
 | **@jarble/component-manifest** | Shared package (`shared/component-manifest/`) — single source of truth for all canvas component definitions, schemas, and derive functions |
 | **BYOK** | "Bring Your Own Key" — user provides their own LLM API key |
-| **Canvas** | The grid area in `/d/[id]` where bot-rendered UI components appear |
-| **Credit Pool** | Shared LLM budget across multiple bots (owner/linked model) |
-| **Deployment** | One user's bot instance (database record + K8s resources) |
+| **Canvas** | The grid area in `/d/[id]` where agent-rendered UI components appear |
+| **Credit Pool** | Shared LLM budget across multiple agents (owner/linked model) |
+| **Deployment** | One user's agent instance (database record + K8s resources) |
 | **DB_PROVIDER** | Env var to select database backend: `sqlite`, `mysql`, `postgres` |
 | **Drizzle** | Our database ORM (like Prisma but lighter) |
 | **EventSource / SSE** | Browser API for receiving server-pushed updates |
 | **Hetzner** | German cloud hosting provider (cheaper than AWS/GCP) |
 | **Included Credits** | We provide the LLM key with a monthly spending cap |
-| **jarble_ui** | Fenced code block format the bot uses to render canvas components: `\`\`\`jarble_ui { "component": "chart", "props": {...} } \`\`\`` |
+| **jarble_ui** | Fenced code block format the agent uses to render canvas components: `\`\`\`jarble_ui { "component": "chart", "props": {...} } \`\`\`` |
 | **JWT** | JSON Web Token — a signed auth token from Auth0 |
 | **K3s** | Lightweight Kubernetes (same API, smaller footprint) |
 | **K8s** | Kubernetes — container orchestration platform |
@@ -2632,14 +2632,14 @@ Sentry breadcrumbs track: which repairs fired (for future rule improvements)
 | **Mock K8s** | In-memory K8s simulation (`MOCK_K8S=true`) for local dev without a cluster |
 | **Namespace** | K8s isolation boundary (we use `jarble`) |
 | **Next.js** | React framework with routing, SSR, and build tooling |
-| **OpenClaw** | TypeScript/Node.js bot runtime (primary) |
+| **OpenClaw** | TypeScript/Node.js agent runtime (primary) |
 | **OpenRouter** | LLM API aggregator (200+ models, one API key) |
 | **Pod** | Smallest K8s unit — one running container |
 | **PostHog** | Product analytics library. Initialized in `lib/posthog.ts`. Requires `NEXT_PUBLIC_POSTHOG_KEY` |
 | **PVC** | Persistent Volume Claim — durable disk storage in K8s |
 | **rAF throttle** | `requestAnimationFrame`-based update coalescing in `useCanvasChat.ts` — prevents excessive React renders during fast SSE delta streams |
 | **React Query** | Data fetching + caching library (powers tRPC hooks) |
-| **Runtime** | The bot engine (OpenClaw or ZeroClaw) |
+| **Runtime** | The agent engine (OpenClaw or ZeroClaw) |
 | **Secret** | K8s encrypted key-value store (env vars for pods) |
 | **Sentry** | Error monitoring platform. Client config: `sentry.client.config.ts`. Requires `NEXT_PUBLIC_SENTRY_DSN` |
 | **SimpleCanvasGrid** | CSS grid layout for the canvas (no react-grid-layout). Supports drag-to-reorder, split, and merge |
@@ -2650,7 +2650,7 @@ Sentry breadcrumbs track: which repairs fired (for future rule improvements)
 | **Traefik** | Reverse proxy / ingress controller for K8s |
 | **tRPC** | Type-safe RPC framework (frontend calls backend functions directly) |
 | **TRUSTED_CDN_ORIGINS** | Allowlist of 10 CDN origins for sandbox library URLs. Enforced server-side in `uiBlockParser.ts` (before block reaches frontend) and client-side in `sandboxCore.ts:buildDocument()` (validates all library URLs + extracted `<script src>` / `<link href>` tags — defense-in-depth) |
-| **ZeroClaw** | Rust-based bot runtime (lightweight, ~3.4MB binary) |
+| **ZeroClaw** | Rust-based agent runtime (lightweight, ~3.4MB binary) |
 | **Artifact Workspace** | Pod-side `/data/workspace/` directory containing `manifest.json` + per-artifact JSON files. Accessed via `/api/deployments/:id/artifact/*` endpoints |
 | **Circuit Breaker** | `src/services/circuitBreaker.ts` — opens after 5 consecutive service proxy failures, auto-resets after 60s to prevent hammering unhealthy creator APIs |
 | **Subagents Router** | tRPC router (`src/trpc/routers/subagents.ts`) for managing child agents attached to deployments — CRUD, reorder, fork, public toggle |
@@ -2667,5 +2667,5 @@ Sentry breadcrumbs track: which repairs fired (for future rule improvements)
 | **Tiered Config Sync** | Three-tier strategy in `syncConfigsToPvc()`: Tier 1 = file-only (zero downtime), Tier 2 = process restart (~5-10s), Tier 3 = pod restart (~30-60s). Selects minimum disruption tier needed |
 | **Webhook Idempotency** | `processedWebhookEvents` table prevents duplicate Stripe event processing |
 | **Sandbox-first** | Architectural policy encoded in `promptGuidance` fields: sandbox is the default for dashboards, analytics, and multi-element visualizations. Chart/metric_card/stat_grid redirect to sandbox for combined requests |
-| **ZIP export** | Download bot configs as a ZIP file (for backup/migration) |
+| **ZIP export** | Download agent configs as a ZIP file (for backup/migration) |
 | **Zod-tolerant renderer** | `CanvasRenderer` logs Zod validation warnings but renders with raw props rather than showing error cards; components that handle minor type mismatches gracefully continue to render |

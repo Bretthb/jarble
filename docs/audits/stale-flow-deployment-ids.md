@@ -4,7 +4,7 @@
 **Status:** **CLEANED 2026-04-07** (see §10 Execution log)
 **Environment:** Production (Neon Postgres, `ep-blue-credit-aitceucu-pooler.c-4.us-east-1.aws.neon.tech`)
 **Auditor:** Claude Code (drizzle-db-schema agent), read-only
-**Trigger:** Bot Teams rescue — `flow_deployment_memberships` is empty in production despite 29 flows existing. Hypothesis: silent FK violations against stale `deploymentId` references in flow definitions.
+**Trigger:** Agent Teams rescue — `flow_deployment_memberships` is empty in production despite 29 flows existing. Hypothesis: silent FK violations against stale `deploymentId` references in flow definitions.
 **Related:** `docs/audits/qa-bot-teams-2026-04-07.md`, `docs/audits/bot-teams-fix1-plan.md`
 **Re-runnable audit script:** `scripts/audit-stale-flow-deployment-ids.mjs`
 **Cleanup script:** `scripts/cleanup-stale-flow-deployment-ids.mjs`
@@ -143,14 +143,14 @@ Zero `subflow` nodes exist in production. No stale `flowId` references either. G
 3. The CASCADE on `flow_deployment_memberships.deployment_id` cleaned up any rows in the join table for those deployments.
 4. **Nothing touched the JSON `definition` text column on `orchestration_flows`.** The stale IDs remained in place as orphaned references.
 5. Every subsequent `flows.update` to those flows tried to re-run `syncFlowMemberships`, which deleted any existing memberships for that flow and tried to re-insert from the (still-orphaned) JSON. Every insert hit the FK constraint and the silent try/catch swallowed it. No row landed in the join table.
-6. Because no row ever landed, **no bot's `soul.md` ever received a Team Context block**, and the entire Bot Teams pipeline appeared to do nothing — exactly the symptom the rescue investigation found.
+6. Because no row ever landed, **no agent's `soul.md` ever received a Team Context block**, and the entire Agent Teams pipeline appeared to do nothing — exactly the symptom the rescue investigation found.
 
 Two pieces of evidence support this:
 
 - The single existing deployment was created today, after the most recent flow update (`flw_3p42f1nl8lr2.updated_at = 2026-04-06T20:43:40Z`). So the user deleted at least one earlier deployment **and the flow_deployment_memberships table never recovered**, even after a fresh deployment came online.
 - All flow owners except `11u1rYyIRG15` show flow updates that are MORE RECENT than their oldest stale references — i.e., they edited the flow after the underlying deployment was deleted, and `syncFlowMemberships` was failing on every save.
 
-**Caveat:** I can't 100% prove the deployments existed and were deleted vs never existed. `audit_logs` is empty, there's no `deleted_at` column on `deployments`, and the deployment IDs themselves are random base36 — no metadata stored anywhere outside the now-deleted row. But the pattern fits "user deleted their bot" much better than "user typed an ID that never existed", because the flows store other valid metadata (labels, goals, roles) that suggest a real bot was wired up at some point.
+**Caveat:** I can't 100% prove the deployments existed and were deleted vs never existed. `audit_logs` is empty, there's no `deleted_at` column on `deployments`, and the deployment IDs themselves are random base36 — no metadata stored anywhere outside the now-deleted row. But the pattern fits "user deleted their agent" much better than "user typed an ID that never existed", because the flows store other valid metadata (labels, goals, roles) that suggest a real agent was wired up at some point.
 
 ---
 
@@ -191,7 +191,7 @@ A one-shot cleanup that:
 - Reversible at audit time — keep a `flow_definition_backup` table or just save the original `definition` JSON to a `before/` artifact directory before running.
 
 **Cons**
-- Currently, **every** deployment-typed node in production is stale, so this would leave 3 flows entirely empty of deployment nodes. The user might be confused that "Team 2 lost its bots." This is acceptable IMO — the bots are gone, the flow can't possibly work, leaving them in is worse than removing them.
+- Currently, **every** deployment-typed node in production is stale, so this would leave 3 flows entirely empty of deployment nodes. The user might be confused that "Team 2 lost its agents." This is acceptable IMO — the agents are gone, the flow can't possibly work, leaving them in is worse than removing them.
 - Edges connecting the removed nodes to other (non-deployment) nodes also need to be filtered. If a flow has a `transform → deployment` edge, the transform should stay but the edge should die. Easy enough.
 
 **Sample SQL preview (read-only):**
@@ -316,7 +316,7 @@ This is the **proper long-term fix**. When a deployment is deleted:
 3. Re-run `syncFlowMemberships` for each affected flow.
 4. Optionally notify the flow owner: "Deployment X was deleted; the following flows were updated: [list]."
 
-This makes the data model self-healing — the same way the FK CASCADE keeps the join table consistent. Without this, every future bot deletion will leave more orphans behind.
+This makes the data model self-healing — the same way the FK CASCADE keeps the join table consistent. Without this, every future agent deletion will leave more orphans behind.
 
 **Effort:** ~2-3 hours of router work in `deployment.ts` + a couple of unit tests.
 
@@ -366,7 +366,7 @@ The script is read-only and safe to run quarterly as part of an ops health-check
 - **Sync code reference:** `jarble-api-main/src/trpc/routers/flows.ts:209-236` (`syncFlowMemberships`)
 - **Extraction reference:** `jarble-api-main/src/trpc/routers/flows.ts:107-125` (`getDefinitionDeploymentIds` — defensive `config.deploymentId` check landed in Wave 2B)
 - **Strategy D validator (Wave 2B):** `jarble-api-main/src/trpc/routers/flows.ts:155-203` (`validateDeploymentReferences`)
-- **Strategy E auto-rewrite (Wave 2B):** `jarble-api-main/src/trpc/routers/deployment.ts` — `deployment.delete` now sweeps and rewrites affected `orchestration_flows.definition` rows on bot deletion
+- **Strategy E auto-rewrite (Wave 2B):** `jarble-api-main/src/trpc/routers/deployment.ts` — `deployment.delete` now sweeps and rewrites affected `orchestration_flows.definition` rows on agent deletion
 
 ---
 
@@ -399,7 +399,7 @@ The membership table is **still empty after cleanup** — and that is the correc
 |---|---|---|---|---|
 | `flw_3p42f1nl8lr2` | Team 2 | 2 → 0 | 1 → 0 | `lnhat9nut3ek` (tt2), `8vtgevemz6ft` (Devssssssssss111) |
 | `flw_ofsixnu3birl` | Team 1 | 1 → 0 | 0 → 0 | `45c08kyb58ee` (tt1) |
-| `flw_psbr1o5x8prm` | Team 1 | 2 → 0 | 0 → 0 | `ifvqafgds4qd` (Dev11122), `b24qltf1zoo1` (QA-Test-Bot) |
+| `flw_psbr1o5x8prm` | Team 1 | 2 → 0 | 0 → 0 | `ifvqafgds4qd` (Dev11122), `b24qltf1zoo1` (QA-Test-Agent) |
 
 **Removed edges:**
 
@@ -407,7 +407,7 @@ The membership table is **still empty after cleanup** — and that is the correc
 
 **Outcome:** SUCCESS. Single transaction committed cleanly. Re-running `scripts/audit-stale-flow-deployment-ids.mjs` immediately after the execute showed `TOTAL refs: 0  |  VALID: 0  STALE: 0  CROSS_OWNER: 0`. No `orchestration_flows` rows were deleted; only the `definition` column was rewritten on the 3 affected rows. No `deployments` rows were touched.
 
-**User-visible impact:** The 3 affected flows ("Team 1" × 2 and "Team 2") will appear as empty canvases (no nodes, no edges) the next time their owners open them. This is the intended behavior — every bot they referenced has been deleted, so leaving the orphaned cards in place would be misleading. Owners can rebuild the teams by dragging in their current bots. Wave 2B's `validateDeploymentReferences` will now reject any save attempt that tries to wire in another nonexistent deployment.
+**User-visible impact:** The 3 affected flows ("Team 1" × 2 and "Team 2") will appear as empty canvases (no nodes, no edges) the next time their owners open them. This is the intended behavior — every agent they referenced has been deleted, so leaving the orphaned cards in place would be misleading. Owners can rebuild the teams by dragging in their current agents. Wave 2B's `validateDeploymentReferences` will now reject any save attempt that tries to wire in another nonexistent deployment.
 
 ### Long-term prevention (already landed in Wave 2B)
 

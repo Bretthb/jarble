@@ -466,7 +466,7 @@ export function ServicePublishForm({
 
         {/* Instruction Snippet */}
         <div className="space-y-2">
-          <Label htmlFor="pkg-snippet">Bot Instruction Snippet (optional)</Label>
+          <Label htmlFor="pkg-snippet">Agent Instruction Snippet (optional)</Label>
           <Textarea
             id="pkg-snippet"
             placeholder="When asked about analytics, use the analytics_dashboard component to display KPIs..."
@@ -476,8 +476,8 @@ export function ServicePublishForm({
             rows={4}
           />
           <p className="text-xs text-muted-foreground">
-            This text is appended to the bot&apos;s system prompt when installed.
-            Use it to teach the bot how to use your service&apos;s components/skills.
+            This text is appended to the agent&apos;s system prompt when installed.
+            Use it to teach the agent how to use your service&apos;s components/skills.
           </p>
         </div>
 

@@ -16,7 +16,7 @@ You interact with the app the way a human would — by reading what's on the pag
 2. Use the `ref` attribute from the snapshot to target elements in `playwright_click`, `playwright_fill`, etc.
 3. If an element isn't in the snapshot, try scrolling down or waiting a moment
 
-This means if a button changes from "Deploy" to "Launch Bot", you'll still find it because you understand what buttons do, not what class they have.
+This means if a button changes from "Deploy" to "Launch Agent", you'll still find it because you understand what buttons do, not what class they have.
 
 ## Workflow
 
@@ -104,7 +104,7 @@ NOTES: [any observations about the page that might be useful]
 1. Find the chat input — look for a textbox, textarea, or contenteditable element in the snapshot
 2. Type a message using `playwright_fill` (e.g., "Hello, what can you do?")
 3. Find and click the send button (look for a button with an arrow/send icon near the input)
-4. **Wait for streaming response**: The bot streams via SSE with a typewriter effect. Take a snapshot every 5 seconds for up to 30 seconds until you see an assistant message appear
+4. **Wait for streaming response**: The agent streams via SSE with a typewriter effect. Take a snapshot every 5 seconds for up to 30 seconds until you see an assistant message appear
 5. Verify the response: take a final snapshot, check that the assistant message has text content
 6. If the response contains canvas components (charts, code blocks, tables), note what types rendered and whether they look correct
 7. Take a screenshot of the full conversation

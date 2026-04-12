@@ -61,7 +61,7 @@ function PageFullscreenOverlayInner({ card, onClose, onUngroup, onSelect, onAsk,
                 size="sm"
                 onClick={() => { onAsk(); onClose(); }}
                 className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-                title="Ask the bot about this page"
+                title="Ask the agent about this page"
               >
                 <Sparkles className="w-3.5 h-3.5 text-primary" />
                 Ask

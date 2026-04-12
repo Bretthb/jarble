@@ -243,7 +243,7 @@ export default function About() {
             </div>
             <div className="bg-card/80 backdrop-blur-md border border-border rounded-2xl p-8 text-center shadow-sm animate-fade-in-up-fast">
               <div className="text-5xl font-bold text-primary mb-2">5M+</div>
-              <p className="text-foreground">Discord bots active</p>
+              <p className="text-foreground">Discord agents active</p>
               <p className="text-sm text-muted-foreground mt-2">And growing daily</p>
             </div>
           </div>

@@ -1,8 +1,8 @@
 ---
-description: "QA: Bot Teams - Tests team topology creation, edge types, delegation, UI rendering, and edge cases. 8 tests, ~3 min."
+description: "QA: Agent Teams - Tests team topology creation, edge types, delegation, UI rendering, and edge cases. 8 tests, ~3 min."
 ---
 
-Test the Bot Teams feature end-to-end against dev.jarble.ai.
+Test the Agent Teams feature end-to-end against dev.jarble.ai.
 
 ## Auth Setup
 
@@ -33,8 +33,8 @@ GET `/trpc/flows.getById` with `$FLOW_ID`. Verify 3 nodes, 3 edges, correct edge
 GET `/trpc/flows.listForDeployment` for BOT_T1. Verify the QA-Test flow appears.
 **PASS**: Flow found in membership list.
 
-### T4: Bot Teams UI rendering
-Navigate to `/dashboard`, click Bot Teams tab. Verify the QA-Test flow appears in the sidebar. Click it. Take screenshot. Verify ReactFlow renders nodes.
+### T4: Agent Teams UI rendering
+Navigate to `/dashboard`, click Agent Teams tab. Verify the QA-Test flow appears in the sidebar. Click it. Take screenshot. Verify ReactFlow renders nodes.
 **PASS**: 3 nodes visible in accessibility tree.
 
 ### T5: Set Active team

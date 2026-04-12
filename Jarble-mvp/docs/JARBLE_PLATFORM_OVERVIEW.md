@@ -8,7 +8,7 @@
 
 ## 1. Platform Architecture
 
-Jarble is a **no-code AI bot deployment platform** that lets users deploy LLM-powered bots to messaging platforms (WhatsApp, Discord, Slack, Telegram) without coding. Each deployment gets a web chat interface (`/d/[id]`) with rich UI components via an MCP server.
+Jarble is a **no-code AI agent deployment platform** that lets users deploy LLM-powered agents to messaging platforms (WhatsApp, Discord, Slack, Telegram) without coding. Each deployment gets a web chat interface (`/d/[id]`) with rich UI components via an MCP server.
 
 ### Tech Stack
 
@@ -212,11 +212,11 @@ See `CLAUDE.md` for the full procedure list. Key routers:
 
 - **user** — Profile management, auth state
 - **deployment** — CRUD, lifecycle (start/stop/restart), K8s operations (admins bypass ownership)
-- **runtimeCatalog** — Available bot runtimes
+- **runtimeCatalog** — Available agent runtimes
 - **openrouter** — LLM key provisioning, validation, multi-provider support
 - **billing** — Stripe checkout, subscriptions
 - **platformCredentials** — Encrypted messaging platform credentials, pairing flows
-- **template** — Bot configuration templates
+- **template** — Agent configuration templates
 - **marketplace** — Component marketplace (22 procedures): browse, install, publish, review, admin moderation
 - **admin** — Platform admin (13 procedures, `adminProcedure`-guarded): stats, users, deployments, billing, audit
 
@@ -702,7 +702,7 @@ flowchart TD
 - [x] Audit logging on all admin mutations (`logAdminAction()`)
 - [x] Deployment CRUD + lifecycle (start/stop/restart/cancel/reactivate)
 - [x] Deployment ownership bypass for admins via `deploymentWhere()`
-- [x] Kubernetes orchestration (Deployment, PVC, Secret, Service per bot)
+- [x] Kubernetes orchestration (Deployment, PVC, Secret, Service per agent)
 - [x] K8s pod status monitoring, CPU/memory metrics, node info
 - [x] ConfigSync pipeline (DB → PVC + K8s Secret → restart → poll readiness)
 - [x] SSE streaming: deployment status, logs, QR pairing
@@ -754,7 +754,7 @@ flowchart TD
 
 | # | Task | Description | Effort |
 |---|------|-------------|--------|
-| 10 | **Custom domain support** | Allow users to point custom domains to their bots | Large |
+| 10 | **Custom domain support** | Allow users to point custom domains to their agents | Large |
 | 11 | **Team/organization support** | Multi-user orgs, shared deployments | Large |
 | 12 | **Multi-region cluster** | Terraform modules for multiple Hetzner regions | Large |
 | 13 | **Cluster auto-scaling** | Scale agent nodes based on deployment count | Large |

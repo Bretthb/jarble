@@ -2,14 +2,14 @@
 
 **Date:** 2026-04-07
 **Status:** APPLIED — PSS warn+audit labels live, NetworkPolicies live, t1 verified healthy
-**Related:** Bot Teams rescue Phase 5 (commit `bc8735b`), Wave 2 Team 2 (Hetzner egress firewall)
+**Related:** Agent Teams rescue Phase 5 (commit `bc8735b`), Wave 2 Team 2 (Hetzner egress firewall)
 **Owner:** Infrastructure / Platform Security
 
 ---
 
 ## Problem
 
-After Phase 5 of the Bot Teams rescue, every bot pod runs on its own dedicated
+After Phase 5 of the Agent Teams rescue, every agent pod runs on its own dedicated
 Hetzner VPS via hard scheduling affinity. That walls off **cross-tenant compute**
 at the hypervisor boundary. Wave 2 Team 2 then closed the **VPS-level egress**
 hole by attaching `hcloud_firewall.agent_egress` to every agent worker.
@@ -20,8 +20,8 @@ What was still missing inside Kubernetes:
    could request `privileged: true`, mount `hostPath: /`, run as root with all
    Linux capabilities, and so on. There was no admission-time guardrail.
 2. **No NetworkPolicy** in the `jarble` namespace. Inside the cluster, a
-   compromised bot pod could:
-   - Scan and connect to other tenant bots' pod IPs
+   compromised agent pod could:
+   - Scan and connect to other tenant agents' pod IPs
    - Probe the kubelet on other nodes (`:10250`)
    - Reach the K3s API server (`:6443`) and any in-cluster services
    - Reach the Hetzner Cloud metadata service at `169.254.169.254` and read
@@ -131,9 +131,9 @@ destination filter, and live testing showed Hetzner metadata at
 rule reopened the SSRF vector. The fix is to set
 `ipBlock.cidr: 0.0.0.0/0` with `except` covering link-local + RFC1918.
 
-This also has a useful side effect: bots cannot reach **any** in-cluster
+This also has a useful side effect: agents cannot reach **any** in-cluster
 HTTP/HTTPS service unless it's on the K3s API port range. That's defense in
-depth against bot-to-internal-service pivoting.
+depth against agent-to-internal-service pivoting.
 
 ### `jarble-default-deny-ingress`
 
@@ -143,8 +143,8 @@ Default-deny ingress, with one allow rule:
 |------|------|
 | Pods in namespace `jarble-production` (the API) | TCP 18789 (OpenClaw WS gateway) |
 
-Bot-to-bot ingress is blocked entirely. A compromised bot cannot scan or
-connect to any other bot's pod IP.
+Agent-to-agent ingress is blocked entirely. A compromised agent cannot scan or
+connect to any other agent's pod IP.
 
 ### Verification from inside t1 (after policies applied)
 
@@ -186,7 +186,7 @@ runAsGroup: 0
 allowPrivilegeEscalation: false
 ```
 
-To pass PSS `restricted`, every bot pod will need:
+To pass PSS `restricted`, every agent pod will need:
 
 ```ts
 runAsNonRoot: true
@@ -210,7 +210,7 @@ ownership setup is feasible — the work is:
 2. Add `USER 1000:1000` (or equivalent) to the runtime stage
 3. Have the init container `chown -R 1000:1000 /data` so the main container
    can write to its PVC
-4. Test on a single bot end-to-end (cold-start, npm install, chat round-trip,
+4. Test on a single agent end-to-end (cold-start, npm install, chat round-trip,
    storage usage, log streaming) before flipping the flag for all tenants
 
 ### 3. Flip PSS to enforce

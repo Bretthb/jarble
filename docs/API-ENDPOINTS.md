@@ -575,7 +575,7 @@ graph TD
 
 ### Services Router (26 procedures)
 
-The services marketplace enables users to install pre-built bundles of components, skills, and bot instruction snippets. Two hosting models: **Package** (self-hosted, buyer runs on their own pod) and **Hosted/Remote** (creator hosts APIs, buyer gets proxy access via ServiceCard).
+The services marketplace enables users to install pre-built bundles of components, skills, and agent instruction snippets. Two hosting models: **Package** (self-hosted, buyer runs on their own pod) and **Hosted/Remote** (creator hosts APIs, buyer gets proxy access via ServiceCard).
 
 ```mermaid
 graph TD
@@ -883,7 +883,7 @@ sequenceDiagram
 | POST | `/api/stripe/webhook` | Stripe signature (`stripe-signature` header) | Exempt | Handles 4 event types: `checkout.session.completed`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`. **Idempotent** — deduplicates via `processedWebhookEvents` table |
 | POST | `/api/auth0/email-verified` | M2M Bearer secret (`AUTH0_M2M_SECRET`) | Exempt | Auth0 Post Login Action webhook. Updates `emailVerified` flag in DB |
 | POST | `/api/config-changed` | deploymentId in body | Global | Called by pod file-watcher when PVC config files change. Triggers reverse sync (PVC → DB) |
-| POST | `/api/tambo-agent` | JWT Bearer | 120 req/min | Chat endpoint. Streams bot response as SSE with text deltas and `jarble_ui` UI block events. Proxies to pod via OpenClaw gateway. `sendEvent` is wrapped in try/catch — non-serializable data sends a fallback error event instead of crashing the stream |
+| POST | `/api/tambo-agent` | JWT Bearer | 120 req/min | Chat endpoint. Streams agent response as SSE with text deltas and `jarble_ui` UI block events. Proxies to pod via OpenClaw gateway. `sendEvent` is wrapped in try/catch — non-serializable data sends a fallback error event instead of crashing the stream |
 | POST | `/api/beta-signup` | None | Global | Public beta waitlist signup. Body: `{ name, email, useCase?, experience? }`. Stores in `beta_signups` table. Returns `{ success: true }` |
 
 ---
@@ -976,7 +976,7 @@ sequenceDiagram
 
 ### Artifact Workspace
 
-The bot pods maintain a `/data/workspace/` directory with a `manifest.json` (array of artifact metadata) and per-artifact `{id}.json` files. These endpoints exec into the pod to read/write those files, following the same auth + ownership pattern as other pod-exec routes.
+The agent pods maintain a `/data/workspace/` directory with a `manifest.json` (array of artifact metadata) and per-artifact `{id}.json` files. These endpoints exec into the pod to read/write those files, following the same auth + ownership pattern as other pod-exec routes.
 
 | Method | Path | Auth | Rate Limit | Description |
 |---|---|---|---|---|
@@ -1048,7 +1048,7 @@ sequenceDiagram
 
 ### Agent Hub
 
-The agent hub enables bot pods to delegate work to other marketplace agents. When `POST /api/agent-hub/call` is handled, it emits on `agentCallEvents` (an in-process EventEmitter), which the active chat SSE handler picks up and forwards to the frontend as `CUSTOM` events named `jarble.agent.call.start` / `jarble.agent.call.end`.
+The agent hub enables agent pods to delegate work to other marketplace agents. When `POST /api/agent-hub/call` is handled, it emits on `agentCallEvents` (an in-process EventEmitter), which the active chat SSE handler picks up and forwards to the frontend as `CUSTOM` events named `jarble.agent.call.start` / `jarble.agent.call.end`.
 
 | Method | Path | Auth | Rate Limit | Description |
 |---|---|---|---|---|
@@ -1083,7 +1083,7 @@ sequenceDiagram
 | Method | Path | Auth | Description |
 |---|---|---|---|
 | GET | `/api/deployments/:id/diagnose` | JWT Bearer | Health diagnostics for a deployment. Runs pod status, storage, and gateway connectivity checks with per-check 5s timeouts. Returns `overallHealth: "healthy" \| "degraded" \| "unhealthy"` + per-check details and suggestions |
-| POST | `/api/deployments/:id/mcp/invoke` | JWT Bearer | MCP tool call proxy. Routes allowed tool calls (save_canvas_file, render_ui, list_components, etc.) to the bot pod via K8s exec |
+| POST | `/api/deployments/:id/mcp/invoke` | JWT Bearer | MCP tool call proxy. Routes allowed tool calls (save_canvas_file, render_ui, list_components, etc.) to the agent pod via K8s exec |
 | POST | `/api/mcp/:deploymentId` | JWT Bearer | MCP Streamable HTTP — initialize and call tools (Claude Desktop, Cursor, external clients) |
 | GET | `/api/mcp/:deploymentId` | JWT Bearer | MCP SSE stream for server-to-client notifications (keyed by `mcp-session-id` header) |
 | DELETE | `/api/mcp/:deploymentId` | JWT Bearer | Close and clean up an MCP session |

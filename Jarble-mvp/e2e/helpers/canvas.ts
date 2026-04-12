@@ -28,8 +28,8 @@ export async function waitForBotReady(
     }
     // Bot is down or busy - wait and retry
     await page.waitForTimeout(3_000);
-    // Try clicking Start Bot if visible
-    const startBtn = page.locator('button:has-text("Start Bot")');
+    // Try clicking Start Agent if visible
+    const startBtn = page.locator('button:has-text("Start Agent")');
     if (await startBtn.isVisible().catch(() => false)) {
       await startBtn.click().catch(() => {});
       await page.waitForTimeout(5_000);

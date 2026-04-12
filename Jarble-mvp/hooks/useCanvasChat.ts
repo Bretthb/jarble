@@ -727,7 +727,7 @@ export function useCanvasChat(
               {
                 id: `${messageId}-timeout`,
                 role: "assistant",
-                content: "The bot didn't respond in time. It may be starting up or experiencing an issue. Please try again.",
+                content: "The agent didn't respond in time. It may be starting up or experiencing an issue. Please try again.",
                 createdAt: Date.now(),
               },
             ]);
@@ -1329,7 +1329,7 @@ export function useCanvasChat(
 
         if (data.overallHealth === "healthy") {
           // Clean restart - brief message
-          lines = [`${healthEmoji} Bot restarted successfully. Try sending your message again.`];
+          lines = [`${healthEmoji} Agent restarted successfully. Try sending your message again.`];
         } else if (data.overallHealth === "degraded") {
           // Filter to only actual issues (skip cosmetic permission warnings)
           const cosmeticPatterns = [
@@ -1343,9 +1343,9 @@ export function useCanvasChat(
           );
           if (issues.length === 0) {
             // All warnings are cosmetic - treat as healthy
-            lines = [`✅ Bot restarted successfully. Try sending your message again.`];
+            lines = [`✅ Agent restarted successfully. Try sending your message again.`];
           } else {
-            lines = [`${healthEmoji} Bot restarted with warnings:`];
+            lines = [`${healthEmoji} Agent restarted with warnings:`];
             for (const check of issues) {
               lines.push(`  ${check.status === "error" ? "❌" : "⚠️"} **${check.name}**: ${check.detail}`);
             }
@@ -1399,7 +1399,7 @@ export function useCanvasChat(
       {
         id: diagMsgId,
         role: "assistant",
-        content: `🔄 Bot ${action}. Checking health...`,
+        content: `🔄 Agent ${action}. Checking health...`,
         createdAt: Date.now(),
       },
     ]);
@@ -1418,25 +1418,25 @@ export function useCanvasChat(
         if (data.overallHealth === "healthy") {
           // Clean one-liner - don't dump diagnostics into chat
           setMessages((msgs) =>
-            msgs.map((m) => m.id === diagMsgId ? { ...m, content: `✅ Bot ${action} and healthy - ready to go.` } : m)
+            msgs.map((m) => m.id === diagMsgId ? { ...m, content: `✅ Agent ${action} and healthy - ready to go.` } : m)
           );
         } else {
           // Only show errors (not warnings) to keep chat clean
           const errors = data.checks.filter((c: any) => c.status === "error");
           if (errors.length === 0) {
             setMessages((msgs) =>
-              msgs.map((m) => m.id === diagMsgId ? { ...m, content: `✅ Bot ${action} - ready to go.` } : m)
+              msgs.map((m) => m.id === diagMsgId ? { ...m, content: `✅ Agent ${action} - ready to go.` } : m)
             );
           } else {
             const errorSummary = errors.map((c: any) => c.name).join(", ");
             setMessages((msgs) =>
-              msgs.map((m) => m.id === diagMsgId ? { ...m, content: `⚠️ Bot ${action} with issues: ${errorSummary}. Check Configuration for details.` } : m)
+              msgs.map((m) => m.id === diagMsgId ? { ...m, content: `⚠️ Agent ${action} with issues: ${errorSummary}. Check Configuration for details.` } : m)
             );
           }
         }
       } catch {
         setMessages((msgs) =>
-          msgs.map((m) => m.id === diagMsgId ? { ...m, content: `🔄 Bot ${action}.` } : m)
+          msgs.map((m) => m.id === diagMsgId ? { ...m, content: `🔄 Agent ${action}.` } : m)
         );
       }
     }, 3000); // 3s delay to let pod settle

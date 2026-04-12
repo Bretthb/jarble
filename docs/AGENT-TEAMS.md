@@ -1,4 +1,4 @@
-# Bot Teams and Orchestration
+# Agent Teams and Orchestration
 
 **Jarble Platform — Technical Reference**
 Last updated: April 9, 2026
@@ -12,7 +12,7 @@ Last updated: April 9, 2026
 3. [Architecture](#architecture)
 4. [Feature Inventory](#feature-inventory)
 5. [How Delegation Works — Step by Step](#how-delegation-works--step-by-step)
-6. [How to Create a Bot Team](#how-to-create-a-bot-team)
+6. [How to Create an Agent Team](#how-to-create-an-agent-team)
 7. [Component Rendering During Delegation](#component-rendering-during-delegation)
 8. [Cost Controls](#cost-controls)
 9. [Memory in Teams](#memory-in-teams)
@@ -27,11 +27,11 @@ Last updated: April 9, 2026
 
 ## Overview
 
-Bot Teams let you connect multiple Jarble bots into a collaborative network. A user sends one message to a coordinator bot; the coordinator silently fans out work to specialist bots; each specialist replies with text and rich visual components; the coordinator synthesizes a unified response and sends it back to the user.
+Agent Teams let you connect multiple Jarble agents into a collaborative network. A user sends one message to a coordinator agent; the coordinator silently fans out work to specialist agents; each specialist replies with text and rich visual components; the coordinator synthesizes a unified response and sends it back to the user.
 
-The user sees a single conversation. Behind the scenes, N bots ran in parallel.
+The user sees a single conversation. Behind the scenes, N agents ran in parallel.
 
-This is different from Jarble's other execution model, the DAG-based Flow Engine, which requires pre-defined step sequences and explicit triggers. Bot Teams are conversational and dynamic: the coordinator LLM decides at runtime which specialists to invoke, based on the user's message and the team structure you defined.
+This is different from Jarble's other execution model, the DAG-based Flow Engine, which requires pre-defined step sequences and explicit triggers. Agent Teams are conversational and dynamic: the coordinator LLM decides at runtime which specialists to invoke, based on the user's message and the team structure you defined.
 
 Both modes are built into the same platform and share the same infrastructure.
 
@@ -41,15 +41,15 @@ Both modes are built into the same platform and share the same infrastructure.
 
 **Deployments as logic gates.**
 
-Each bot in a team is an independent, always-running K8s pod with its own LLM, system prompt, and memory. The team topology — which bot can delegate to which — is encoded as a directed graph of `"delegates"` edges stored in the flow definition. When the coordinator bot calls a specialist, it is literally exec-ing into that pod's OpenClaw process and injecting a structured task message.
+Each agent in a team is an independent, always-running K8s pod with its own LLM, system prompt, and memory. The team topology — which agent can delegate to which — is encoded as a directed graph of `"delegates"` edges stored in the flow definition. When the coordinator agent calls a specialist, it is literally exec-ing into that pod's OpenClaw process and injecting a structured task message.
 
-The key insight is that every bot in a team is simultaneously:
+The key insight is that every agent in a team is simultaneously:
 
 1. A standalone chat interface (accessible at `/d/[id]`)
-2. A first-class citizen in zero or more bot teams (connected via flow edges)
+2. A first-class citizen in zero or more agent teams (connected via flow edges)
 3. An A2A-compatible agent (callable by any external system via `POST /api/a2a/:id/tasks/send`)
 
-This means a "CTO bot" you built for your own use can be plugged into a larger orchestrated team without any code changes. Its capabilities, model, and system prompt remain exactly as configured. The team structure is an overlay, not a replacement.
+This means a "CTO agent" you built for your own use can be plugged into a larger orchestrated team without any code changes. Its capabilities, model, and system prompt remain exactly as configured. The team structure is an overlay, not a replacement.
 
 ```
 User message
@@ -175,12 +175,12 @@ The `agent_calls` table is the source of truth for all cost attribution, audit t
 | Three-tier memory (core/archival/session) | Shipped | `openclaw.ts:JARBLE_UI_PROMPT` |
 | Team Sessions panel | Shipped | `TeamSessionsPanel.tsx` + `deployment.listTeamSessions` |
 | Debug Traces panel | Shipped | `DebugTracePanel.tsx` + `deployment.listRecentTraces` |
-| Canvas card attribution ("from Bot A") | Shipped | `Deployments.tsx:producerRole, producerDeploymentId` |
+| Canvas card attribution ("from Agent A") | Shipped | `Deployments.tsx:producerRole, producerDeploymentId` |
 | DELEGATION_CONTEXT injection | Shipped | `flowDelegation.ts:L683` |
 | CANVAS_STATE injection for delegates | Shipped | `flowDelegation.ts:L683` |
 | Delegation rendering hints | Shipped | `flowDelegation.ts:L673-683` |
 | Resource Map with env var panel | Shipped | `ResourceMapView.tsx` |
-| Dashboard tabs (My Bots / Bot Teams / Resources) | Shipped | `Dashboard.tsx:DashboardTab` |
+| Dashboard tabs (My Agents / Agent Teams / Resources) | Shipped | `Dashboard.tsx:DashboardTab` |
 | A2A agent card endpoint | Shipped | `a2aGateway.ts:GET /api/a2a/:id/agent.json` |
 | A2A task send endpoint | Shipped | `a2aGateway.ts:POST /api/a2a/:id/tasks/send` |
 | A2A MCP tool (`a2a_delegate`) in pod | Shipped | `jarble-ui-server.js:DELEGATION_TOOLS` |
@@ -207,7 +207,7 @@ The `agent_calls` table is the source of truth for all cost attribution, audit t
 
 ### 1. User sends a message
 
-The browser POSTs to `POST /api/flows/:flowId/chat` with a Bearer JWT. The API verifies the JWT, confirms the user owns the flow, and confirms the entry bot is running.
+The browser POSTs to `POST /api/flows/:flowId/chat` with a Bearer JWT. The API verifies the JWT, confirms the user owns the flow, and confirms the entry agent is running.
 
 ### 2. API builds delegation tools
 
@@ -242,7 +242,7 @@ The coordinator's existing system prompt (`soul.md`) is extended with:
 
 The augmented prompt is injected into the user message wrapped in `[FLOW SYSTEM INSTRUCTIONS — AUTHORITATIVE]` markers, because the current chat pathway does not support a separate system prompt channel.
 
-### 4. Entry bot responds (possibly with delegation blocks)
+### 4. Entry agent responds (possibly with delegation blocks)
 
 The coordinator LLM sees the augmented prompt and decides whether to delegate. If it delegates, it emits one or more fenced code blocks:
 
@@ -284,29 +284,29 @@ The coordinator is called again with the full (untruncated) text replies from ev
 
 ---
 
-## How to Create a Bot Team
+## How to Create an Agent Team
 
 ### Prerequisites
 
-- At least two running deployments (bots)
-- Both bots must be deployed and have `status: "running"`
+- At least two running deployments (agents)
+- Both agents must be deployed and have `status: "running"`
 
 ### Steps
 
-1. **Open the Bot Teams tab** — on the dashboard, switch to the "Bot Teams" tab. This loads `Deployments.tsx` with the `@xyflow/react` canvas.
+1. **Open the Agent Teams tab** — on the dashboard, switch to the "Agent Teams" tab. This loads `Deployments.tsx` with the `@xyflow/react` canvas.
 
 2. **Create a new flow** — click "New Flow" to create an `orchestration_flows` record.
 
-3. **Add bots as nodes** — drag deployments from the sidebar onto the canvas. Each node represents one bot in the team.
+3. **Add agents as nodes** — drag deployments from the sidebar onto the canvas. Each node represents one agent in the team.
 
-4. **Mark the entry point** — right-click the coordinator node and set `isEntryPoint: true`. This is the bot the user will talk to. If no node is marked, the first node in the array is used as a fallback.
+4. **Mark the entry point** — right-click the coordinator node and set `isEntryPoint: true`. This is the agent the user will talk to. If no node is marked, the first node in the array is used as a fallback.
 
 5. **Set roles and goals** — in the node config panel (`FlowNodeConfigPanel`), set:
    - `role`: short label for the coordinator's delegation prompt (e.g. "CTO", "Research Specialist")
-   - `goal`: one sentence describing what this bot does in the team
+   - `goal`: one sentence describing what this agent does in the team
    - `canDelegate`: whether this node is allowed to delegate outward (defaults to true)
 
-6. **Draw delegation edges** — connect nodes with edges of type `"delegates"`. The source bot can call the target bot. Draw edges FROM the coordinator TO each specialist.
+6. **Draw delegation edges** — connect nodes with edges of type `"delegates"`. The source agent can call the target agent. Draw edges FROM the coordinator TO each specialist.
 
 7. **Configure context scope** — on each edge, choose how much conversation history to pass:
    - `task`: pass only the delegated task string (default, lowest latency)
@@ -315,7 +315,7 @@ The coordinator is called again with the full (untruncated) text replies from ev
 
 8. **Save the flow** — click Save. The flow definition (nodes + edges) is persisted to `orchestration_flows.definition`.
 
-9. **Start chatting** — click the "Chat" tab within Bot Teams. Messages go to `POST /api/flows/:id/chat`.
+9. **Start chatting** — click the "Chat" tab within Agent Teams. Messages go to `POST /api/flows/:id/chat`.
 
 ### Node configuration reference
 
@@ -343,9 +343,9 @@ interface FlowEdge {
 
 ## Component Rendering During Delegation
 
-Each bot pod runs the full OpenClaw stack with the Jarble UI MCP server (`jarble-ui-server.js`). Bots can render `jarble_ui` components (charts, tables, stat grids, sandboxes, etc.) in any context, including when being called as a specialist.
+Each agent pod runs the full OpenClaw stack with the Jarble UI MCP server (`jarble-ui-server.js`). Agents can render `jarble_ui` components (charts, tables, stat grids, sandboxes, etc.) in any context, including when being called as a specialist.
 
-The challenge: by default, `JARBLE_UI_PROMPT` instructs bots to render UI only when they detect a `[CANVAS_STATE]` tag in the conversation — which is only present on the Jarble web dashboard, not in delegation calls.
+The challenge: by default, `JARBLE_UI_PROMPT` instructs agents to render UI only when they detect a `[CANVAS_STATE]` tag in the conversation — which is only present on the Jarble web dashboard, not in delegation calls.
 
 The fix: `executeDelegation()` prepends the task message with two synthetic tags before sending it to the specialist pod:
 
@@ -382,7 +382,7 @@ When a specialist produces a `jarble_ui` block, the API emits a `jarble.flow.del
 }
 ```
 
-The frontend (`Deployments.tsx`) renders these as canvas cards below the chat bubble, each tagged with `producerRole` and `producerDeploymentId` so the user can see which bot produced which component.
+The frontend (`Deployments.tsx`) renders these as canvas cards below the chat bubble, each tagged with `producerRole` and `producerDeploymentId` so the user can see which agent produced which component.
 
 ---
 
@@ -419,8 +419,8 @@ The span-count check only fires for `depth >= 1` (delegation hops). Root-level c
 Default: 4 levels deep. Override with `JARBLE_MAX_DELEGATION_DEPTH` (must be a positive integer less than 20).
 
 Depth semantics:
-- Depth 0: user to entry bot (no `agent_calls` row)
-- Depth 1: entry bot to first specialist
+- Depth 0: user to entry agent (no `agent_calls` row)
+- Depth 1: entry agent to first specialist
 - Depth 2: specialist to sub-specialist
 - Depth N: N-th hop
 
@@ -430,7 +430,7 @@ A call at `depth > MAX_DELEGATION_DEPTH` throws `DelegationDepthExceededError` b
 
 ## Memory in Teams
 
-Each bot in a team has independent, scoped memory via the three-tier system described in `JARBLE_UI_PROMPT`:
+Each agent in a team has independent, scoped memory via the three-tier system described in `JARBLE_UI_PROMPT`:
 
 | Tier | MCP tools | Scope |
 |------|-----------|-------|
@@ -438,20 +438,20 @@ Each bot in a team has independent, scoped memory via the three-tier system desc
 | Archival (long-term) | `archival_insert`, `archival_search` | Cross-platform facts |
 | Session (short-term) | `store_memory` / `recall_memory` via mcporter | Per-conversation or global (configurable) |
 
-Memory scope is configured per deployment (`memoryScope: "global" | "session" | "off"`). Bots are instructed to prefer Jarble's scope-aware MCP tools (`jarble-ui.store_memory`, `jarble-ui.recall_memory`) over OpenClaw's native memory tools, because the native tools bypass the scope enforcement.
+Memory scope is configured per deployment (`memoryScope: "global" | "session" | "off"`). Agents are instructed to prefer Jarble's scope-aware MCP tools (`jarble-ui.store_memory`, `jarble-ui.recall_memory`) over OpenClaw's native memory tools, because the native tools bypass the scope enforcement.
 
-During a delegation, the specialist's memory operates independently of the coordinator's. A specialist can remember facts from past tasks (global scope) or keep memory isolated per call (session scope). There is currently no shared team memory across bots.
+During a delegation, the specialist's memory operates independently of the coordinator's. A specialist can remember facts from past tasks (global scope) or keep memory isolated per call (session scope). There is currently no shared team memory across agents.
 
 ---
 
 ## Frontend: Canvas, Chat, and Debug Views
 
-### Bot Teams Canvas (`Deployments.tsx`)
+### Agent Teams Canvas (`Deployments.tsx`)
 
 The main canvas uses `@xyflow/react` with three tabs:
 
-- **Linked Deployments** — list view of bots in the flow
-- **Bot Teams** — visual graph editor with custom nodes and edges
+- **Linked Deployments** — list view of agents in the flow
+- **Agent Teams** — visual graph editor with custom nodes and edges
 - **Resource Map** — auto-layout diagram of all resource relationships
 
 **Live edge animations**: when the coordinator is actively delegating, the canvas renders specialist nodes and their connecting edges in a "running" state (pulsing animation). This is driven by `activeDelegationTargets: Set<string>` — a set of deployment IDs currently receiving a delegation — updated from `jarble.flow.delegation.start` and `jarble.flow.delegation.end` SSE events.
@@ -465,7 +465,7 @@ The main canvas uses `@xyflow/react` with three tabs:
 Real-time step tree rendered in the chat panel during delegation. Builds a parent-child tree from `parentId` pointers (sourced from `parentStepId` on SSE events, which maps to `agent_calls.parent_call_id`).
 
 Step types with icons:
-- `delegation` — ArrowRightLeft icon, indicates a bot-to-bot delegation hop
+- `delegation` — ArrowRightLeft icon, indicates an agent-to-agent delegation hop
 - `subagent` — Bot icon, indicates a subagent tool call
 - `platform` — Cpu icon, indicates a platform tool call
 
@@ -474,12 +474,12 @@ Steps can be `pending | running | complete | error`. Duration is shown on comple
 ### TeamSessionsPanel (`TeamSessionsPanel.tsx`)
 
 Shows delegation history for a specific deployment from both sides of the relationship:
-- "Coordinator" view: tasks this bot delegated outward
-- "Specialist" view: tasks this bot received from a coordinator
+- "Coordinator" view: tasks this agent delegated outward
+- "Specialist" view: tasks this agent received from a coordinator
 
 Data comes from `trpc.deployment.listTeamSessions`, which queries `agent_calls` for rows where this deployment is either `caller_deployment_id` or `callee_deployment_id`. Refreshes every 30 seconds.
 
-Each session entry shows: task preview, direction (sent/received), other bot name, status, duration, and cost.
+Each session entry shows: task preview, direction (sent/received), other agent name, status, duration, and cost.
 
 ### DebugTracePanel (`DebugTracePanel.tsx`)
 
@@ -498,12 +498,12 @@ Auto-layout diagram (dagre) showing relationships between all user deployments. 
 
 | Edge type | Color | Meaning |
 |-----------|-------|---------|
-| `api_key_share` | Green (solid) | Bot B uses an API key owned by Bot A |
-| `agent_call` | Purple (dashed) | Bot A has delegated to Bot B at least once |
-| `flow_connection` | Blue (solid) | Bot A and Bot B are in the same flow |
-| `shared_platform` | Orange (dashed) | Bots share a messaging platform credential |
+| `api_key_share` | Green (solid) | Agent B uses an API key owned by Agent A |
+| `agent_call` | Purple (dashed) | Agent A has delegated to Agent B at least once |
+| `flow_connection` | Blue (solid) | Agent A and Agent B are in the same flow |
+| `shared_platform` | Orange (dashed) | Agents share a messaging platform credential |
 
-Clicking a node opens an env var panel showing the bot's current environment configuration. Useful for debugging misconfigured credentials or shared-key relationships.
+Clicking a node opens an env var panel showing the agent's current environment configuration. Useful for debugging misconfigured credentials or shared-key relationships.
 
 ---
 
@@ -524,7 +524,7 @@ whereConditions = and(
 );
 ```
 
-This prevents IDOR: a coordinator bot cannot be used to reach a deployment owned by a different user, even if that deployment's ID is somehow obtained.
+This prevents IDOR: a coordinator agent cannot be used to reach a deployment owned by a different user, even if that deployment's ID is somehow obtained.
 
 ### Flow topology ownership scoping
 
@@ -558,7 +558,7 @@ All endpoints require Auth0 Bearer JWT. The A2A endpoints additionally accept AP
 
 ## A2A Protocol Reference
 
-The A2A (Agent-to-Agent) gateway exposes each Jarble bot as a standalone callable agent following the Google A2A protocol schema.
+The A2A (Agent-to-Agent) gateway exposes each Jarble agent as a standalone callable agent following the Google A2A protocol schema.
 
 ### Agent Card
 
@@ -566,7 +566,7 @@ The A2A (Agent-to-Agent) gateway exposes each Jarble bot as a standalone callabl
 GET /api/a2a/:deploymentId/agent.json
 ```
 
-Returns a capability descriptor for the bot. Public deployments: no auth required. Private deployments: requires Bearer JWT or org membership.
+Returns a capability descriptor for the agent. Public deployments: no auth required. Private deployments: requires Bearer JWT or org membership.
 
 **Response:**
 ```json
@@ -650,13 +650,13 @@ UI blocks are included as `"data"` parts with MIME type `application/vnd.jarble.
 **Error responses** use JSON-RPC error codes:
 - `-32001`: Authentication required
 - `-32004`: Deployment not found or access denied
-- `-32005`: Bot is not running
+- `-32005`: Agent is not running
 - `-32006`: No running pod found
 - `-32602`: Invalid parameters (message too long, invalid sessionId, context too large)
 
 ### A2A MCP Tool (inside pods)
 
-Pods that are members of a bot team have a `delegation-tools.json` loaded by `jarble-ui-server.js`. This file contains an `a2a_delegate` MCP tool definition:
+Pods that are members of an agent team have a `delegation-tools.json` loaded by `jarble-ui-server.js`. This file contains an `a2a_delegate` MCP tool definition:
 
 ```json
 {
@@ -676,7 +676,7 @@ Pods that are members of a bot team have a `delegation-tools.json` loaded by `ja
 
 When a pod calls this tool, `jarble-ui-server.js` returns a structured JSON result. The API-side gateway (`flowDelegation.ts`) receives this result via the chat response and routes the delegation accordingly.
 
-The preferred delegation mechanism is the `jarble_delegate` fenced block format (taught via the augmented system prompt), not the MCP tool. The MCP tool is Phase 1 of the A2A integration and provides a more structured alternative for bots that prefer tool-call semantics.
+The preferred delegation mechanism is the `jarble_delegate` fenced block format (taught via the augmented system prompt), not the MCP tool. The MCP tool is Phase 1 of the A2A integration and provides a more structured alternative for agents that prefer tool-call semantics.
 
 ---
 
@@ -749,7 +749,7 @@ If the coordinator LLM describes a delegation in natural language ("I've asked t
 
 ### Memory isolation between specialists
 
-Specialists do not share memory with each other or with the coordinator. Each bot accesses only its own mcporter memory store. There is no team-scoped shared memory namespace.
+Specialists do not share memory with each other or with the coordinator. Each agent accesses only its own mcporter memory store. There is no team-scoped shared memory namespace.
 
 ---
 
@@ -759,11 +759,11 @@ Specialists do not share memory with each other or with the coordinator. Each bo
 |------|---------|
 | `jarble-api-main/src/services/flowDelegation.ts` | Delegation engine: tool building, prompt augmentation, parsing, execution, cycle detection |
 | `jarble-api-main/src/routes/flowChat.ts` | Flow chat SSE endpoint: orchestration entry, parallel fan-out, compose, synthesis |
-| `jarble-api-main/src/routes/tamboAgent.ts` | Individual bot chat: delegation support, parallel concurrency, orchestration events |
+| `jarble-api-main/src/routes/tamboAgent.ts` | Individual agent chat: delegation support, parallel concurrency, orchestration events |
 | `jarble-api-main/src/services/agentCallsWriter.ts` | Audit writer: insert-then-update, OTel bridge, runaway circuit breaker |
 | `jarble-api-main/src/services/flowEngine.ts` | DAG executor for formal flow execution (separate from conversational delegation) |
 | `jarble-api-main/src/routes/a2aGateway.ts` | A2A endpoints: agent card + synchronous task send |
-| `jarble-api-main/src/mcp/jarble-ui-server.js` | MCP server in bot pods: `a2a_delegate` tool, `delegation-tools.json` loader |
+| `jarble-api-main/src/mcp/jarble-ui-server.js` | MCP server in agent pods: `a2a_delegate` tool, `delegation-tools.json` loader |
 | `jarble-api-main/src/runtimes/handlers/openclaw.ts` | Runtime config: `soul.md` rendering, `JARBLE_UI_PROMPT`, memory scope guidance |
 | `jarble-api-main/src/trpc/routers/deployment.ts` | `listTeamSessions`, `listRecentTraces`, `getAgentCallsByTrace` procedures |
 | `Jarble-mvp/views/Deployments.tsx` | Canvas + chat UI: `FlowCanvas`, `activeDelegationTargets`, team chat message handling |
@@ -771,4 +771,4 @@ Specialists do not share memory with each other or with the coordinator. Each bo
 | `Jarble-mvp/components/workspace/TeamSessionsPanel.tsx` | Delegation history panel |
 | `Jarble-mvp/components/workspace/DebugTracePanel.tsx` | OTel span tree debug panel |
 | `Jarble-mvp/views/ResourceMapView.tsx` | Resource relationship diagram |
-| `Jarble-mvp/views/Dashboard.tsx` | Top-level dashboard with My Bots / Bot Teams / Resources tabs |
+| `Jarble-mvp/views/Dashboard.tsx` | Top-level dashboard with My Agents / Agent Teams / Resources tabs |

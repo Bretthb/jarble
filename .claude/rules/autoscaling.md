@@ -7,7 +7,7 @@ globs:
 
 # Auto-Scaling (Hetzner K3s Workers)
 
-Background watcher (`nodeManager.ts`) polls every 15s for Pending (Unschedulable) bot pods. Provisions Hetzner servers sized to pod CPU/RAM + block storage for Longhorn. Server joins K3s via cloud-init. Empty workers deprovisioned after 5 min. Controlled by `AUTOSCALE_ENABLED=true`.
+Background watcher (`nodeManager.ts`) polls every 15s for Pending (Unschedulable) agent pods. Provisions Hetzner servers sized to pod CPU/RAM + block storage for Longhorn. Server joins K3s via cloud-init. Empty workers deprovisioned after 5 min. Controlled by `AUTOSCALE_ENABLED=true`.
 
 ## Server Type Mapping
 | Pod CPU | Pod RAM | Hetzner Type | Server Specs |

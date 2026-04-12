@@ -128,10 +128,10 @@ describe("ChatErrorCard", () => {
     );
     expect(screen.getByText("Retry")).toBeTruthy();
     expect(screen.getByText("Diagnose")).toBeTruthy();
-    expect(screen.queryByText("Start Bot")).toBeNull();
+    expect(screen.queryByText("Start Agent")).toBeNull();
   });
 
-  it("shows Start Bot button for POD_NOT_FOUND, hides Retry and Diagnose", () => {
+  it("shows Start Agent button for POD_NOT_FOUND, hides Retry and Diagnose", () => {
     render(
       <ChatErrorCard
         error={POD_NOT_FOUND_ERROR}
@@ -140,7 +140,7 @@ describe("ChatErrorCard", () => {
         isDiagnosing={false}
       />,
     );
-    expect(screen.getByText("Start Bot")).toBeTruthy();
+    expect(screen.getByText("Start Agent")).toBeTruthy();
     expect(screen.queryByText("Retry")).toBeNull();
     expect(screen.queryByText("Diagnose")).toBeNull();
   });
@@ -156,7 +156,7 @@ describe("ChatErrorCard", () => {
     );
     expect(screen.getByText("Retry")).toBeTruthy();
     expect(screen.queryByText("Diagnose")).toBeNull();
-    expect(screen.queryByText("Start Bot")).toBeNull();
+    expect(screen.queryByText("Start Agent")).toBeNull();
   });
 
   it("hides Retry button when onRetry is not provided even if canRetry is true", () => {
@@ -188,7 +188,7 @@ describe("ChatErrorCard", () => {
     expect(onRetry).toHaveBeenCalledOnce();
   });
 
-  it("calls onStartBot when Start Bot button is clicked", async () => {
+  it("calls onStartBot when Start Agent button is clicked", async () => {
     const user = userEvent.setup();
     render(
       <ChatErrorCard
@@ -198,7 +198,7 @@ describe("ChatErrorCard", () => {
         isDiagnosing={false}
       />,
     );
-    await user.click(screen.getByText("Start Bot"));
+    await user.click(screen.getByText("Start Agent"));
     expect(onStartBot).toHaveBeenCalledOnce();
   });
 

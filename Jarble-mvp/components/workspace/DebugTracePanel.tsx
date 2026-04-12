@@ -202,7 +202,7 @@ export default function DebugTracePanel({ deploymentId, onClose }: DebugTracePan
           <div className="py-8 text-center">
             <Activity className="w-6 h-6 mx-auto text-muted-foreground/40 mb-2" />
             <div className="text-xs text-muted-foreground">
-              No recent traces. Try chatting with the bot or delegating a task.
+              No recent traces. Try chatting with the agent or delegating a task.
             </div>
           </div>
         )}

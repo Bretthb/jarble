@@ -195,7 +195,7 @@ export default function StepDeploy({
             <div>
               <h3 className="text-xl font-semibold text-primary mb-1">Paired!</h3>
               <p className="text-muted-foreground text-sm">
-                Your bot <strong>@{telegramBotUsername}</strong> is paired and ready to chat
+                Your agent <strong>@{telegramBotUsername}</strong> is paired and ready to chat
               </p>
             </div>
             <div className="flex flex-col items-center gap-3">
@@ -224,9 +224,9 @@ export default function StepDeploy({
               </p>
             </div>
             <div className="space-y-3">
-              <p className="text-sm font-medium">Send your bot any message to pair</p>
+              <p className="text-sm font-medium">Send your agent any message to pair</p>
               <p className="text-xs text-muted-foreground">
-                Your bot is starting up with Telegram enabled. Once ready, send it any
+                Your agent is starting up with Telegram enabled. Once ready, send it any
                 message and we&apos;ll auto-approve the pairing.
               </p>
               <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
@@ -434,8 +434,8 @@ export default function StepDeploy({
             <Rocket className="w-4 h-4 text-primary" />
             <p className="text-sm">
               {!checkoutConfirmed
-                ? "Complete payment to deploy your bot"
-                : "Click \"Deploy\" to launch your bot!"}
+                ? "Complete payment to deploy your agent"
+                : "Click \"Deploy\" to launch your agent!"}
             </p>
           </div>
         </>

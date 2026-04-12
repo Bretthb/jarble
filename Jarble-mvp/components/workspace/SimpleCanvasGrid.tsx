@@ -519,7 +519,7 @@ function SimpleCanvasGridInner({
           </div>
           <div className="text-center space-y-1">
             <p className="text-sm font-medium text-foreground/70">Canvas</p>
-            <p className="text-xs text-muted-foreground-subtle">Components will appear here when the bot renders them.</p>
+            <p className="text-xs text-muted-foreground-subtle">Components will appear here when the agent renders them.</p>
             <p className="text-xs text-muted-foreground-subtle">Or load saved components from your <strong>Library</strong> above.</p>
           </div>
         </div>
