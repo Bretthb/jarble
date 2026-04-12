@@ -9,8 +9,7 @@ import {
   isTeamFilesConfigured,
   MAX_FILE_SIZE,
 } from "../services/teamFileStore.js";
-import { authenticatePod } from "./podApi.js";
-
+// NOTE: authenticatePod is applied at mount level in index.ts — not needed here
 const logger = createModuleLogger("teamFiles");
 
 export const teamFilesRouter = Router();
@@ -25,13 +24,13 @@ teamFilesRouter.use((_req: Request, res: Response, next) => {
   next();
 });
 
-// ── Internal pod endpoints (X-Deployment-Id + X-Gateway-Token auth) ──────────
+// ── Internal pod endpoints (auth handled by mount-level middleware) ──────────
 
 /**
  * POST /upload
  * Body: { content: string (base64), filename: string, mimeType?: string, flowId: string, sessionId: string }
  */
-teamFilesRouter.post("/upload", authenticatePod, async (req: Request, res: Response) => {
+teamFilesRouter.post("/upload", async (req: Request, res: Response) => {
   try {
     const { content, filename, mimeType, flowId, sessionId } = req.body ?? {};
 
@@ -109,7 +108,7 @@ teamFilesRouter.post("/upload", authenticatePod, async (req: Request, res: Respo
  *
  * Registered before /:fileId so "list" is not captured as a fileId param.
  */
-teamFilesRouter.get("/list", authenticatePod, async (req: Request, res: Response) => {
+teamFilesRouter.get("/list", async (req: Request, res: Response) => {
   try {
     const flowId = req.query.flowId as string;
     const sessionId = req.query.sessionId as string;
@@ -140,7 +139,7 @@ teamFilesRouter.get("/list", authenticatePod, async (req: Request, res: Response
  * Query: flowId, sessionId
  * Returns file content as base64 (JSON) or streams with Content-Type
  */
-teamFilesRouter.get("/:fileId", authenticatePod, async (req: Request, res: Response) => {
+teamFilesRouter.get("/:fileId", async (req: Request, res: Response) => {
   try {
     const { fileId } = req.params;
     const flowId = req.query.flowId as string;

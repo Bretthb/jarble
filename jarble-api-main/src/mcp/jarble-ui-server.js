@@ -5806,6 +5806,8 @@ function apiRequest(method, path, body) {
     const headers = payload
       ? { "Content-Type": "application/json", "Content-Length": Buffer.byteLength(payload) }
       : {};
+    // Always request JSON so endpoints like team-files download return base64 JSON
+    headers["Accept"] = "application/json";
     // Auth headers so the API can identify which pod/deployment is calling
     headers["X-Deployment-Id"] = process.env.DEPLOYMENT_ID || "";
     headers["X-Gateway-Token"] = process.env.OPENCLAW_GATEWAY_TOKEN || "";
@@ -6374,8 +6376,9 @@ async function executeUploadTeamFile(args) {
   if (!content) return { isError: true, text: "Missing required 'content' parameter (base64-encoded file data)" };
   if (!filename) return { isError: true, text: "Missing required 'filename' parameter" };
 
-  // Use flow/session from args or fall back to env defaults
-  const flowId = args.flowId || process.env.ACTIVE_FLOW_ID || "default";
+  // Use flow/session from args or fall back to env defaults.
+  // DEPLOYMENT_ID ensures files are at least scoped per-deployment.
+  const flowId = args.flowId || process.env.ACTIVE_FLOW_ID || process.env.DEPLOYMENT_ID || "default";
   const sessionId = args.sessionId || process.env.JARBLE_CURRENT_SESSION_ID || "default";
 
   const res = await callPlatformApi("/api/pod/team-files/upload", "POST", {
@@ -6399,7 +6402,7 @@ async function executeDownloadTeamFile(args) {
   const fileId = (args.fileId || "").trim().replace(/^team:\/\//, "");
   if (!fileId) return { isError: true, text: "Missing required 'fileId' parameter" };
 
-  const flowId = args.flowId || process.env.ACTIVE_FLOW_ID || "default";
+  const flowId = args.flowId || process.env.ACTIVE_FLOW_ID || process.env.DEPLOYMENT_ID || "default";
   const sessionId = args.sessionId || process.env.JARBLE_CURRENT_SESSION_ID || "default";
 
   const res = await callPlatformApi(
@@ -6417,7 +6420,7 @@ async function executeDownloadTeamFile(args) {
 }
 
 async function executeListTeamFiles(args) {
-  const flowId = args.flowId || process.env.ACTIVE_FLOW_ID || "default";
+  const flowId = args.flowId || process.env.ACTIVE_FLOW_ID || process.env.DEPLOYMENT_ID || "default";
   const sessionId = args.sessionId || process.env.JARBLE_CURRENT_SESSION_ID || "default";
 
   const res = await callPlatformApi(
