@@ -74,6 +74,9 @@ import TeamChatCanvasCard, {
   type TeamCanvasCardData,
 } from "@/components/workspace/TeamChatCanvasCard";
 import { transformDelegationBlocks } from "@/lib/delegationBlockTransform";
+import { splitAssistantMessage } from "@/lib/teamChatUtils";
+import TeamChatMessage from "@/components/workspace/TeamChatMessage";
+import TeamChatDelegationNarration from "@/components/workspace/TeamChatDelegationNarration";
 import { runtimeNeedsLlm } from "./onboarding/wizardStepConfig";
 import {
   ReactFlow,
@@ -4080,50 +4083,96 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                     )}
                   </div>
                 )}
-                {flowChatMessages.map((msg, i) => (
-                  <div key={i} className={`text-sm ${msg.role === "user" ? "text-right" : ""}`}>
-                    {(msg.content || msg.delegations?.length || msg.skip || msg.role === "user") && (
-                    <div className={`inline-block max-w-[85%] rounded-lg px-3 py-2 ${
-                      msg.role === "user" ? "bg-primary text-primary-foreground" : "bg-secondary"
-                    }`}>
-                      {msg.content
-                        ? transformDelegationBlocks(msg.content, { format: "inline", maxTaskChars: 100 })
-                        : null}
-                      {/* Delegation status indicators */}
-                      {msg.delegations && msg.delegations.length > 0 && (
-                        <div className="mt-2 space-y-1 border-t border-border/30 pt-2">
-                          {msg.delegations.map((d, di) => (
-                            <div key={di} className="flex items-center gap-2 text-[10px]">
-                              {d.status === "running" && (
-                                <span className="inline-flex items-center gap-1 text-blue-400">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-                                  Delegating to {d.targetRole}...
-                                  {d.elapsedMs && <span className="text-muted-foreground">{Math.round(d.elapsedMs / 1000)}s</span>}
-                                </span>
-                              )}
-                              {d.status === "completed" && (
-                                <span className="inline-flex items-center gap-1 text-emerald-400">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                                  {d.targetRole} responded
-                                  {d.uiBlockCount ? ` (${d.uiBlockCount} components)` : ""}
-                                </span>
-                              )}
-                              {d.status === "failed" && (
-                                <span className="inline-flex items-center gap-1 text-red-400">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
-                                  {d.targetRole} failed{d.error ? `: ${d.error}` : ""}
-                                </span>
+                {flowChatMessages.map((msg, i) => {
+                  // ── User messages: unchanged right-aligned bubble ──────────
+                  if (msg.role === "user") {
+                    return (
+                      <div key={i} className="text-sm text-right">
+                        <div className="inline-block max-w-[85%] rounded-lg px-3 py-2 bg-primary text-primary-foreground">
+                          {msg.content}
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // ── Assistant messages: group-chat rendering ────────────────
+                  // Split the monolithic assistant text into per-specialist
+                  // segments at render time by parsing **RoleName:** prefixes.
+                  // Each segment gets its own avatar, role label, and visual
+                  // variant. Delegation narrations appear between segments.
+                  // If parsing fails (no prefixes found), the entire text
+                  // renders as a single coordinator message — same as before.
+                  const cleanContent = msg.content
+                    ? transformDelegationBlocks(msg.content, { format: "inline", maxTaskChars: 100 })
+                    : "";
+                  const segments = splitAssistantMessage(cleanContent);
+
+                  // Gather delegation info for narration lines
+                  const completedDelegations = msg.delegations?.filter(d => d.status !== "running") ?? [];
+                  const runningDelegations = msg.delegations?.filter(d => d.status === "running") ?? [];
+
+                  return (
+                    <div key={i} className="text-sm space-y-2">
+                      {/* Render each segment as its own message bubble */}
+                      {segments.map((seg, si) => {
+                        // If this is a specialist segment AND we have delegation
+                        // info, show a narration line before it
+                        const matchingDeleg = seg.sourceRole
+                          ? completedDelegations.find(d =>
+                              d.targetRole.toLowerCase() === seg.sourceRole?.toLowerCase() ||
+                              d.toolName.replace(/^delegate_to_/, "").replace(/_/g, " ").toLowerCase() === seg.sourceRole?.toLowerCase()
+                            )
+                          : null;
+
+                        return (
+                          <div key={si}>
+                            {/* Delegation narration (if this is a specialist segment) */}
+                            {seg.sourceRole && !seg.isSynthesis && matchingDeleg && (
+                              <TeamChatDelegationNarration
+                                fromRole={entryNodeName ?? "Coordinator"}
+                                fromDeploymentId={activeFlow?.nodes?.find(n => n.data?.isEntryPoint)?.data?.id}
+                                toRole={seg.sourceRole}
+                                toDeploymentId={matchingDeleg ? activeFlow?.nodes?.find(n => {
+                                  const r = n.data?.role ?? n.data?.name;
+                                  return r?.toLowerCase() === seg.sourceRole?.toLowerCase();
+                                })?.data?.id : undefined}
+                                task={matchingDeleg?.toolName?.replace(/^delegate_to_/, "").replace(/_/g, " ")}
+                              />
+                            )}
+                            <TeamChatMessage
+                              segment={seg}
+                              entryRole={entryNodeName ?? "Coordinator"}
+                              entryDeploymentId={activeFlow?.nodes?.find(n => n.data?.isEntryPoint)?.data?.id}
+                              sourceDeploymentId={seg.sourceRole ? activeFlow?.nodes?.find(n => {
+                                const r = n.data?.role ?? n.data?.name;
+                                return r?.toLowerCase() === seg.sourceRole?.toLowerCase();
+                              })?.data?.id : undefined}
+                            />
+                          </div>
+                        );
+                      })}
+
+                      {/* Still-running delegations (show as live status below all segments) */}
+                      {runningDelegations.length > 0 && (
+                        <div className="space-y-1 ml-6">
+                          {runningDelegations.map((d, di) => (
+                            <div key={di} className="flex items-center gap-2 text-[10px] text-blue-400">
+                              <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                              {d.targetRole} is working...
+                              {d.elapsedMs != null && (
+                                <span className="text-muted-foreground">{Math.round(d.elapsedMs / 1000)}s</span>
                               )}
                             </div>
                           ))}
                         </div>
                       )}
-                      {/* Delegation skipped indicator (Fix #6 — surface silent failure) */}
+
+                      {/* Delegation skipped indicators */}
                       {msg.skip && msg.skip.reason === "mentioned_but_not_emitted" && (
-                        <div className="mt-2 p-2 rounded border border-amber-400/30 bg-amber-500/5 text-[10px] text-amber-300">
-                          <div className="font-medium">Delegation didn't actually run</div>
+                        <div className="ml-6 p-2 rounded border border-amber-400/30 bg-amber-500/5 text-[10px] text-amber-300">
+                          <div className="font-medium">Delegation mentioned but not executed</div>
                           <div className="text-amber-300/80 mt-0.5">
-                            The entry bot claimed to delegate but never emitted a valid tool call.
+                            The entry bot said it would delegate but never emitted a valid tool call.
                             {msg.skip.availableTools.length > 0 && (
                               <> Available: {msg.skip.availableTools.join(", ")}.</>
                             )}
@@ -4131,31 +4180,26 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                         </div>
                       )}
                       {msg.skip && msg.skip.reason === "tool_call_not_emitted" && msg.skip.availableToolCount > 0 && (
-                        <div className="mt-2 text-[10px] text-muted-foreground italic">
-                          Entry bot answered directly ({msg.skip.availableToolCount} team tool{msg.skip.availableToolCount === 1 ? "" : "s"} available, none used)
+                        <div className="ml-6 text-[10px] text-muted-foreground italic">
+                          Answered directly ({msg.skip.availableToolCount} team tool{msg.skip.availableToolCount === 1 ? "" : "s"} available, none used)
+                        </div>
+                      )}
+
+                      {/* Canvas cards */}
+                      {msg.canvasCards && msg.canvasCards.length > 0 && (
+                        <div className="mt-1 space-y-1.5" data-testid="team-chat-canvas-cards">
+                          {msg.canvasCards.map((card) => (
+                            <TeamChatCanvasCard
+                              key={card.id}
+                              card={card}
+                              onRemove={handleRemoveCanvasCard}
+                            />
+                          ))}
                         </div>
                       )}
                     </div>
-                    )}
-                    {/* Inline canvas cards — one per UI block produced by a
-                        delegated specialist during this assistant turn. Cards
-                        render below the bubble so their full-width layout
-                        doesn't fight the 85% bubble cap. Each card carries
-                        the producer attribution (deployment + role) from
-                        jarble.flow.delegation.uiblock. */}
-                    {msg.role === "assistant" && msg.canvasCards && msg.canvasCards.length > 0 && (
-                      <div className="mt-1 space-y-1.5" data-testid="team-chat-canvas-cards">
-                        {msg.canvasCards.map((card) => (
-                          <TeamChatCanvasCard
-                            key={card.id}
-                            card={card}
-                            onRemove={handleRemoveCanvasCard}
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
+                  );
+                })}
                 {flowChatLoading && (
                   <div className="flex items-center gap-2 text-muted-foreground text-sm">
                     <Loader2 className="w-3 h-3 animate-spin" /> Thinking...

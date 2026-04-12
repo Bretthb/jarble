@@ -46,19 +46,9 @@ export interface TeamCanvasCardData {
   origin: TeamCanvasCardOrigin;
 }
 
-/**
- * Hash a string to a stable HSL hue so the same producer always gets the
- * same attribution dot color across messages. This makes it easy to scan
- * a long conversation and visually group cards by specialist.
- */
-function producerHue(producerId: string): number {
-  let hash = 0;
-  for (let i = 0; i < producerId.length; i++) {
-    hash = (hash * 31 + producerId.charCodeAt(i)) | 0;
-  }
-  // Spread across the full hue circle, skipping muddy red-orange around 0.
-  return ((Math.abs(hash) % 320) + 20) % 360;
-}
+// Shared with TeamChatAvatar and other team-chat components for consistent
+// hue-based bot identification. See lib/teamChatUtils.ts.
+import { producerHue } from "@/lib/teamChatUtils";
 
 interface TeamChatCanvasCardProps {
   card: TeamCanvasCardData;
