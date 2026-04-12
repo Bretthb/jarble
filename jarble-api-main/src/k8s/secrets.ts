@@ -25,10 +25,13 @@ export async function updateDeploymentSecret(
     RUNTIME: runtime,
   };
 
-  // Include JARBLE_API_URL for file watcher callback
-  if (process.env.JARBLE_API_URL) {
-    baseData.JARBLE_API_URL = process.env.JARBLE_API_URL;
-  }
+  // Include JARBLE_API_URL for file watcher callback and platform bridge calls.
+  // Pods use the internal K8s service URL (HTTP, port 80) since the egress
+  // NetworkPolicy blocks external HTTPS. The external JARBLE_API_URL is only
+  // used as a fallback if the internal URL env var is not set.
+  baseData.JARBLE_API_URL =
+    process.env.JARBLE_INTERNAL_API_URL ||
+    "http://jarble-api-kuberoapp.jarble-production.svc.cluster.local:80";
   // Include CONFIG_WEBHOOK_SECRET for authenticated config-changed callbacks
   if (process.env.CONFIG_WEBHOOK_SECRET) {
     baseData.CONFIG_WEBHOOK_SECRET = process.env.CONFIG_WEBHOOK_SECRET;
