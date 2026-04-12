@@ -138,6 +138,19 @@ export default memo(AssistantUIChatInner);
 
 // ── User Message Bubble ─────────────────────────────────────────────────────
 
+function formatMessageTime(date?: Date | string | number): string {
+  if (!date) return "";
+  const d = new Date(date);
+  if (isNaN(d.getTime())) return "";
+  const now = new Date();
+  const timeStr = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  if (d.toDateString() === now.toDateString()) return timeStr;
+  const yesterday = new Date(now);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (d.toDateString() === yesterday.toDateString()) return `Yesterday ${timeStr}`;
+  return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${timeStr}`;
+}
+
 function UserBubble() {
   const message = useMessage();
   const isActionRelay = message?.metadata?.custom?.isActionRelay;
@@ -169,8 +182,11 @@ function UserBubble() {
         <div className="rounded-lg px-4 py-3 bg-primary/90 text-primary-foreground shadow-sm break-words overflow-hidden max-w-full" data-role="user">
           <p className="text-sm break-words" style={{ overflowWrap: "anywhere" }}>{content}</p>
         </div>
-        {/* Edit + Copy actions - only shows on hover */}
-        <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex gap-1">
+        {/* Timestamp + Edit + Copy actions - only shows on hover */}
+        <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex items-center gap-1.5">
+          {message?.createdAt && (
+            <span className="text-[9px] text-muted-foreground/50">{formatMessageTime(message.createdAt)}</span>
+          )}
           <ActionBarPrimitive.Edit className="p-1 rounded hover:bg-secondary/60 text-muted-foreground">
             <Pencil className="w-3 h-3" />
           </ActionBarPrimitive.Edit>
@@ -226,8 +242,11 @@ function AssistantBubble() {
             <span className="inline-block w-2 h-4 bg-primary/60 animate-pulse ml-1 align-middle" />
           )}
         </div>
-        {/* Copy + Regenerate - only shows on hover */}
-        <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex gap-1">
+        {/* Timestamp + Copy + Regenerate - only shows on hover */}
+        <div className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity flex items-center gap-1.5">
+          {message?.createdAt && (
+            <span className="text-[9px] text-muted-foreground/50">{formatMessageTime(message.createdAt)}</span>
+          )}
           <ActionBarPrimitive.Copy className="p-1 rounded hover:bg-secondary/60 text-muted-foreground" copiedDuration={2000}>
             <Copy className="w-3 h-3" />
           </ActionBarPrimitive.Copy>

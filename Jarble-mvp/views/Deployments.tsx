@@ -1804,25 +1804,11 @@ function FlowToolbar({
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(flowName);
-  const [showTeamTypeDropdown, setShowTeamTypeDropdown] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
-  const teamTypeRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setEditValue(flowName);
   }, [flowName]);
-
-  // Close team type dropdown on outside click
-  useEffect(() => {
-    if (!showTeamTypeDropdown) return;
-    const handleClick = (e: MouseEvent) => {
-      if (teamTypeRef.current && !teamTypeRef.current.contains(e.target as HTMLElement)) {
-        setShowTeamTypeDropdown(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [showTeamTypeDropdown]);
 
   const handleCommit = () => {
     const trimmed = editValue.trim();
@@ -1833,9 +1819,6 @@ function FlowToolbar({
     }
     setIsEditing(false);
   };
-
-  const currentTeamType = TEAM_TYPE_OPTIONS.find((o) => o.value === teamType) || TEAM_TYPE_OPTIONS[0];
-  const TeamTypeIcon = currentTeamType.icon;
 
   return (
     <div className="flex items-center gap-1.5 sm:gap-2 px-3 py-2 border-b border-border/60 bg-card/80 backdrop-blur-sm overflow-visible relative z-[50]">
@@ -1881,48 +1864,10 @@ function FlowToolbar({
         </div>
       )}
 
-      {/* Team type selector */}
-      {hasFlow && (
-        <div ref={teamTypeRef} className="relative shrink-0">
-          <button
-            type="button"
-            onClick={() => setShowTeamTypeDropdown((v) => !v)}
-            className="flex items-center gap-1.5 h-9 px-3 rounded-md border border-border/80 bg-card hover:bg-secondary/60 transition-colors text-sm font-semibold text-foreground hover:text-foreground shadow-md"
-          >
-            <TeamTypeIcon className="w-4 h-4" />
-            <span>{currentTeamType.label}</span>
-            <ChevronDown className={`w-3.5 h-3.5 opacity-70 transition-transform ${showTeamTypeDropdown ? "rotate-180" : ""}`} />
-          </button>
-
-          {showTeamTypeDropdown && (
-            <div className="absolute top-full left-0 mt-1.5 z-[200] bg-popover border-2 border-border/80 rounded-lg shadow-2xl shadow-black/20 py-1.5 min-w-[260px] backdrop-blur-xl">
-              {TEAM_TYPE_OPTIONS.map((opt) => {
-                const Icon = opt.icon;
-                return (
-                  <button
-                    type="button"
-                    key={opt.value}
-                    onClick={() => { onTeamTypeChange(opt.value); setShowTeamTypeDropdown(false); }}
-                    className={`w-full flex items-start gap-2.5 px-3.5 py-2.5 text-left transition-colors rounded-md mx-0.5 ${
-                      opt.value === teamType ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary/60 hover:text-foreground"
-                    }`}
-                    style={{ width: "calc(100% - 4px)" }}
-                  >
-                    <Icon className={`w-4 h-4 mt-0.5 shrink-0 ${opt.value === teamType ? "text-primary" : "text-muted-foreground"}`} />
-                    <div className="flex-1">
-                      <p className={`text-sm font-medium ${opt.value === teamType ? "text-foreground" : "text-muted-foreground"}`}>
-                        {opt.label}
-                      </p>
-                      <p className="text-xs text-muted-foreground/70 mt-0.5">{opt.desc}</p>
-                    </div>
-                    {opt.value === teamType && <CheckCircle2 className="w-4 h-4 text-primary ml-auto mt-0.5 shrink-0" />}
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
+      {/* Team type selector REMOVED — topology is now auto-detected
+          from edge types by detectTopology(). See getFlowLayoutedElements.
+          The teamType field still exists in DB for backward compat but
+          the UI no longer exposes it. */}
 
       {/* Spacer */}
       <div className="flex-1" />
