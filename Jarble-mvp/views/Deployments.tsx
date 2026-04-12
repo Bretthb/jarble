@@ -1418,10 +1418,9 @@ function FlowEdge({
   const color = isExecuting ? executionEdgeColor(execStatus) : edgeTypeColor(edgeType);
   const isRunning = execStatus === "running";
 
-  // SmoothStep produces clean right-angle (orthogonal) paths instead of
-  // swooping bezier curves. With 4-sided handles on each node, edges
-  // route horizontally/vertically with crisp 90-degree turns — no more
-  // spaghetti tangles when edges cross.
+  // Smooth-step edges route as right-angle paths with rounded corners.
+  // They untangle much better than bezier curves because they follow
+  // the grid and don't swoop across other nodes.
   const [edgePath, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
