@@ -168,6 +168,17 @@ function createReasoningTracker() {
   };
 
   /**
+   * Reset tracker state. JAR-63: called when the chat transport falls
+   * back (HTTP → WS → exec) so partial state from an aborted stream
+   * does not corrupt the next attempt's offset tracking.
+   */
+  function reset(): void {
+    state.inReasoning = false;
+    state.processedLength = 0;
+    state.started = false;
+  }
+
+  /**
    * Process accumulated text and emit reasoning / text events as appropriate.
    *
    * `fullText` is the full accumulated bot text so far.
@@ -261,7 +272,7 @@ function createReasoningTracker() {
     return visibleDelta;
   }
 
-  return { process, state };
+  return { process, reset, state };
 }
 
 /**
@@ -1917,10 +1928,14 @@ tamboAgentRouter.post("/", async (req, res) => {
         const httpE = httpErr instanceof Error ? httpErr : new Error(String(httpErr));
         if (httpE.name === "AbortError" || abortController.signal.aborted) throw httpE;
         log.warn({ deploymentId, error: httpE.message }, "chatViaHTTP failed, falling back to WS gateway");
-        // Reset delta tracking for fallback path
+        // Reset delta + reasoning tracking for fallback path.
+        // JAR-63: the reasoning tracker must be reset too — otherwise its
+        // processedLength offset carries over from the aborted HTTP run
+        // and the WS retry will mis-slice reasoning deltas.
         lastDeltaText = "";
         inFencedBlock = false;
         fenceBuffer = "";
+        reasoningTracker.reset();
         gatewayResult = await chatViaGateway(
           {
             ip: podAddr.ip,
@@ -1947,9 +1962,12 @@ tamboAgentRouter.post("/", async (req, res) => {
       const isConnectionError = /ETIMEDOUT|ECONNREFUSED|ECONNRESET|handshake|closed before auth|auth failed|origin not allowed/i.test(e.message);
       if (isConnectionError && attempt < MAX_ATTEMPTS - 1) {
         log.warn({ deploymentId, attempt, error: e.message }, "HTTP+WS gateway failed, falling back to exec (npx openclaw agent)");
+        // JAR-63: reset reasoning tracker state here too so the exec
+        // retry parses its full response from a clean slate.
         lastDeltaText = "";
         inFencedBlock = false;
         fenceBuffer = "";
+        reasoningTracker.reset();
 
         try {
           const result = await tryExec();
