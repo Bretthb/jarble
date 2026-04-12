@@ -48,6 +48,7 @@ import {
   type ComponentDefinition,
 } from "../utils/componentResolver.js";
 import { classifyError } from "../utils/chatErrors.js";
+import { normalizeMemoryScope, renderMemoryStateLine, injectMemoryStateLine } from "../utils/memoryScope.js";
 import { generateSuggestions } from "../services/suggestions.js";
 import { generateReasoning } from "../services/reasoning.js";
 import { sessionManager } from "../services/chatSessionManager.js";
@@ -1168,6 +1169,17 @@ tamboAgentRouter.post("/", async (req, res) => {
   } catch (err) {
     // Non-fatal - bot works without team context
     log.debug({ deploymentId, err: err instanceof Error ? err.message : String(err) }, "Failed to load team context");
+  }
+
+  // ── Memory state injection ──────────────────────────────────────────────────
+  // Inject the deployment's memory mode (and session ID when session-scoped)
+  // into the message so the bot knows its memory configuration on every turn.
+  // Prepended before [TEAM CONTEXT] and user text — the LLM sees memory
+  // config first. See docs/audits/memory-scoping-decision.md — Option B.
+  {
+    const memScope = normalizeMemoryScope((deployment as any).memoryScope);
+    const memLine = renderMemoryStateLine(memScope, sessionKey);
+    messageWithVision = injectMemoryStateLine(messageWithVision, memLine);
   }
 
   // ── Reasoning / Thinking ──────────────────────────────────────────────────

@@ -54,6 +54,7 @@ import {
   TEXT_MESSAGE_END,
 } from "../utils/eventTypes.js";
 import { agentCallEvents } from "../utils/agentCallEvents.js";
+import { normalizeMemoryScope, renderMemoryStateLine, injectMemoryStateLine } from "../utils/memoryScope.js";
 
 const log = createModuleLogger("flow-chat");
 
@@ -465,13 +466,20 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     // The strong header tag is a band-aid until chatViaExec gains a real system
     // prompt channel — without it the bot tends to treat the prompt as
     // conversational context and ignore the delegation contract.
-    const entryMessage =
+    let entryMessage =
       delegationTools.length > 0
         ? `[FLOW SYSTEM INSTRUCTIONS — AUTHORITATIVE]\n${augmentedPrompt}\n[/FLOW SYSTEM INSTRUCTIONS]\n\nUser message:\n${userMessage}`
         : userMessage;
 
     // 8. Send message to entry bot
     const sessionKey = `flow-${flowId}-${user.id}${conversationId ? `-${conversationId}` : ""}`;
+
+    // Inject memory state so the entry bot knows its memory mode and session ID.
+    {
+      const memScope = normalizeMemoryScope((entryDeployment as any).memoryScope);
+      const memLine = renderMemoryStateLine(memScope, sessionKey);
+      entryMessage = injectMemoryStateLine(entryMessage, memLine);
+    }
 
     const messageId = nanoid();
     // Generate a trace ID for the entire flow chat turn so budget checks

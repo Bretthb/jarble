@@ -1,7 +1,7 @@
 # Conversation-Scoped Agent Memory — Decision
 
-**Status:** Decided
-**Date:** 2026-04-08
+**Status:** Implemented
+**Date:** 2026-04-08 (decided) / 2026-04-12 (completed)
 **Branch:** `feature/memory-scoping`
 **Initiative:** Conversation-Scoped Agent Memory
 
@@ -154,6 +154,20 @@ it isn't.
 | Frontend chat host | `Jarble-mvp/app/d/[id]/page.tsx` | Render `<MemoryDisclosureBanner>` immediately above `<KeyedChatPanel>`. |
 | Frontend config | `Jarble-mvp/components/workspace/ConfigPanel.tsx` | Add a Memory section with a 3-mode select + Save. |
 | Tests | `jarble-api-main/src/runtimes/handlers/openclaw.test.ts` + new test for the MCP store partition | Cover `renderConfigs` outputs and store partition behavior. |
+
+## Completion notes (2026-04-12)
+
+The implementation plan above was 95% complete as of 2026-04-08. The missing
+piece was the **per-turn memory state injection** in the chat routes:
+
+- `tamboAgent.ts` now calls `injectMemoryStateLine()` after the team delegation
+  context block, injecting a `[CANVAS_STATE]` block with the deployment's memory
+  mode and (in session mode) the session ID into every message sent to the pod.
+- `flowChat.ts` does the same for flow (team) chat messages.
+
+Without this wiring, the bot's soul.md told it to look for `Session: <id>` in
+`[CANVAS_STATE]` on every turn, but that line was never injected. Session mode
+was therefore non-functional: the bot had no way to know its session ID per-turn.
 
 ## Out of scope (follow-ups)
 

@@ -186,3 +186,149 @@ describe("injectMemoryStateLine", () => {
     expect(out).toContain("I typed [CANVAS_STATE] as a joke");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Route integration contract tests
+// ---------------------------------------------------------------------------
+// tamboAgent.ts and flowChat.ts both perform the same 3-step transformation:
+//   1. normalizeMemoryScope(deployment.memoryScope)
+//   2. renderMemoryStateLine(scope, sessionKey)
+//   3. injectMemoryStateLine(message, memLine)
+//
+// These tests replicate that exact chain end-to-end so any change to the
+// helper signatures or output format that would break the routes is caught
+// here without needing to stand up Express or mock HTTP.
+// ---------------------------------------------------------------------------
+describe("route integration contract", () => {
+  /**
+   * Replicate the transformation chain used by tamboAgent.ts (line ~1178-1182)
+   * and flowChat.ts (line ~478-481).
+   */
+  function applyRouteTransformChain(
+    message: string,
+    deploymentMemoryScope: unknown,
+    sessionKey: string | null,
+  ): string {
+    const memScope = normalizeMemoryScope(deploymentMemoryScope);
+    const memLine = renderMemoryStateLine(memScope, sessionKey);
+    return injectMemoryStateLine(message, memLine);
+  }
+
+  // -- global mode ----------------------------------------------------------
+
+  it("global mode: message gets [CANVAS_STATE] block with global memory line", () => {
+    const result = applyRouteTransformChain("Hello agent", "global", "jarble-web-user123-conv-abc");
+
+    expect(result).toContain("[CANVAS_STATE]");
+    expect(result).toContain("[/CANVAS_STATE]");
+    expect(result).toContain("Memory: global (persists across all sessions and platforms)");
+    expect(result).toContain("Hello agent");
+
+    // Global mode must NOT leak the session key into the memory line
+    expect(result).not.toContain("Session:");
+  });
+
+  // -- session mode ---------------------------------------------------------
+
+  it("session mode: message gets [CANVAS_STATE] block with session-scoped memory and session ID", () => {
+    const sessionKey = "jarble-web-user123-conv-abc";
+    const result = applyRouteTransformChain("What do you remember?", "session", sessionKey);
+
+    expect(result).toContain("[CANVAS_STATE]");
+    expect(result).toContain("[/CANVAS_STATE]");
+    expect(result).toContain("Memory: session-scoped");
+    expect(result).toContain(`Session: ${sessionKey}`);
+    expect(result).toContain("What do you remember?");
+  });
+
+  // -- off mode -------------------------------------------------------------
+
+  it("off mode: message gets [CANVAS_STATE] block with memory-off line", () => {
+    const result = applyRouteTransformChain("Store this fact", "off", "jarble-web-user123-conv-abc");
+
+    expect(result).toContain("[CANVAS_STATE]");
+    expect(result).toContain("[/CANVAS_STATE]");
+    expect(result).toContain("Memory: off");
+    expect(result).toContain("Store this fact");
+
+    // Off mode must not include any session or global qualifier
+    expect(result).not.toContain("Session:");
+    expect(result).not.toContain("persists across");
+  });
+
+  // -- missing / null memoryScope -------------------------------------------
+
+  it("missing memoryScope defaults to global", () => {
+    const result = applyRouteTransformChain("Hi", undefined, "jarble-web-user123-conv-abc");
+    expect(result).toContain("Memory: global (persists across all sessions and platforms)");
+  });
+
+  it("null memoryScope defaults to global", () => {
+    const result = applyRouteTransformChain("Hi", null, "jarble-web-user123-conv-abc");
+    expect(result).toContain("Memory: global (persists across all sessions and platforms)");
+  });
+
+  // -- merging with existing [CANVAS_STATE] block ---------------------------
+
+  it("merges memory line into existing [CANVAS_STATE] block from team context or canvas state", () => {
+    // tamboAgent.ts builds messageWithVision with canvas context BEFORE memory
+    // injection — the memory step must merge into the existing block, not create a second one.
+    const messageWithExistingBlock =
+      "[CANVAS_STATE]\nActive cards: chart-1, table-2\nSelected: chart-1\n[/CANVAS_STATE]\nUpdate the chart title";
+
+    const result = applyRouteTransformChain(messageWithExistingBlock, "session", "jarble-web-u1-conv-x");
+
+    // Memory line merged into the existing block
+    expect(result).toContain("Memory: session-scoped");
+    expect(result).toContain("Session: jarble-web-u1-conv-x");
+
+    // Original canvas state preserved
+    expect(result).toContain("Active cards: chart-1, table-2");
+    expect(result).toContain("Selected: chart-1");
+
+    // User message preserved
+    expect(result).toContain("Update the chart title");
+
+    // Exactly one [CANVAS_STATE] block — no duplicates
+    expect(result.match(/\[CANVAS_STATE\]/g)).toHaveLength(1);
+    expect(result.match(/\[\/CANVAS_STATE\]/g)).toHaveLength(1);
+  });
+
+  // -- sessionKey format verification ---------------------------------------
+
+  it("session mode output contains the tamboAgent sessionKey format", () => {
+    // tamboAgent.ts builds: `jarble-web-${userId}${convId ? `-${convId}` : ""}`
+    const tamboSessionKey = "jarble-web-user123-conv-abc";
+    const result = applyRouteTransformChain("test", "session", tamboSessionKey);
+    expect(result).toContain(`Session: jarble-web-user123-conv-abc`);
+  });
+
+  it("session mode output contains the flowChat sessionKey format", () => {
+    // flowChat.ts builds: `flow-${flowId}-${user.id}${conversationId ? `-${conversationId}` : ""}`
+    const flowSessionKey = "flow-flow_abc123-auth0|user456-conv-789";
+    const result = applyRouteTransformChain("test", "session", flowSessionKey);
+    expect(result).toContain(`Session: flow-flow_abc123-auth0|user456-conv-789`);
+  });
+
+  // -- structural invariants ------------------------------------------------
+
+  it("memory block always appears before the user message text", () => {
+    const userText = "Please summarise our last conversation";
+    const result = applyRouteTransformChain(userText, "global", "jarble-web-u1-c1");
+
+    const canvasEnd = result.indexOf("[/CANVAS_STATE]");
+    const messageStart = result.indexOf(userText);
+
+    expect(canvasEnd).toBeGreaterThan(-1);
+    expect(messageStart).toBeGreaterThan(-1);
+    expect(canvasEnd).toBeLessThan(messageStart);
+  });
+
+  it("result always contains exactly one [CANVAS_STATE] open/close pair", () => {
+    for (const scope of ["global", "session", "off", undefined, null, "bogus"]) {
+      const result = applyRouteTransformChain("msg", scope, "jarble-web-u1-c1");
+      expect(result.match(/\[CANVAS_STATE\]/g)).toHaveLength(1);
+      expect(result.match(/\[\/CANVAS_STATE\]/g)).toHaveLength(1);
+    }
+  });
+});
