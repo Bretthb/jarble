@@ -24,7 +24,7 @@ import {
   QUERY_KEYS,
 } from "../../services/prometheus.js";
 
-const { users, deployments, chatSessions, auditLogs, promoCodes, promoRedemptions } = tables;
+const { users, deployments, chatSessions, auditLogs, promoCodes, promoRedemptions, organizations } = tables;
 
 /** Escape SQL LIKE wildcards in user-provided search strings */
 function escapeLike(str: string): string {
@@ -864,6 +864,72 @@ const listPromoRedemptions = adminProcedure
     return { redemptions: rows, total: Number(totalResult.count), page, limit };
   });
 
+// ── Global Search ───────────────────────────────────────────────────────
+
+const globalSearch = adminProcedure
+  .input(z.object({
+    query: z.string().trim().min(1).max(100),
+    limitPerGroup: z.number().int().min(1).max(20).default(5),
+  }))
+  .query(async ({ input }) => {
+    const pattern = `%${escapeLike(input.query)}%`;
+    const upperPattern = `%${escapeLike(input.query.toUpperCase())}%`;
+    const cap = input.limitPerGroup;
+
+    const [userRows, deploymentRows, orgRows, promoRows] = await Promise.all([
+      db
+        .select({
+          id: users.id,
+          email: users.email,
+          name: users.name,
+          role: users.role,
+        })
+        .from(users)
+        .where(or(
+          like(users.email, pattern),
+          like(users.name, pattern),
+        ))
+        .limit(cap),
+      db
+        .select({
+          id: deployments.id,
+          name: deployments.name,
+          status: deployments.status,
+          userId: deployments.userId,
+        })
+        .from(deployments)
+        .where(or(
+          like(deployments.name, pattern),
+          like(deployments.id, pattern),
+        ))
+        .limit(cap),
+      db
+        .select({
+          id: organizations.id,
+          name: organizations.name,
+        })
+        .from(organizations)
+        .where(like(organizations.name, pattern))
+        .limit(cap),
+      db
+        .select({
+          id: promoCodes.id,
+          code: promoCodes.code,
+          active: promoCodes.active,
+        })
+        .from(promoCodes)
+        .where(like(promoCodes.code, upperPattern))
+        .limit(cap),
+    ]);
+
+    return {
+      users: userRows,
+      deployments: deploymentRows,
+      organizations: orgRows,
+      promoCodes: promoRows,
+    };
+  });
+
 // ── Router ──────────────────────────────────────────────────────────────
 
 export const adminRouter = router({
@@ -890,4 +956,5 @@ export const adminRouter = router({
   createPromoCode,
   updatePromoCode,
   listPromoRedemptions,
+  globalSearch,
 });
