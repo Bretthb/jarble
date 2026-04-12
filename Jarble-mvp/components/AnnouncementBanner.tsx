@@ -20,15 +20,16 @@ function isHidden(pathname: string | null): boolean {
 
 const SEVERITY_STYLES: Record<string, { container: string; Icon: typeof Info }> = {
   info: {
-    container: "bg-blue-500/10 border-blue-500/30 text-blue-900 dark:text-blue-100",
+    container: "bg-muted/80 border-border text-foreground",
     Icon: Info,
   },
   warning: {
-    container: "bg-amber-500/10 border-amber-500/30 text-amber-900 dark:text-amber-100",
+    container:
+      "bg-amber-500/10 border-amber-500/30 text-amber-700 dark:bg-amber-400/10 dark:border-amber-400/30 dark:text-amber-300",
     Icon: AlertTriangle,
   },
   critical: {
-    container: "bg-red-500/15 border-red-500/40 text-red-900 dark:text-red-100",
+    container: "bg-destructive/10 border-destructive/30 text-destructive",
     Icon: AlertOctagon,
   },
 };
@@ -72,16 +73,18 @@ export function AnnouncementBanner() {
   return (
     <div
       role={data.severity === "critical" ? "alert" : "status"}
-      className={`relative border-b px-4 py-2 text-sm flex items-center gap-3 ${style.container}`}
+      className={`relative border-b ${style.container}`}
     >
-      <Icon className="w-4 h-4 shrink-0" />
-      <span className="flex-1">{data.message}</span>
+      <div className="max-w-4xl mx-auto px-4 py-2.5 flex items-center justify-center gap-3 text-sm font-medium">
+        <Icon className="w-4 h-4 shrink-0" />
+        <span className="text-center">{data.message}</span>
+      </div>
       {data.dismissible && (
         <button
           type="button"
           onClick={handleDismiss}
           aria-label="Dismiss announcement"
-          className="p-1 rounded hover:bg-black/10 dark:hover:bg-white/10 transition-colors"
+          className="absolute right-3 top-1/2 -translate-y-1/2 p-1 rounded hover:bg-foreground/10 transition-colors"
         >
           <X className="w-4 h-4" />
         </button>
