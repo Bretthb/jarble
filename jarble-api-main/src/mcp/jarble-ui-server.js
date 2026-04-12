@@ -7784,12 +7784,20 @@ async function handleMessage(msg) {
         inputSchema: t.inputSchema,
       };
     });
+    // When custom subagents exist, hide compose_dashboard so the bot
+    // routes through its own specialist subagents instead of the platform
+    // orchestration pipeline. Platform agents (Component/Data/Workflow) are
+    // still available as fallbacks but compose_dashboard is suppressed.
+    var coreTools = TOOLS;
+    if (SUBAGENT_TOOLS.length > 0) {
+      coreTools = TOOLS.filter(function(t) { return t.name !== "compose_dashboard"; });
+    }
     return {
       jsonrpc: "2.0",
       id,
       result: {
         tools: filterToolsForMemoryScope([
-          ...TOOLS,
+          ...coreTools,
           ...PER_COMPONENT_TOOLS,
           ...serviceToolDefs,
           ...agentToolDefs,

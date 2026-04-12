@@ -449,9 +449,14 @@ export const flowsRouter = router({
         );
         for (const n of teammateNodes) allTeammateIds.add(n.deploymentId);
         const selfNode = nodes.find((n: any) => n.id === m.nodeId);
-        const isEntry = m.flowEntryNodeId === m.nodeId;
+        // Entry point: check membership table first, then fall back to node config
+        const derivedEntryNodeId = m.flowEntryNodeId
+          ?? nodes.find((n: any) => n?.config?.isEntryPoint || n?.isEntryPoint)?.id
+          ?? null;
+        const isEntry = derivedEntryNodeId === m.nodeId;
+        // Role: check config.role first (canvas stores role inside config object)
         const roleLabel =
-          selfNode?.role || selfNode?.label || (isEntry ? "Entry" : "Member");
+          selfNode?.config?.role || selfNode?.role || selfNode?.label || (isEntry ? "Entry" : "Member");
         // Extract edges connecting nodes in this flow for the mini topology viz.
         // Only include edges whose source AND target are known node IDs.
         const nodeIds = new Set(nodes.map((n: any) => n?.id).filter(Boolean));
@@ -466,7 +471,7 @@ export const flowsRouter = router({
           flowId: m.flowId,
           flowName: m.flowName,
           status: m.flowStatus,
-          entryNodeId: m.flowEntryNodeId,
+          entryNodeId: derivedEntryNodeId,
           nodeId: m.nodeId,
           isEntry,
           roleLabel,
@@ -508,7 +513,8 @@ export const flowsRouter = router({
         const teammates = f.teammateNodes.flatMap((tn: any) => {
           const dep = teammateDeployments.get(tn.deploymentId);
           if (!dep) return [];
-          const tnIsEntry = f.entryNodeId === tn.id;
+          const tnIsEntry = f.entryNodeId === tn.id
+            || !!(tn.config?.isEntryPoint || tn.isEntryPoint);
           return [
             {
               deploymentId: tn.deploymentId as string,
@@ -517,7 +523,7 @@ export const flowsRouter = router({
               status: dep.status,
               nodeId: tn.id as string,
               isEntry: tnIsEntry,
-              roleLabel: (tn.role || tn.label || (tnIsEntry ? "Entry" : "Member")) as string,
+              roleLabel: (tn.config?.role || tn.role || tn.label || (tnIsEntry ? "Entry" : "Member")) as string,
             },
           ];
         });

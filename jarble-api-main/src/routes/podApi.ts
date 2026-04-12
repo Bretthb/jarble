@@ -1266,6 +1266,13 @@ podApiRouter.post("/platform/register-agent", async (req: Request, res: Response
     const resolvedId = result[0]?.id ?? agentId;
     logger.info({ deploymentId, agentId: resolvedId, slug }, "Pod API: subagent upserted");
 
+    // Trigger configSync so subagent-tools.json is written to PVC and the
+    // MCP server picks up the new agent_{slug} tool immediately.
+    safeFireAndForget(syncConfigsToPvc(deploymentId), {
+      operation: "syncConfigsToPvc",
+      deploymentId,
+    });
+
     res.json({ success: true, agentId: resolvedId });
   } catch (err) {
     logger.error({ err, deploymentId }, "Pod API: register-agent failed");

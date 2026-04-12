@@ -71,6 +71,7 @@ import {
   REASONING_END,
 } from "../utils/eventTypes.js";
 import { agentCallEvents, type AgentCallStartEvent, type AgentCallEndEvent } from "../utils/agentCallEvents.js";
+import { collectLlmCompletion } from "../services/llmProxy.js";
 import {
   buildDelegationTools,
   buildFlowSystemPrompt,
@@ -1580,6 +1581,153 @@ tamboAgentRouter.post("/", async (req, res) => {
         log.warn(
           { deploymentId, err: err instanceof Error ? err.message : String(err) },
           "Chat: delegation round-trip failed (non-fatal)",
+        );
+      }
+    }
+
+    // ── Subagent delegation round-trips ─────────────────────────────────────
+    // If the bot emitted jarble_delegate blocks targeting custom subagents
+    // (not team members), intercept and route to the agent LLM endpoint.
+    // This bridges the gap: OpenClaw can't call MCP tools at agent-turn time,
+    // so subagent calls go through the same fenced-block pattern as Bot Teams.
+    // Runs regardless of team membership — subagent calls that didn't match
+    // a team member tool are handled here as a fallback.
+    {
+      try {
+        const subagentCalls = parseDelegationCalls(gatewayResult.rawText);
+        // Filter out calls already handled by team delegation
+        const teamToolNames = new Set(teamDelegationTools.map((t) => t.name));
+        const unmatchedCalls = subagentCalls.filter((c) => !teamToolNames.has(c.toolName));
+
+        if (unmatchedCalls.length > 0) {
+          // Look up this deployment's subagents from DB
+          const deploymentSubagents = (tables as any).deploymentSubagents;
+          let dbSubagents: any[] = [];
+          if (deploymentSubagents) {
+            try {
+              dbSubagents = await db.query.deploymentSubagents?.findMany?.({
+                where: eq(deploymentSubagents.deploymentId, deploymentId),
+              }) ?? [];
+            } catch { /* non-fatal */ }
+          }
+
+          if (dbSubagents.length > 0) {
+            const subagentJobs: Array<{ slug: string; name: string; systemPrompt: string; model: string | null; task: string; context: string; index: number }> = [];
+            for (let i = 0; i < unmatchedCalls.length; i++) {
+              const call = unmatchedCalls[i];
+              // Match by slug (jarble_delegate "to" field)
+              const match = dbSubagents.find((a: any) =>
+                a.slug === call.toolName || `agent_${a.slug}` === call.toolName
+              );
+              if (match && match.enabled && match.systemPrompt) {
+                subagentJobs.push({
+                  slug: match.slug,
+                  name: match.name,
+                  systemPrompt: match.systemPrompt,
+                  model: match.model,
+                  task: call.task,
+                  context: call.context || "",
+                  index: i,
+                });
+              }
+            }
+
+            if (subagentJobs.length > 0) {
+              log.info(
+                { deploymentId, subagentCount: subagentJobs.length, slugs: subagentJobs.map(j => j.slug) },
+                "Chat: processing subagent delegation calls",
+              );
+
+              // Emit start events
+              for (const job of subagentJobs) {
+                safeSendEvent(res, {
+                  type: CUSTOM,
+                  name: "jarble.flow.delegation.start",
+                  value: {
+                    toolName: job.slug,
+                    targetNodeId: job.slug,
+                    targetDeploymentId: deploymentId,
+                    targetRole: job.name,
+                    task: job.task.slice(0, 200),
+                  },
+                });
+              }
+
+              // Execute subagent calls in parallel
+              const provider = env.AGENT_LLM_PROVIDER ?? "openrouter";
+              const apiKey = env.AGENT_LLM_API_KEY ?? env.OPENROUTER_API_KEY;
+
+              const subagentResults = await Promise.allSettled(
+                subagentJobs.map(async (job) => {
+                  const model = job.model || env.AGENT_LLM_MODEL || "anthropic/claude-sonnet-4-20250514";
+                  const userMessage = `Task: ${job.task}${job.context ? `\n\nContext: ${job.context}` : ""}`;
+
+                  const result = await collectLlmCompletion({
+                    provider: provider as any,
+                    model,
+                    apiKey: apiKey || "",
+                    messages: [
+                      { role: "system" as const, content: job.systemPrompt },
+                      { role: "user" as const, content: userMessage },
+                    ],
+                  });
+                  return result;
+                }),
+              );
+
+              // Emit results
+              for (let j = 0; j < subagentResults.length; j++) {
+                const job = subagentJobs[j];
+                const result = subagentResults[j];
+
+                if (result.status === "fulfilled") {
+                  safeSendEvent(res, {
+                    type: CUSTOM,
+                    name: "jarble.flow.delegation.end",
+                    value: {
+                      toolName: job.slug,
+                      targetNodeId: job.slug,
+                      targetDeploymentId: deploymentId,
+                      success: true,
+                    },
+                  });
+
+                  const responseText = result.value?.text || JSON.stringify(result.value);
+                  safeSendEvent(res, {
+                    type: "TEXT_MESSAGE_CONTENT",
+                    messageId,
+                    delta: `\n\n**${job.name}:** ${responseText}`,
+                  });
+                } else {
+                  const errMsg = result.reason instanceof Error ? result.reason.message : String(result.reason);
+                  log.error({ deploymentId, slug: job.slug, error: errMsg }, "Chat: subagent delegation failed");
+
+                  safeSendEvent(res, {
+                    type: CUSTOM,
+                    name: "jarble.flow.delegation.end",
+                    value: {
+                      toolName: job.slug,
+                      targetNodeId: job.slug,
+                      targetDeploymentId: deploymentId,
+                      success: false,
+                      error: errMsg,
+                    },
+                  });
+
+                  safeSendEvent(res, {
+                    type: "TEXT_MESSAGE_CONTENT",
+                    messageId,
+                    delta: `\n\n*Delegation to ${job.name} was unsuccessful.*`,
+                  });
+                }
+              }
+            }
+          }
+        }
+      } catch (err) {
+        log.warn(
+          { deploymentId, err: err instanceof Error ? err.message : String(err) },
+          "Chat: subagent delegation failed (non-fatal)",
         );
       }
     }

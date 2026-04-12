@@ -334,15 +334,28 @@ export const openclawHandler: RuntimeHandler = {
         poolSections.push(`### Platform Agents\n${lines.join("\n")}`);
       }
 
-      // 2. Custom subagents - source === "custom" or undefined (backward compat)
+      // 2. Custom subagents - source === "custom", "delegation", or undefined (backward compat)
+      // "delegation" agents are created at runtime by the bot via platform_register_agent
       const customAgents = (deployment.subagents ?? []).filter(
-        (a) => !a.source || a.source === "custom"
+        (a) => !a.source || a.source === "custom" || a.source === "delegation"
       );
       if (customAgents.length > 0) {
         const lines = customAgents.map((a) =>
-          `- **agent_${a.slug}** - ${a.description || a.name}`
+          `- **${a.slug}** - ${a.description || a.name}`
         );
-        poolSections.push(`### Custom Subagents\n${lines.join("\n")}`);
+        poolSections.push(
+          `### Custom Subagents\n` +
+          lines.join("\n") + `\n\n` +
+          `**How to call subagents**: Emit a \`jarble_delegate\` fenced code block. The platform intercepts it and routes to your subagent's LLM with its specialized system prompt.\n` +
+          `\`\`\`jarble_delegate\n{ "to": "${customAgents[0].slug}", "task": "describe the task here", "context": "any extra data" }\n\`\`\`\n\n` +
+          `Rules:\n` +
+          `1. The \`to\` field MUST match one of the subagent slugs listed above.\n` +
+          `2. You MAY emit multiple \`jarble_delegate\` blocks in one reply to call multiple subagents in parallel.\n` +
+          `3. After delegating, STOP. The platform will run each subagent, send you a \`[DELEGATION_RESULTS]\` follow-up with their responses, then you synthesize a final answer.\n` +
+          `4. Your subagents can render UI components (render_ui, sandbox) on the user's canvas. They have the same rendering capabilities you do.\n` +
+          `5. If no delegation is needed, just answer the user directly.\n` +
+          `6. Do NOT use \`call_agent\`, \`discover_agents\`, or MCP tool calls for subagent delegation. Use the \`jarble_delegate\` block above.`
+        );
       }
 
       // 3. Team members - other deployments linked via Bot Teams flows
@@ -362,27 +375,45 @@ export const openclawHandler: RuntimeHandler = {
       }
 
       if (poolSections.length > 0) {
+        const hasCustomSubagents = customAgents.length > 0;
+
+        const delegationGuidance = hasCustomSubagents
+          ? // Custom subagents exist — route through them, not platform orchestration
+            `### When to Delegate\n` +
+            `- **Simple request** (single chart, quick answer, one component): Handle it yourself with render_ui or sandbox. Fast and direct.\n` +
+            `- **Dashboard, multi-component, or complex UI request**: Route to your custom subagents. Each one is a specialist with its own design system. Call the agent tool directly with a "task" string.\n` +
+            `- **Data processing**: Call \`delegate_to_data_agent\` if you need data analysis before visualization.\n` +
+            `- Do NOT use \`compose_dashboard\`. Route component generation through your custom subagents instead.\n\n` +
+            `### How to Call Agents\n` +
+            `All agents are MCP tools. Call them the same way you call render_ui or web_search. Pass a "task" string argument.\n` +
+            `IMPORTANT: Do NOT use call_agent or discover_agents for these. Call the tool name directly.\n\n` +
+            `### Platform Awareness\n` +
+            `You are on the Jarble platform. Your subagents can use \`render_ui\` with built-in components (stat_grid, chart, data_table, etc.) OR the \`sandbox\` component for custom HTML/CSS/JS. ` +
+            `They render directly on the user's canvas at /d/[id]. Subagents should use the sandbox component for premium-quality output.\n\n`
+          : // No custom subagents — use platform orchestration (default for new users)
+            `### When to Delegate\n` +
+            `- **Simple request** (single chart, quick answer, one component): Handle it yourself with render_ui or sandbox. Fast and direct.\n` +
+            `- **Dashboard or multi-component request** (3+ visual elements): Use \`compose_dashboard\` - it runs agents in parallel for faster results.\n` +
+            `- **Data + visualization** (user provides data or asks for analytics): Call \`delegate_to_data_agent\` first to process/structure the data, then use the result in your visualization.\n` +
+            `- **Multi-step pipeline** (analyze → transform → visualize): Call agents sequentially - each one's output feeds the next.\n\n` +
+            `### How to Call Agents\n` +
+            `All agents are MCP tools. Call them the same way you call render_ui or web_search. Pass a "task" string argument.\n` +
+            `IMPORTANT: Do NOT use call_agent or discover_agents for these. Call the tool name directly.\n\n` +
+            `### Orchestration Patterns\n` +
+            `**Pattern 1 - Data-First Pipeline:**\n` +
+            `1. Call \`delegate_to_data_agent\` with task: "Analyze this data and return chart_data format"\n` +
+            `2. Use the structured result in your \`render_ui\` or sandbox call\n\n` +
+            `**Pattern 2 - Parallel Dashboard:**\n` +
+            `Call \`compose_dashboard\` with multiple component intents - agents generate each component in parallel\n\n` +
+            `**Pattern 3 - Sequential Multi-Agent:**\n` +
+            `1. Call \`delegate_to_data_agent\` for data processing\n` +
+            `2. Call \`create_component\` for custom component generation\n` +
+            `3. Combine results in your response\n\n`;
+
         soulParts.push(
           `## Your Agent Pool\n` +
           `You are an orchestrator. For complex, multi-part tasks, delegate to your specialist agents instead of doing everything yourself.\n\n` +
-          `### When to Delegate\n` +
-          `- **Simple request** (single chart, quick answer, one component): Handle it yourself with render_ui or sandbox. Fast and direct.\n` +
-          `- **Dashboard or multi-component request** (3+ visual elements): Use \`compose_dashboard\` - it runs agents in parallel for faster results.\n` +
-          `- **Data + visualization** (user provides data or asks for analytics): Call \`delegate_to_data_agent\` first to process/structure the data, then use the result in your visualization.\n` +
-          `- **Multi-step pipeline** (analyze → transform → visualize): Call agents sequentially - each one's output feeds the next.\n\n` +
-          `### How to Call Agents\n` +
-          `All agents are MCP tools. Call them the same way you call render_ui or web_search. Pass a "task" string argument.\n` +
-          `IMPORTANT: Do NOT use call_agent or discover_agents for these. Call the tool name directly.\n\n` +
-          `### Orchestration Patterns\n` +
-          `**Pattern 1 - Data-First Pipeline:**\n` +
-          `1. Call \`delegate_to_data_agent\` with task: "Analyze this data and return chart_data format"\n` +
-          `2. Use the structured result in your \`render_ui\` or sandbox call\n\n` +
-          `**Pattern 2 - Parallel Dashboard:**\n` +
-          `Call \`compose_dashboard\` with multiple component intents - agents generate each component in parallel\n\n` +
-          `**Pattern 3 - Sequential Multi-Agent:**\n` +
-          `1. Call \`delegate_to_data_agent\` for data processing\n` +
-          `2. Call \`create_component\` for custom component generation\n` +
-          `3. Combine results in your response\n\n` +
+          delegationGuidance +
           poolSections.join("\n\n")
         );
       }

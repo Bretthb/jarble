@@ -299,8 +299,9 @@ async function buildDeploymentFields(
   // memberships, so the openclaw handler can cleanly skip rendering the
   // Team Context section for solo deployments.
   //
-  // v1 picks the FIRST flow if a deployment participates in multiple — this is
-  // deterministic by insertion order. Multi-team rendering is a follow-up.
+  // Picks the active flow if set, otherwise falls back to the first membership
+  // (deterministic by insertion order). This keeps soul.md in sync with the
+  // [TEAM CONTEXT] block injected by tamboAgent.ts at chat time.
   let teamContext: DeploymentFields["teamContext"] | undefined;
   const teamMembersBackCompat: Array<{ deploymentId: string; name: string; role: string | null; slug: string }> = [];
   try {
@@ -314,15 +315,18 @@ async function buildDeploymentFields(
       });
 
       if (myMemberships?.length) {
-        // Step 2: Pick the first flow deterministically (by row insertion order).
-        // If multiple flows are present, log so support can diagnose user confusion.
-        const primary = myMemberships[0];
+        // Step 2: Prefer the user's activeFlowId if it matches a membership;
+        // otherwise fall back to the first membership by insertion order.
+        const activeFlowId = (deployment as any).activeFlowId as string | null | undefined;
+        const primary = (activeFlowId
+          ? myMemberships.find((m: any) => m.flowId === activeFlowId)
+          : null) || myMemberships[0];
         if (myMemberships.length > 1) {
           const allFlowIds = [...new Set(myMemberships.map((m: any) => m.flowId))];
           if (allFlowIds.length > 1) {
             log.info(
-              { deploymentId: deployment.id, flowIds: allFlowIds, picked: primary.flowId },
-              "configSync: deployment is in multiple flows — rendering only the first"
+              { deploymentId: deployment.id, flowIds: allFlowIds, picked: primary.flowId, activeFlowId },
+              "configSync: deployment is in multiple flows — rendering the active one"
             );
           }
         }

@@ -2054,6 +2054,14 @@ export const deploymentRouter = router({
         .set({ activeFlowId: input.flowId } as any)
         .where(eq(deployments.id, input.id));
 
+      // Sync soul.md so the pod's team context matches the new active flow.
+      if (deployment.status === "running") {
+        safeFireAndForget(syncConfigsToPvc(input.id), {
+          operation: "syncConfigsToPvc",
+          deploymentId: input.id,
+        });
+      }
+
       return { success: true, activeFlowId: input.flowId };
     }),
 
