@@ -52,6 +52,11 @@ import {
   TEXT_MESSAGE_END,
 } from "../utils/eventTypes.js";
 import { agentCallEvents } from "../utils/agentCallEvents.js";
+import {
+  injectMemoryStateLine,
+  renderMemoryStateLine,
+  normalizeMemoryScope,
+} from "../utils/memoryScope.js";
 
 const log = createModuleLogger("flow-chat");
 
@@ -470,6 +475,16 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     // 8. Send message to entry bot
     const sessionKey = `flow-${flowId}-${user.id}${conversationId ? `-${conversationId}` : ""}`;
 
+    // Inject per-turn [CANVAS_STATE] memory state so the bot knows its memory
+    // mode and session ID on every turn (JAR memory-scoping).
+    const entryMessageWithMemory = injectMemoryStateLine(
+      entryMessage,
+      renderMemoryStateLine(
+        normalizeMemoryScope(entryDeployment.memoryScope),
+        sessionKey,
+      ),
+    );
+
     const messageId = nanoid();
     // Generate a trace ID for the entire flow chat turn so budget checks
     // and OTel spans can stitch all delegation hops into one trace.
@@ -496,7 +511,7 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
       entryResult = await withSessionLock(sessionKey, () => chatViaExec(
         entryPodName,
         sessionKey,
-        entryMessage,
+        entryMessageWithMemory,
         (fullTextSoFar) => {
           // Stream text deltas to the user in real-time
           // (delegation tool calls will be stripped and handled separately)

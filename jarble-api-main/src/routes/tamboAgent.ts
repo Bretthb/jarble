@@ -94,6 +94,11 @@ import {
   type DelegationTool,
 } from "../services/flowDelegation.js";
 import type { FlowDefinition, FlowNode, FlowEdge } from "../services/flowEngine.js";
+import {
+  injectMemoryStateLine,
+  renderMemoryStateLine,
+  normalizeMemoryScope,
+} from "../utils/memoryScope.js";
 
 export const tamboAgentRouter = Router();
 
@@ -1044,6 +1049,15 @@ tamboAgentRouter.post("/", async (req, res) => {
   let lastDeltaText = "";
   const convId = body.conversationId || "";
   const sessionKey = `jarble-web-${authenticatedUserId || "anon"}${convId ? `-${convId}` : ""}`;
+
+  // Inject per-turn [CANVAS_STATE] memory state so the bot knows its memory
+  // mode and session ID on every turn. Session-scope WS-gateway path relies
+  // on this because it has no JARBLE_CURRENT_SESSION_ID env fallback (the
+  // exec path gets it as a prepended env prefix from chatViaExec).
+  messageWithVision = injectMemoryStateLine(
+    messageWithVision,
+    renderMemoryStateLine(normalizeMemoryScope(deployment.memoryScope), sessionKey),
+  );
 
   // ── Persist user message to DB immediately ──────────────────────────────────
   // Fire-and-forget: save the user message before starting the bot request so

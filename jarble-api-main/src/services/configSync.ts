@@ -44,6 +44,7 @@ import { getHandlerOrNull } from "../runtimes/index.js";
 import type { DeploymentFields } from "../runtimes/types.js";
 import { decryptApiKey, encryptApiKey } from "../utils/encryption.js";
 import { createModuleLogger } from "../utils/logger.js";
+import { normalizeMemoryScope } from "../utils/memoryScope.js";
 
 const log = createModuleLogger("configSync");
 import { nanoid } from "nanoid";
@@ -425,10 +426,10 @@ async function buildDeploymentFields(
     teamMembers: teamMembersBackCompat.length > 0 ? teamMembersBackCompat : undefined,
     // Memory scope toggles in ConfigPanel only have runtime effect if this
     // field is propagated here — getSecretEntries reads it to write
-    // JARBLE_MEMORY_SCOPE into the pod Secret. Before this line was added,
-    // configSync always sent `undefined`, the handler defaulted to "global",
-    // and the Secret never reflected a user-triggered scope change (PR #69).
-    memoryScope: deployment.memoryScope ?? undefined,
+    // JARBLE_MEMORY_SCOPE into the pod Secret. normalizeMemoryScope coerces
+    // any stale/invalid DB value to "global" so old rows never produce an
+    // unknown scope (PR #69).
+    memoryScope: normalizeMemoryScope(deployment.memoryScope),
   };
 }
 

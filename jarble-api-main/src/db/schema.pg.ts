@@ -71,11 +71,12 @@ export const deployments = pgTable("deployments", {
   orgId: varchar("org_id", { length: 255 }),  // null = personal deployment, non-null = org-owned
   visibility: varchar("visibility", { length: 20 }).default("all"),  // "all" = every org member sees it, "admin" = owner + admin only
   /**
-   * JAR memory-scoping (foundation): how the bot's long-term memory layer
-   * behaves across sessions. The actual enforcement of `session` mode lives
-   * in the OpenClaw runtime handler + MCP server (separate follow-up PRs);
-   * this column stores the user's choice and the chat surface displays a
-   * disclosure banner derived from it. See
+   * JAR memory-scoping: how the bot's long-term memory layer behaves across
+   * sessions. Enforcement lives in the OpenClaw runtime handler (soul.md
+   * sections + JARBLE_MEMORY_SCOPE env var), the Jarble MCP server (tool
+   * filtering + session partitioning), and the chat routes (per-turn
+   * [CANVAS_STATE] injection). This column stores the user's choice and the
+   * chat surface displays a disclosure banner derived from it. See
    * `docs/audits/memory-scoping-decision.md` for the design.
    *
    * Values:

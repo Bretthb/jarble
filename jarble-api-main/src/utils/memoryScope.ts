@@ -9,13 +9,18 @@
  *   1. The MemoryScope type and constants.
  *   2. `normalizeMemoryScope()` — coerce arbitrary input from the DB or API
  *      to a valid MemoryScope, falling back to "global" when missing/invalid.
- *      Used by configSync.buildDeploymentFields() and the tRPC layer so a
- *      stale row from before the migration ran always behaves like "global".
- *   3. `renderMemoryPromptSection()` — the soul.md memory section appended
- *      by the OpenClaw runtime handler. Pulled out so the wording can be
- *      unit-tested without standing up the whole runtime.
+ *      Used by configSync.buildDeploymentFields() so a stale/null DB row
+ *      always behaves like "global".
+ *   3. `renderMemoryPromptSection()` — a generic soul.md memory section for
+ *      unit-testing the wording in isolation. Note: the OpenClaw runtime
+ *      handler (openclaw.ts) uses its own inline prompt strings that are
+ *      more specific to the OpenClaw tool surface (mcporter, native tools);
+ *      this function is not called by the handler directly.
  *   4. `renderMemoryStateLine()` — short "Memory: <mode> · Session: <id>"
  *      line injected into the per-message [CANVAS_STATE] block.
+ *   5. `injectMemoryStateLine()` — merges the memory state line into the
+ *      user message's [CANVAS_STATE] block. Called by tamboAgent.ts and
+ *      flowChat.ts on every chat turn.
  */
 
 export const MEMORY_SCOPES = ["global", "session", "off"] as const;
