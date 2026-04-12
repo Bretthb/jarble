@@ -128,6 +128,41 @@ export interface StepResult {
   error?: string;
   durationMs?: number;
   creditsCharged?: number;
+
+  // ── Phase 4: Time-travel debugging fields ─────────────────────────────
+  // These are captured at step execution time and persisted via
+  // checkpointState() so the frontend can reconstruct the full
+  // input/output trail for any completed execution.
+
+  /**
+   * Snapshot of the resolved arguments that were passed to the step's
+   * executor. For deployment nodes this is the template-resolved config
+   * (including `{{nodeId.field}}` substitutions); for transform/condition
+   * nodes it's the resolved expression + input data. Captured at the
+   * START of execution so users can see exactly what the step received.
+   */
+  inputSnapshot?: unknown;
+
+  /**
+   * Condition evaluations on incoming edges. When a node has conditional
+   * edges, each condition is evaluated before the node runs. This array
+   * records what each condition resolved to so users can understand WHY
+   * a branch was taken or skipped.
+   */
+  conditionEvaluations?: Array<{
+    edgeId: string;
+    condition: string;
+    resolved: string;
+    result: boolean;
+  }>;
+
+  /**
+   * How many times this node has been visited in the current execution.
+   * For non-cyclic nodes this is always 1. For cyclic nodes (part of a
+   * feedback loop with maxIterations), this tracks the current iteration
+   * so the time-travel UI can show progress through the loop.
+   */
+  visitCount?: number;
 }
 
 export interface FlowExecutionState {
@@ -220,6 +255,8 @@ export class FlowExecutionEngine extends EventEmitter {
 
   /** Track how many times each node has been executed (for cycle support) */
   private nodeVisitCount: Map<string, number> = new Map();
+  /** Phase 4: temp stash for condition evaluations to pass to executeStep */
+  private _lastConditionEvals?: StepResult["conditionEvaluations"];
 
   /** When resuming, start from this set of nodes instead of entry nodes */
   private resumeFromNodes: string[] | null = null;
@@ -573,17 +610,30 @@ export class FlowExecutionEngine extends EventEmitter {
       }
     }
 
-    // Check conditions on incoming edges
+    // Check conditions on incoming edges. Phase 4: record each evaluation
+    // in the conditionEvaluations audit trail so the time-travel UI can
+    // show why a branch was taken or skipped.
+    const conditionEvals: StepResult["conditionEvaluations"] = [];
     for (const edge of incoming) {
       if (edge.condition) {
+        const resolved = String(
+          this.resolveTemplateVars(edge.condition, this.state.stepResults) ?? edge.condition,
+        );
         const conditionMet = this.evaluateCondition(
           edge.condition,
           this.state.stepResults
         );
+        conditionEvals.push({
+          edgeId: edge.id,
+          condition: edge.condition,
+          resolved,
+          result: conditionMet,
+        });
         if (!conditionMet) {
           this.state.stepResults.set(nodeId, {
             status: "skipped",
             error: `Condition not met: ${edge.condition}`,
+            conditionEvaluations: conditionEvals,
           });
           const completedCount = this.countCompleted();
           this.emit("step:finished", {
@@ -608,6 +658,10 @@ export class FlowExecutionEngine extends EventEmitter {
       return;
     }
 
+    // Phase 4: stash condition evaluations for executeStep to include
+    // in the completed StepResult. This avoids changing executeStep's
+    // signature (which would ripple through many callers).
+    this._lastConditionEvals = conditionEvals.length > 0 ? conditionEvals : undefined;
     await this.executeStep(node, totalNodes);
   }
 
@@ -668,8 +722,12 @@ export class FlowExecutionEngine extends EventEmitter {
   private async executeStep(node: FlowNode, totalNodes: number): Promise<void> {
     const startTime = Date.now();
 
-    // Mark as running
-    this.state.stepResults.set(node.id, { status: "running" });
+    // Mark as running. Capture the visit count for cyclic nodes.
+    const nodeVisitCount = (this.nodeVisitCount?.get(node.id) ?? 0);
+    this.state.stepResults.set(node.id, {
+      status: "running",
+      visitCount: nodeVisitCount + 1,
+    });
     const runningIndex = this.countCompleted() + 1;
 
     // JAR-50: log the success path at info level so we can find slow nodes
@@ -692,6 +750,23 @@ export class FlowExecutionEngine extends EventEmitter {
       index: runningIndex,
       total: totalNodes,
     });
+
+    // Phase 4: snapshot resolved input args BEFORE the try block so both
+    // success and failure paths can include it in the step result.
+    const inputSnapshot = (() => {
+      try {
+        const resolved = this.resolveTemplateVars(
+          node.config ?? {},
+          this.state.stepResults,
+        );
+        const json = JSON.stringify(resolved);
+        return json.length > 10_000
+          ? JSON.parse(json.slice(0, 10_000) + '..."')
+          : resolved;
+      } catch {
+        return node.config ?? {};
+      }
+    })();
 
     try {
       if (this.abortController.signal.aborted) {
@@ -741,7 +816,12 @@ export class FlowExecutionEngine extends EventEmitter {
         result,
         durationMs,
         creditsCharged,
+        // Phase 4: time-travel fields persisted on completion
+        inputSnapshot,
+        visitCount: nodeVisitCount + 1,
+        conditionEvaluations: this._lastConditionEvals,
       });
+      this._lastConditionEvals = undefined; // clear after use
 
       const completedCount = this.countCompleted();
 
@@ -784,6 +864,10 @@ export class FlowExecutionEngine extends EventEmitter {
         status: "failed",
         error: errorMsg,
         durationMs,
+        // Phase 4: persist input snapshot even on failure so the time-travel
+        // UI can show what input caused the failure
+        inputSnapshot,
+        visitCount: nodeVisitCount + 1,
       });
 
       const completedCount = this.countCompleted();
