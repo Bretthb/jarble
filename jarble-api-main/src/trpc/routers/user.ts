@@ -2,16 +2,33 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, publicProcedure, protectedProcedure } from "../middleware.js";
 import { tables, dbDate } from "../../db/index.js";
-import { eq } from "drizzle-orm";
+import { eq, and, desc, or, isNull, lte, gte } from "drizzle-orm";
 import { env } from "../../utils/env.js";
 import { logger } from "../../utils/logger.js";
 import { deleteAccount } from "../../services/accountDeletion.js";
 
-const { users } = tables;
+const { users, announcements } = tables;
 
 export const userRouter = router({
   // Get current user from context
   me: publicProcedure.query(({ ctx }) => ctx.user),
+
+  // Most recent active in-window announcement, or null.
+  // Public so unauthenticated pages can show critical banners.
+  getActiveAnnouncement: publicProcedure.query(async ({ ctx }) => {
+    const now = new Date();
+    const row = await ctx.db
+      .select()
+      .from(announcements)
+      .where(and(
+        eq(announcements.active, true),
+        or(isNull(announcements.startsAt), lte(announcements.startsAt, now)),
+        or(isNull(announcements.endsAt), gte(announcements.endsAt, now)),
+      ))
+      .orderBy(desc(announcements.createdAt))
+      .limit(1);
+    return row[0] ?? null;
+  }),
 
   // Get full profile from DB
   getProfile: protectedProcedure.query(async ({ ctx }) => {

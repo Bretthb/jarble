@@ -17,6 +17,7 @@ import {
   BarChart3,
   FileText,
   Ticket,
+  Megaphone,
   ArrowLeft,
 } from "lucide-react";
 
@@ -27,6 +28,7 @@ const NAV_ITEMS = [
   { href: "/admin/marketplace", label: "Marketplace", icon: Store },
   { href: "/admin/billing", label: "Billing", icon: CreditCard },
   { href: "/admin/promo", label: "Promo Codes", icon: Ticket },
+  { href: "/admin/announcements", label: "Announcements", icon: Megaphone },
   { href: "/admin/system", label: "System", icon: Activity },
   { href: "/admin/metrics", label: "Metrics", icon: BarChart3 },
   { href: "/admin/audit", label: "Audit Logs", icon: FileText },

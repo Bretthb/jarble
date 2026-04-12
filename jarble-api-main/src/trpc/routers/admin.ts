@@ -24,7 +24,7 @@ import {
   QUERY_KEYS,
 } from "../../services/prometheus.js";
 
-const { users, deployments, chatSessions, auditLogs, promoCodes, promoRedemptions, organizations } = tables;
+const { users, deployments, chatSessions, auditLogs, promoCodes, promoRedemptions, organizations, announcements } = tables;
 
 /** Escape SQL LIKE wildcards in user-provided search strings */
 function escapeLike(str: string): string {
@@ -864,6 +864,125 @@ const listPromoRedemptions = adminProcedure
     return { redemptions: rows, total: Number(totalResult.count), page, limit };
   });
 
+// ── Announcements ───────────────────────────────────────────────────────
+
+const SEVERITY = z.enum(["info", "warning", "critical"]);
+
+const listAnnouncements = adminProcedure
+  .input(z.object({
+    page: z.number().int().min(1).default(1),
+    limit: z.number().int().min(1).max(100).default(50),
+  }))
+  .query(async ({ input }) => {
+    const { page, limit } = input;
+    const offset = (page - 1) * limit;
+
+    const rows = await db
+      .select()
+      .from(announcements)
+      .orderBy(desc(announcements.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const [totalResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(announcements);
+
+    return { announcements: rows, total: Number(totalResult.count), page, limit };
+  });
+
+const createAnnouncement = adminProcedure
+  .input(z.object({
+    message: z.string().trim().min(1).max(280),
+    severity: SEVERITY.default("info"),
+    dismissible: z.boolean().default(true),
+    startsAt: z.string().datetime().nullable().optional(),
+    endsAt: z.string().datetime().nullable().optional(),
+  }))
+  .mutation(async ({ ctx, input }) => {
+    // Critical banners are intentionally not dismissible regardless of input.
+    const dismissible = input.severity === "critical" ? false : input.dismissible;
+
+    const [inserted] = await db
+      .insert(announcements)
+      .values({
+        message: input.message,
+        severity: input.severity,
+        dismissible,
+        startsAt: input.startsAt ? new Date(input.startsAt) : null,
+        endsAt: input.endsAt ? new Date(input.endsAt) : null,
+        createdBy: ctx.user.id,
+      })
+      .returning({ id: announcements.id });
+
+    await logAdminAction({
+      userId: ctx.user.id,
+      action: "create_announcement",
+      targetType: "announcement",
+      targetId: inserted.id,
+      metadata: {
+        message: input.message,
+        severity: input.severity,
+        dismissible,
+      },
+      ipAddress: ctx.ip ?? undefined,
+    });
+
+    return { id: inserted.id };
+  });
+
+const updateAnnouncement = adminProcedure
+  .input(z.object({
+    id: z.string(),
+    message: z.string().trim().min(1).max(280).optional(),
+    severity: SEVERITY.optional(),
+    active: z.boolean().optional(),
+    dismissible: z.boolean().optional(),
+    startsAt: z.string().datetime().nullable().optional(),
+    endsAt: z.string().datetime().nullable().optional(),
+  }))
+  .mutation(async ({ ctx, input }) => {
+    const existing = await db.query.announcements.findFirst({
+      where: eq(announcements.id, input.id),
+    });
+    if (!existing) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Announcement not found" });
+    }
+
+    const patch: Record<string, unknown> = {};
+    if (input.message !== undefined) patch.message = input.message;
+    if (input.severity !== undefined) {
+      patch.severity = input.severity;
+      // Critical severity forces non-dismissible.
+      if (input.severity === "critical") patch.dismissible = false;
+    }
+    if (input.active !== undefined) patch.active = input.active;
+    if (input.dismissible !== undefined && patch.dismissible === undefined) {
+      patch.dismissible = input.dismissible;
+    }
+    if (input.startsAt !== undefined) {
+      patch.startsAt = input.startsAt ? new Date(input.startsAt) : null;
+    }
+    if (input.endsAt !== undefined) {
+      patch.endsAt = input.endsAt ? new Date(input.endsAt) : null;
+    }
+
+    if (Object.keys(patch).length === 0) return { success: true };
+
+    await db.update(announcements).set(patch).where(eq(announcements.id, input.id));
+
+    await logAdminAction({
+      userId: ctx.user.id,
+      action: "update_announcement",
+      targetType: "announcement",
+      targetId: input.id,
+      metadata: patch as Record<string, unknown>,
+      ipAddress: ctx.ip ?? undefined,
+    });
+
+    return { success: true };
+  });
+
 // ── Global Search ───────────────────────────────────────────────────────
 
 const globalSearch = adminProcedure
@@ -957,4 +1076,7 @@ export const adminRouter = router({
   updatePromoCode,
   listPromoRedemptions,
   globalSearch,
+  listAnnouncements,
+  createAnnouncement,
+  updateAnnouncement,
 });

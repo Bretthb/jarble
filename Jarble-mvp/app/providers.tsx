@@ -16,6 +16,7 @@ import { Auth0Provider } from "@/components/auth";
 import { useAuth0 } from "@auth0/auth0-react";
 import { initPostHog } from "@/lib/posthog";
 import { ConsentModal } from "@/components/legal/ConsentModal";
+import { AnnouncementBanner } from "@/components/AnnouncementBanner";
 
 /**
  * Inner provider that sits inside Auth0Provider so it can access useAuth0().
@@ -147,6 +148,7 @@ function TrpcProviders({ children }: { children: React.ReactNode }) {
                  * so users can read the terms they are agreeing to.
                  */}
                 <ConsentModal />
+                <AnnouncementBanner />
                 {children}
               </TooltipProvider>
             </OrgProvider>
