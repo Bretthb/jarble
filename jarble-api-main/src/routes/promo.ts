@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { db } from "../db/index.js";
-import { promoCodes } from "../db/schema.pg.js";
-import { eq, and } from "drizzle-orm";
+import { promoCodes, promoRedemptions } from "../db/schema.pg.js";
+import { eq, and, sql } from "drizzle-orm";
 import { createModuleLogger } from "../utils/logger.js";
+import { getUserFromRequest } from "../helpers/auth.js";
 
 const logger = createModuleLogger("promo");
 
@@ -10,7 +11,8 @@ export const promoRouter = Router();
 
 /**
  * POST /api/promo/validate
- * Validate a promo code. Public endpoint (no auth required).
+ * Validate a promo code. Public endpoint — if a valid Bearer token is present
+ * we also enforce the per-user redemption cap so the wizard shows an accurate error.
  */
 promoRouter.post("/validate", async (req, res) => {
   try {
@@ -41,6 +43,21 @@ promoRouter.post("/validate", async (req, res) => {
     if (promo.maxUses !== null && promo.currentUses >= promo.maxUses) {
       res.json({ valid: false, message: "This promo code has reached its usage limit" });
       return;
+    }
+
+    const user = await getUserFromRequest(req);
+    if (user) {
+      const [{ userCount }] = await db
+        .select({ userCount: sql<number>`count(*)` })
+        .from(promoRedemptions)
+        .where(and(
+          eq(promoRedemptions.promoCodeId, promo.id),
+          eq(promoRedemptions.userId, user.id),
+        ));
+      if (Number(userCount) >= promo.maxUsesPerUser) {
+        res.json({ valid: false, message: "You have already redeemed this promo code" });
+        return;
+      }
     }
 
     logger.info({ code: promo.code, discountType: promo.discountType, discountAmount: promo.discountAmount }, "Promo code validated");

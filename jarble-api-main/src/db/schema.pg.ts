@@ -1068,6 +1068,7 @@ export const promoCodes = pgTable("promo_codes", {
   discountType: varchar("discount_type", { length: 20 }).notNull().default("fixed"),
   discountAmount: integer("discount_amount").notNull(),
   maxUses: integer("max_uses"),
+  maxUsesPerUser: integer("max_uses_per_user").notNull().default(1),
   currentUses: integer("current_uses").notNull().default(0),
   expiresAt: timestamp("expires_at"),
   active: boolean("active").notNull().default(true),

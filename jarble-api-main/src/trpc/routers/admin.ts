@@ -24,7 +24,7 @@ import {
   QUERY_KEYS,
 } from "../../services/prometheus.js";
 
-const { users, deployments, chatSessions, auditLogs } = tables;
+const { users, deployments, chatSessions, auditLogs, promoCodes, promoRedemptions } = tables;
 
 /** Escape SQL LIKE wildcards in user-provided search strings */
 function escapeLike(str: string): string {
@@ -688,6 +688,182 @@ const sendBetaInviteAll = adminProcedure.mutation(async ({ ctx }) => {
   return { sent, failed, total: pending.length };
 });
 
+// ── Promo Codes ─────────────────────────────────────────────────────────
+
+const listPromoCodes = adminProcedure
+  .input(z.object({
+    page: z.number().int().min(1).default(1),
+    limit: z.number().int().min(1).max(100).default(50),
+    includeInactive: z.boolean().default(true),
+  }))
+  .query(async ({ input }) => {
+    const { page, limit, includeInactive } = input;
+    const offset = (page - 1) * limit;
+    const conditions = includeInactive ? undefined : eq(promoCodes.active, true);
+
+    const rows = await db
+      .select({
+        id: promoCodes.id,
+        code: promoCodes.code,
+        discountType: promoCodes.discountType,
+        discountAmount: promoCodes.discountAmount,
+        maxUses: promoCodes.maxUses,
+        maxUsesPerUser: promoCodes.maxUsesPerUser,
+        currentUses: promoCodes.currentUses,
+        expiresAt: promoCodes.expiresAt,
+        active: promoCodes.active,
+        createdAt: promoCodes.createdAt,
+      })
+      .from(promoCodes)
+      .where(conditions)
+      .orderBy(desc(promoCodes.createdAt))
+      .limit(limit)
+      .offset(offset);
+
+    const [totalResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(promoCodes)
+      .where(conditions);
+
+    return { codes: rows, total: Number(totalResult.count), page, limit };
+  });
+
+const CODE_REGEX = /^[A-Z0-9_-]{3,50}$/;
+
+const createPromoCode = adminProcedure
+  .input(z.object({
+    code: z.string().min(3).max(50).transform((v) => v.trim().toUpperCase()),
+    discountType: z.enum(["fixed", "percent"]),
+    discountAmount: z.number().int().min(1),
+    maxUses: z.number().int().min(1).nullable(),
+    maxUsesPerUser: z.number().int().min(1).default(1),
+    expiresAt: z.string().datetime().nullable().optional(),
+  }))
+  .mutation(async ({ ctx, input }) => {
+    if (!CODE_REGEX.test(input.code)) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Code must be 3–50 characters: A–Z, 0–9, underscore, hyphen",
+      });
+    }
+    if (input.discountType === "percent" && input.discountAmount > 100) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Percent discount cannot exceed 100" });
+    }
+
+    const existing = await db.query.promoCodes.findFirst({
+      where: eq(promoCodes.code, input.code),
+    });
+    if (existing) {
+      throw new TRPCError({ code: "CONFLICT", message: "Promo code already exists" });
+    }
+
+    const [inserted] = await db
+      .insert(promoCodes)
+      .values({
+        code: input.code,
+        discountType: input.discountType,
+        discountAmount: input.discountAmount,
+        maxUses: input.maxUses,
+        maxUsesPerUser: input.maxUsesPerUser,
+        expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+        createdBy: ctx.user.id,
+      })
+      .returning({ id: promoCodes.id });
+
+    await logAdminAction({
+      userId: ctx.user.id,
+      action: "create_promo_code",
+      targetType: "promo_code",
+      targetId: inserted.id,
+      metadata: {
+        code: input.code,
+        discountType: input.discountType,
+        discountAmount: input.discountAmount,
+        maxUses: input.maxUses,
+        maxUsesPerUser: input.maxUsesPerUser,
+      },
+      ipAddress: ctx.ip ?? undefined,
+    });
+
+    return { id: inserted.id };
+  });
+
+const updatePromoCode = adminProcedure
+  .input(z.object({
+    id: z.string(),
+    maxUses: z.number().int().min(1).nullable().optional(),
+    maxUsesPerUser: z.number().int().min(1).optional(),
+    expiresAt: z.string().datetime().nullable().optional(),
+    active: z.boolean().optional(),
+  }))
+  .mutation(async ({ ctx, input }) => {
+    const existing = await db.query.promoCodes.findFirst({
+      where: eq(promoCodes.id, input.id),
+    });
+    if (!existing) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Promo code not found" });
+    }
+
+    const patch: Record<string, unknown> = {};
+    if (input.maxUses !== undefined) patch.maxUses = input.maxUses;
+    if (input.maxUsesPerUser !== undefined) patch.maxUsesPerUser = input.maxUsesPerUser;
+    if (input.expiresAt !== undefined) {
+      patch.expiresAt = input.expiresAt ? new Date(input.expiresAt) : null;
+    }
+    if (input.active !== undefined) patch.active = input.active;
+
+    if (Object.keys(patch).length === 0) {
+      return { success: true };
+    }
+
+    await db.update(promoCodes).set(patch).where(eq(promoCodes.id, input.id));
+
+    await logAdminAction({
+      userId: ctx.user.id,
+      action: "update_promo_code",
+      targetType: "promo_code",
+      targetId: input.id,
+      metadata: patch as Record<string, unknown>,
+      ipAddress: ctx.ip ?? undefined,
+    });
+
+    return { success: true };
+  });
+
+const listPromoRedemptions = adminProcedure
+  .input(z.object({
+    promoCodeId: z.string(),
+    page: z.number().int().min(1).default(1),
+    limit: z.number().int().min(1).max(200).default(100),
+  }))
+  .query(async ({ input }) => {
+    const { promoCodeId, page, limit } = input;
+    const offset = (page - 1) * limit;
+
+    const rows = await db
+      .select({
+        id: promoRedemptions.id,
+        userId: promoRedemptions.userId,
+        userEmail: users.email,
+        userName: users.name,
+        deploymentId: promoRedemptions.deploymentId,
+        redeemedAt: promoRedemptions.redeemedAt,
+      })
+      .from(promoRedemptions)
+      .leftJoin(users, eq(users.id, promoRedemptions.userId))
+      .where(eq(promoRedemptions.promoCodeId, promoCodeId))
+      .orderBy(desc(promoRedemptions.redeemedAt))
+      .limit(limit)
+      .offset(offset);
+
+    const [totalResult] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(promoRedemptions)
+      .where(eq(promoRedemptions.promoCodeId, promoCodeId));
+
+    return { redemptions: rows, total: Number(totalResult.count), page, limit };
+  });
+
 // ── Router ──────────────────────────────────────────────────────────────
 
 export const adminRouter = router({
@@ -710,4 +886,8 @@ export const adminRouter = router({
   listBetaSignups,
   sendBetaInvite,
   sendBetaInviteAll,
+  listPromoCodes,
+  createPromoCode,
+  updatePromoCode,
+  listPromoRedemptions,
 });
