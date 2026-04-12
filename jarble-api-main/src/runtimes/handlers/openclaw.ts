@@ -284,6 +284,14 @@ export const openclawHandler: RuntimeHandler = {
           }).join("\n")
         : "_(You have no teammates configured. Handle requests yourself or tell the user the team has no specialists for their request.)_";
 
+      // When custom subagents exist, add a routing note to the Team Context
+      const hasDeploymentSubagents = (deployment.subagents ?? []).some(
+        (a: any) => (!a.source || a.source === "custom" || a.source === "delegation") && a.systemPrompt
+      );
+      const subagentRoutingNote = hasDeploymentSubagents
+        ? `\n**IMPORTANT**: For component/UI rendering requests (dashboards, charts, forms, landing pages), delegate to your **Custom Subagents** listed below, NOT to teammates. Teammates are for cross-bot collaboration; subagents are your specialized component builders.\n\n`
+        : "";
+
       const teamSection =
         `<!-- BEGIN JARBLE_FLOW_CONTEXT v1 -->\n\n` +
         `## Team Context\n\n` +
@@ -291,6 +299,7 @@ export const openclawHandler: RuntimeHandler = {
         `**Your team role:** ${roleLine}\n` +
         entryPointNote +
         `\n### Your teammates\n\n${teammateLines}\n\n` +
+        subagentRoutingNote +
         `### How delegation works here\n\n` +
         `Delegation in a Bot Team is **coordinated by the Jarble platform**, not by you calling an MCP tool directly. When you decide to delegate, emit a fenced code block in your reply with the language tag \`jarble_delegate\` containing a JSON object.\n\n` +
         `**Format (use EXACTLY this):**\n\n` +

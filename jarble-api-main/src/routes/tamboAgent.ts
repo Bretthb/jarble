@@ -1615,10 +1615,40 @@ tamboAgentRouter.post("/", async (req, res) => {
             const subagentJobs: Array<{ slug: string; name: string; systemPrompt: string; model: string | null; task: string; context: string; index: number }> = [];
             for (let i = 0; i < unmatchedCalls.length; i++) {
               const call = unmatchedCalls[i];
-              // Match by slug (jarble_delegate "to" field)
-              const match = dbSubagents.find((a: any) =>
+              // 1. Try exact slug match (jarble_delegate "to" field)
+              let match = dbSubagents.find((a: any) =>
                 a.slug === call.toolName || `agent_${a.slug}` === call.toolName
               );
+              // 2. Fuzzy match: bot may have used a team member slug instead of a
+              //    subagent slug. Match task keywords against subagent descriptions.
+              if (!match) {
+                const taskLower = (call.task || "").toLowerCase();
+                let bestMatch: any = null;
+                let bestScore = 0;
+                for (const a of dbSubagents) {
+                  if (!a.enabled || !a.systemPrompt) continue;
+                  const descWords = (a.description || a.name || "").toLowerCase().split(/[\s,\-—]+/);
+                  const score = descWords.filter((w: string) => w.length > 3 && taskLower.includes(w)).length;
+                  if (score > bestScore) {
+                    bestScore = score;
+                    bestMatch = a;
+                  }
+                }
+                if (bestMatch) {
+                  match = bestMatch;
+                  log.info(
+                    { deploymentId, originalTo: call.toolName, resolvedTo: bestMatch.slug, score: bestScore },
+                    "Chat: fuzzy-matched delegation to subagent (bot used wrong slug)",
+                  );
+                } else if (dbSubagents.filter((a: any) => a.enabled && a.systemPrompt).length > 0) {
+                  // 3. Last resort: use the first enabled subagent
+                  match = dbSubagents.find((a: any) => a.enabled && a.systemPrompt);
+                  log.info(
+                    { deploymentId, originalTo: call.toolName, resolvedTo: match?.slug },
+                    "Chat: fallback delegation to first subagent (no slug or keyword match)",
+                  );
+                }
+              }
               if (match && match.enabled && match.systemPrompt) {
                 subagentJobs.push({
                   slug: match.slug,
