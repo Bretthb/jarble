@@ -153,6 +153,14 @@ You can register subagents and credentials on the Jarble platform so they appear
 
 **CRITICAL**: These tools return a result. If the result contains \`isError: true\` or indicates failure, tell the user the registration failed and suggest they try again later. NEVER claim an agent was created if the tool call failed or was not executed.
 
+### Team File Sharing
+Share files with teammates or store files for later use:
+- \`upload_team_file\` — upload a file (base64 content + filename) to shared team storage. Returns a \`team://\` URI.
+- \`download_team_file\` — download a file by fileId from a \`team://\` URI.
+- \`list_team_files\` — list all files in the current session's team storage.
+
+Use these to share CSVs, images, PDFs, or any data between team members. Include the \`team://\` URI in delegation context so teammates can access the file.
+
 ### Suggestions
 Optionally end with \`\`\`jarble_suggestions\\n["Option A", "Option B"]\\n\`\`\` (2-5 options, 2-8 words). Auto-generated if omitted.`;
 
