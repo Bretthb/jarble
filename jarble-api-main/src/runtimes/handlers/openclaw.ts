@@ -298,11 +298,11 @@ export const openclawHandler: RuntimeHandler = {
         `{ "to": "specialist", "task": "Describe primary colors", "context": "" }\n` +
         "```\n\n" +
         `Fields:\n` +
-        `- \`to\` (string, **required**) — the slug of the teammate to delegate to. Must match one of the slugs listed under "Your teammates" above.\n` +
+        `- \`to\` (string, **required**) — the slug of the teammate OR custom subagent to delegate to.\n` +
         `- \`task\` (string, **required**) — the task you want them to perform, in their voice.\n` +
         `- \`context\` (string, **optional**) — any extra facts they need to do the job. Use \`""\` if no extra context is needed.\n\n` +
         `Rules:\n` +
-        `1. The \`to\` field MUST match one of the teammate slugs listed above. Unknown slugs return an error to the user.\n` +
+        `1. The \`to\` field must match either a teammate slug (listed above) or a custom subagent slug (listed in "Custom Subagents" below). For component/UI requests, prefer your custom subagents over teammates.\n` +
         `2. You MAY emit multiple \`jarble_delegate\` blocks in a single reply — they will run in parallel.\n` +
         `3. You MAY mix regular text with delegation blocks. Text before, between, or after blocks is shown to the user as commentary.\n` +
         `4. After delegating, STOP. The platform will run each teammate, send you a \`[DELEGATION_RESULTS]\` follow-up containing their replies, and THEN you synthesize a final answer.\n` +
