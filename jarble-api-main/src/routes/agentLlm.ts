@@ -36,6 +36,28 @@ export const agentRouter = Router();
 
 agentRouter.post("/component", async (req: Request, res: Response) => {
   const { intent, data, theme, constraints } = req.body;
+  // Block create_component when custom subagents exist — route through subagents instead
+  const componentDepId = (req as any).podDeploymentId as string;
+  if (componentDepId) {
+    try {
+      const dsa = (tables as any).deploymentSubagents;
+      if (dsa) {
+        const hasCustom = await (db.query as any).deploymentSubagents?.findFirst?.({
+          where: and(
+            eq(dsa.deploymentId, componentDepId),
+            eq(dsa.enabled, true),
+          ),
+        });
+        if (hasCustom && hasCustom.source !== "platform") {
+          logger.info({ deploymentId: componentDepId }, "create_component blocked — deployment has custom subagents");
+          res.status(400).json({
+            error: "create_component is disabled for this deployment. Use custom subagents via jarble_delegate.",
+          });
+          return;
+        }
+      }
+    } catch { /* non-fatal */ }
+  }
 
   if (!intent || typeof intent !== "string") {
     res.status(400).json({ error: "Missing required field: intent" });
