@@ -379,16 +379,74 @@ function getLayoutedElements<T extends Record<string, unknown>>(
   return { nodes: layoutedNodes, edges };
 }
 
-/** Layout for flow canvas with team topology awareness */
+/**
+ * Detect the optimal layout topology from the graph structure.
+ * Returns "pipeline" (LR), "hierarchy" (TB), or "collaborative" (circular).
+ *
+ * The user no longer picks teamType manually — the layout is DERIVED
+ * from the edge types and graph shape. This makes the canvas adaptive:
+ * change your edges and the auto-layout responds.
+ */
+type DetectedTopology = "pipeline" | "hierarchy" | "collaborative";
+
+function detectTopology(
+  nodes: Node<FlowNodeData>[],
+  edges: Edge[],
+): DetectedTopology {
+  if (nodes.length <= 1) return "pipeline";
+
+  const validEdges = edges.filter((e) => e.source !== e.target);
+  if (validEdges.length === 0) return "pipeline";
+
+  // Classify edges by type
+  const getType = (e: Edge) =>
+    (e.data as FlowEdgeData | undefined)?.edgeType || "delegates";
+  const bidiEdges = validEdges.filter((e) => {
+    const t = getType(e);
+    return t === "collaborates" || t === "reports";
+  });
+  const delegateEdges = validEdges.filter((e) => getType(e) === "delegates");
+
+  // Majority bidirectional → collaborative (circular)
+  if (bidiEdges.length > validEdges.length / 2) return "collaborative";
+
+  // Build in/out degree map from delegates edges
+  const outDegree = new Map<string, number>();
+  const inDegree = new Map<string, number>();
+  for (const e of delegateEdges) {
+    outDegree.set(e.source, (outDegree.get(e.source) ?? 0) + 1);
+    inDegree.set(e.target, (inDegree.get(e.target) ?? 0) + 1);
+  }
+
+  // Linear chain? Every node has at most 1 in + 1 out, edge count = nodes - 1
+  const maxOut = Math.max(0, ...outDegree.values());
+  const maxIn = Math.max(0, ...inDegree.values());
+  if (maxOut <= 1 && maxIn <= 1 && delegateEdges.length === nodes.length - 1) {
+    return "pipeline";
+  }
+
+  // Tree/hierarchy? A root (0 incoming, 1+ outgoing) with fan-out ≥ 2
+  const roots = nodes.filter(
+    (n) => (inDegree.get(n.id) ?? 0) === 0 && (outDegree.get(n.id) ?? 0) >= 1,
+  );
+  const hasFanout = [...outDegree.values()].some((d) => d >= 2);
+  if (roots.length === 1 && hasFanout) return "hierarchy";
+
+  // Default: LR is the most readable for small/mixed teams
+  return "pipeline";
+}
+
+/** Layout for flow canvas — topology auto-detected from edges */
 function getFlowLayoutedElements(
   nodes: Node<FlowNodeData>[],
   edges: Edge[],
-  teamType: TeamType,
 ): { nodes: Node<FlowNodeData>[]; edges: Edge[] } {
   if (nodes.length === 0) return { nodes, edges };
 
-  if (teamType === "collaborative") {
-    // Circular layout for collaborative teams
+  const topology = detectTopology(nodes, edges);
+
+  if (topology === "collaborative") {
+    // Circular layout — entry in center, peers in a ring
     const entryNode = nodes.find((n) => n.data?.isEntryPoint);
     const otherNodes = nodes.filter((n) => n.id !== entryNode?.id);
     const count = otherNodes.length;
@@ -397,16 +455,12 @@ function getFlowLayoutedElements(
     const cy = 400;
 
     const layouted: Node<FlowNodeData>[] = [];
-
-    // Entry node in center
     if (entryNode) {
       layouted.push({
         ...entryNode,
         position: { x: cx - FLOW_NODE_W / 2, y: cy - FLOW_NODE_H / 2 },
       });
     }
-
-    // Other nodes in a circle
     otherNodes.forEach((node, i) => {
       const angle = (2 * Math.PI * i) / count - Math.PI / 2;
       layouted.push({
@@ -417,42 +471,55 @@ function getFlowLayoutedElements(
         },
       });
     });
-
     return { nodes: layouted, edges };
   }
 
-  // Hierarchy (TB) or Pipeline (LR)
-  const direction = teamType === "pipeline" ? "LR" : "TB";
+  // Pipeline (LR) or Hierarchy (TB)
+  const direction = topology === "pipeline" ? "LR" : "TB";
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
   g.setGraph({
     rankdir: direction,
-    nodesep: direction === "LR" ? 100 : 120,
-    ranksep: direction === "LR" ? 200 : 160,
+    nodesep: direction === "LR" ? 80 : 120,
+    ranksep: direction === "LR" ? 220 : 180,
     marginx: 60,
     marginy: 60,
   });
 
-  for (const node of nodes) {
+  // Separate connected and orphan nodes
+  const connectedIds = new Set(edges.flatMap((e) => [e.source, e.target]));
+  const connected = nodes.filter((n) => connectedIds.has(n.id));
+  const orphans = nodes.filter((n) => !connectedIds.has(n.id));
+
+  for (const node of connected) {
     g.setNode(node.id, { width: FLOW_NODE_W, height: FLOW_NODE_H });
   }
-
   for (const edge of edges) {
-    g.setEdge(edge.source, edge.target);
+    if (edge.source !== edge.target) g.setEdge(edge.source, edge.target);
   }
 
   dagre.layout(g);
 
-  const layouted = nodes.map((node) => {
+  const layouted: Node<FlowNodeData>[] = connected.map((node) => {
     const pos = g.node(node.id);
     return {
       ...node,
-      position: {
-        x: pos.x - FLOW_NODE_W / 2,
-        y: pos.y - FLOW_NODE_H / 2,
-      },
+      position: { x: pos.x - FLOW_NODE_W / 2, y: pos.y - FLOW_NODE_H / 2 },
     };
   });
+
+  // Place orphans in a row below the main layout
+  if (orphans.length > 0) {
+    const maxY = layouted.length > 0
+      ? Math.max(...layouted.map((n) => n.position.y)) + FLOW_NODE_H + 80
+      : 0;
+    orphans.forEach((node, i) => {
+      layouted.push({
+        ...node,
+        position: { x: 60 + i * (FLOW_NODE_W + 40), y: maxY },
+      });
+    });
+  }
 
   return { nodes: layouted, edges };
 }
@@ -1040,23 +1107,47 @@ function FlowDeploymentNode({
         </div>
       )}
 
-      {/* Input handle (left) - always visible emerald, large hit area */}
+      {/* Handles on all 4 sides — users can connect from any direction.
+          Left/Right are the primary visual handles (always visible).
+          Top/Bottom are secondary (smaller, appear on hover). */}
+
+      {/* Left — primary target (input) */}
       <div className="absolute left-0 top-1/2 -translate-x-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center z-20">
         <Handle
+          id="left-target"
           type="target"
           position={Position.Left}
           className="!w-5 !h-5 !bg-emerald-500 !border-0 !rounded-full !ring-2 !ring-emerald-500/30 hover:!bg-emerald-400 hover:!shadow-[0_0_8px_rgba(16,185,129,0.6)] hover:!scale-150 !transition-all !relative !left-0 !top-0 !translate-x-0 !translate-y-0"
         />
       </div>
+      {/* Left — also works as source for reverse connections */}
+      <Handle id="left-source" type="source" position={Position.Left} className="!w-0 !h-0 !opacity-0 !absolute !left-0 !top-1/2" />
 
-      {/* Output handle (right) - always visible blue, large hit area */}
+      {/* Right — primary source (output) */}
       <div className="absolute right-0 top-1/2 translate-x-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center z-20">
         <Handle
+          id="right-source"
           type="source"
           position={Position.Right}
           className="!w-5 !h-5 !bg-blue-500 !border-0 !rounded-full !ring-2 !ring-blue-500/30 hover:!bg-blue-400 hover:!shadow-[0_0_8px_rgba(59,130,246,0.6)] hover:!scale-150 !transition-all !relative !left-0 !top-0 !translate-x-0 !translate-y-0"
         />
       </div>
+      {/* Right — also works as target for reverse connections */}
+      <Handle id="right-target" type="target" position={Position.Right} className="!w-0 !h-0 !opacity-0 !absolute !right-0 !top-1/2" />
+
+      {/* Top — secondary handles, appear on hover for vertical connections */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center z-20 opacity-0 hover:opacity-100 transition-opacity">
+        <Handle id="top-target" type="target" position={Position.Top}
+          className="!w-3 !h-3 !bg-emerald-500/70 !border-0 !rounded-full hover:!bg-emerald-400 hover:!scale-150 !transition-all !relative !left-0 !top-0 !translate-x-0 !translate-y-0" />
+      </div>
+      <Handle id="top-source" type="source" position={Position.Top} className="!w-0 !h-0 !opacity-0 !absolute !top-0 !left-1/2" />
+
+      {/* Bottom — secondary handles */}
+      <div className="absolute bottom-0 left-1/2 -translate-x-1/2 translate-y-1/2 w-8 h-8 flex items-center justify-center z-20 opacity-0 hover:opacity-100 transition-opacity">
+        <Handle id="bottom-source" type="source" position={Position.Bottom}
+          className="!w-3 !h-3 !bg-blue-500/70 !border-0 !rounded-full hover:!bg-blue-400 hover:!scale-150 !transition-all !relative !left-0 !top-0 !translate-x-0 !translate-y-0" />
+      </div>
+      <Handle id="bottom-target" type="target" position={Position.Bottom} className="!w-0 !h-0 !opacity-0 !absolute !bottom-0 !left-1/2" />
 
       {/* Content */}
       <div className="relative z-10 p-4 space-y-2.5">
@@ -2313,6 +2404,10 @@ function FlowCanvas({
         id: `flow-edge-${connection.source}-${connection.target}`,
         source: connection.source!,
         target: connection.target!,
+        // Preserve which handle sides were used so getBezierPath
+        // renders the edge from the correct position on each node
+        sourceHandle: connection.sourceHandle ?? undefined,
+        targetHandle: connection.targetHandle ?? undefined,
         type: "flowEdge",
         data: { edgeType: "delegates" as FlowEdgeType },
       };
@@ -2878,11 +2973,11 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     (type: TeamType) => {
       if (!activeFlow) return;
       handleUpdateFlow({ teamType: type });
-      // Auto re-layout with new topology
+      // Auto re-layout — topology is now auto-detected from edges,
+      // but we still store teamType for backward compat.
       const { nodes: layouted, edges } = getFlowLayoutedElements(
         activeFlow.nodes,
         activeFlow.edges,
-        type,
       );
       handleUpdateFlow({ nodes: layouted, edges, teamType: type });
     },
@@ -2892,10 +2987,12 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
   // ── Auto layout ───────────────────────────────────────────────────
   const handleAutoLayout = useCallback(() => {
     if (!activeFlow || activeFlow.nodes.length === 0) return;
+    // Topology is now auto-detected from the edge types + graph shape.
+    // No teamType parameter needed — detectTopology() inside
+    // getFlowLayoutedElements() reads the edges directly.
     const { nodes: layouted, edges } = getFlowLayoutedElements(
       activeFlow.nodes,
       activeFlow.edges,
-      activeFlow.teamType || "hierarchy",
     );
     handleUpdateFlow({ nodes: layouted, edges });
   }, [activeFlow, handleUpdateFlow]);
