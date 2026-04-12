@@ -1105,3 +1105,20 @@ export const teamFiles = pgTable("team_files", {
   flowSessionIdx: index("idx_team_files_flow_session").on(table.flowId, table.sessionId),
   userIdx: index("idx_team_files_user").on(table.userId),
 }));
+
+// ── Announcements ───────────────────────────────────────────────────────
+// Site-wide banners published by admins. One active announcement shows
+// at a time; front-end renders on every authenticated page.
+
+export const announcements = pgTable("announcements", {
+  id: varchar("id", { length: 255 }).primaryKey().$defaultFn(() => `ann_${alphanumeric()}`),
+  message: varchar("message", { length: 280 }).notNull(),
+  severity: varchar("severity", { length: 20 }).notNull().default("info"),
+  active: boolean("active").notNull().default(true),
+  dismissible: boolean("dismissible").notNull().default(true),
+  audience: varchar("audience", { length: 20 }).notNull().default("all"),
+  startsAt: timestamp("starts_at"),
+  endsAt: timestamp("ends_at"),
+  createdBy: varchar("created_by", { length: 255 }).references(() => users.id),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});

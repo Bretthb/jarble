@@ -69,6 +69,7 @@ export const tables = {
   promoCodes: pgSchema.promoCodes,
   promoRedemptions: pgSchema.promoRedemptions,
   teamFiles: pgSchema.teamFiles,
+  announcements: pgSchema.announcements,
 };
 
 /**
