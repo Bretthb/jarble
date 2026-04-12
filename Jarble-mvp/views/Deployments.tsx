@@ -1446,16 +1446,15 @@ function FlowEdge({
             </TooltipContent>
           </Tooltip>
 
-          {/* Edge type dropdown */}
+          {/* Edge type dropdown + actions */}
           {showDropdown && (
-            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-50 bg-card border border-border rounded-lg shadow-xl py-1 min-w-[130px]">
+            <div className="absolute top-full left-1/2 -translate-x-1/2 mt-1 z-50 bg-card border border-border rounded-lg shadow-xl py-1 min-w-[160px]">
               {(["delegates", "reports", "collaborates"] as FlowEdgeType[]).map((type) => (
                 <button
                   type="button"
                   key={type}
                   onClick={(e) => {
                     e.stopPropagation();
-                    // Dispatch a custom event to update the edge type
                     window.dispatchEvent(
                       new CustomEvent("flow-edge-type-change", {
                         detail: { edgeId: id, edgeType: type },
@@ -1475,6 +1474,45 @@ function FlowEdge({
                   {type === edgeType && <CheckCircle2 className="w-3 h-3 ml-auto text-primary" />}
                 </button>
               ))}
+
+              {/* Separator */}
+              <div className="my-1 border-t border-border/40" />
+
+              {/* Reverse direction */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.dispatchEvent(
+                    new CustomEvent("flow-edge-reverse", {
+                      detail: { edgeId: id },
+                    })
+                  );
+                  setShowDropdown(false);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] font-medium text-muted-foreground hover:bg-secondary/50 hover:text-foreground transition-colors"
+              >
+                <RotateCcw className="w-3 h-3" />
+                Reverse direction
+              </button>
+
+              {/* Remove edge */}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  window.dispatchEvent(
+                    new CustomEvent("flow-edge-remove", {
+                      detail: { edgeId: id },
+                    })
+                  );
+                  setShowDropdown(false);
+                }}
+                className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] font-medium text-red-400 hover:bg-red-500/10 transition-colors"
+              >
+                <Trash2 className="w-3 h-3" />
+                Remove connection
+              </button>
             </div>
           )}
         </div>
@@ -2181,7 +2219,7 @@ function FlowCanvas({
     setEdges(edgesWithExecution);
   }, [edgesWithExecution, setEdges]);
 
-  // Listen for edge type change events from the FlowEdge label dropdown
+  // Listen for edge action events from the FlowEdge label dropdown
   useEffect(() => {
     const handleEdgeTypeChange = (e: Event) => {
       const { edgeId, edgeType } = (e as CustomEvent).detail;
@@ -2197,8 +2235,33 @@ function FlowCanvas({
         }),
       });
     };
+    // Reverse edge direction: swap source and target
+    const handleEdgeReverse = (e: Event) => {
+      const { edgeId } = (e as CustomEvent).detail;
+      onUpdateFlow({
+        edges: flow.edges.map((edge) => {
+          if (edge.id === edgeId) {
+            return { ...edge, source: edge.target, target: edge.source };
+          }
+          return edge;
+        }),
+      });
+    };
+    // Remove an edge
+    const handleEdgeRemove = (e: Event) => {
+      const { edgeId } = (e as CustomEvent).detail;
+      onUpdateFlow({
+        edges: flow.edges.filter((edge) => edge.id !== edgeId),
+      });
+    };
     window.addEventListener("flow-edge-type-change", handleEdgeTypeChange);
-    return () => window.removeEventListener("flow-edge-type-change", handleEdgeTypeChange);
+    window.addEventListener("flow-edge-reverse", handleEdgeReverse);
+    window.addEventListener("flow-edge-remove", handleEdgeRemove);
+    return () => {
+      window.removeEventListener("flow-edge-type-change", handleEdgeTypeChange);
+      window.removeEventListener("flow-edge-reverse", handleEdgeReverse);
+      window.removeEventListener("flow-edge-remove", handleEdgeRemove);
+    };
   }, [flow.edges, onUpdateFlow]);
 
   // Handle node click for selection
