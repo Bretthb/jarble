@@ -1582,6 +1582,7 @@ tamboAgentRouter.post("/", async (req, res) => {
               // so the frontend can share the handler.
               if (delegationResult.uiBlocks?.length) {
                 for (const block of delegationResult.uiBlocks) {
+                  // Custom event for team chat handler (backward compat)
                   safeSendEvent(res, {
                     type: CUSTOM,
                     name: "jarble.flow.delegation.uiblock",
@@ -1592,6 +1593,26 @@ tamboAgentRouter.post("/", async (req, res) => {
                       block,
                     },
                   });
+
+                  // Forward as standard TOOL_CALL events so the entry bot's
+                  // canvas at /d/[id] renders them as interactive cards.
+                  const toolCallId = block.id || `delegation-${nanoid()}`;
+                  safeSendEvent(res, {
+                    type: TOOL_CALL_START,
+                    toolCallId,
+                    toolCallName: `show_${block.component || "component"}`,
+                    parentMessageId: messageId,
+                    ...(block.editable ? { editable: true } : {}),
+                    ...(block.layoutHint ? { layoutHint: block.layoutHint } : {}),
+                    ...(block.dashboardId ? { dashboardId: block.dashboardId } : {}),
+                    ...(block.dashboardTitle ? { dashboardTitle: block.dashboardTitle } : {}),
+                  });
+                  safeSendEvent(res, {
+                    type: TOOL_CALL_ARGS,
+                    toolCallId,
+                    delta: JSON.stringify(block.props ?? {}),
+                  });
+                  safeSendEvent(res, { type: TOOL_CALL_END, toolCallId });
                 }
               }
             } else {

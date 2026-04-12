@@ -114,3 +114,83 @@ function TeamChatCanvasCardInner({ card, onRemove }: TeamChatCanvasCardProps) {
  * long conversation don't pay the cost of re-rendering on every new delta.
  */
 export default memo(TeamChatCanvasCardInner);
+
+// ── Artifact Preview Card ──────────────────────────────────────────────────
+// Lightweight preview shown in team chat when a delegated bot produces UI
+// components. Links to the entry bot's canvas at /d/[id] where the actual
+// component renders.
+
+import {
+  BarChart3,
+  Table2,
+  Code2,
+  Image as ImageIcon,
+  Activity,
+  LayoutGrid,
+  Layers,
+  ExternalLink,
+} from "lucide-react";
+
+const COMPONENT_ICONS: Record<string, typeof BarChart3> = {
+  chart: BarChart3,
+  bar_chart: BarChart3,
+  line_chart: BarChart3,
+  pie_chart: BarChart3,
+  area_chart: BarChart3,
+  data_table: Table2,
+  table: Table2,
+  sandbox: Code2,
+  code_block: Code2,
+  image: ImageIcon,
+  image_gallery: ImageIcon,
+  metric_card: Activity,
+  stat_grid: LayoutGrid,
+  stat_card: LayoutGrid,
+  carousel: ImageIcon,
+};
+
+interface ArtifactPreviewCardProps {
+  preview: {
+    blockId: string;
+    component: string;
+    title: string;
+    producerRole: string;
+    producerDeploymentId: string;
+    entryBotDeploymentId: string;
+    delegationToolName?: string;
+  };
+}
+
+export function ArtifactPreviewCard({ preview }: ArtifactPreviewCardProps) {
+  const hue = producerHue(preview.producerDeploymentId);
+  const Icon = COMPONENT_ICONS[preview.component] || Layers;
+
+  return (
+    <a
+      href={`/d/${preview.entryBotDeploymentId}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg border border-border/60
+                 bg-background/80 hover:bg-secondary/60 transition-colors group"
+      data-testid="team-chat-artifact-preview"
+    >
+      <div
+        className="w-7 h-7 rounded-md flex items-center justify-center shrink-0"
+        style={{ backgroundColor: `hsl(${hue}, 70%, 55%, 0.15)` }}
+      >
+        <Icon className="w-3.5 h-3.5" style={{ color: `hsl(${hue}, 70%, 55%)` }} />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="text-xs font-medium truncate">{preview.title}</div>
+        <div className="text-[10px] text-muted-foreground truncate">
+          {preview.producerRole}
+        </div>
+      </div>
+      <span className="text-[10px] text-muted-foreground group-hover:text-foreground
+                        transition-colors whitespace-nowrap shrink-0 flex items-center gap-1">
+        View on canvas
+        <ExternalLink className="w-3 h-3" />
+      </span>
+    </a>
+  );
+}

@@ -73,6 +73,7 @@ import type { FlowExecutionStep } from "@/components/workspace/FlowExecutionTime
 import FlowTimeTravel from "@/components/workspace/FlowTimeTravel";
 import TeamChatCanvasCard, {
   type TeamCanvasCardData,
+  ArtifactPreviewCard,
 } from "@/components/workspace/TeamChatCanvasCard";
 import { transformDelegationBlocks } from "@/lib/delegationBlockTransform";
 import { splitAssistantMessage, type ChatSegment } from "@/lib/teamChatUtils";
@@ -3023,6 +3024,16 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
     };
     /** Canvas cards produced by the team during this assistant turn. */
     canvasCards?: TeamCanvasCardData[];
+    /** Lightweight artifact previews — link to entry bot canvas instead of inline rendering. */
+    artifactPreviews?: Array<{
+      blockId: string;
+      component: string;
+      title: string;
+      producerRole: string;
+      producerDeploymentId: string;
+      entryBotDeploymentId: string;
+      delegationToolName?: string;
+    }>;
   }>>([]);
   const [flowChatInput, setFlowChatInput] = useState("");
   const [flowChatLoading, setFlowChatLoading] = useState(false);
@@ -3829,6 +3840,27 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                       ];
                     });
                   }
+                } else if (name === "jarble.flow.delegation.artifact") {
+                  // Lightweight artifact preview — shows in team chat as a
+                  // card linking to the entry bot's canvas at /d/[id].
+                  const preview = {
+                    blockId: String(value.blockId ?? ""),
+                    component: String(value.component ?? "component"),
+                    title: String(value.title ?? "Component"),
+                    producerRole: String(value.producerRole ?? "Team member"),
+                    producerDeploymentId: String(value.producerDeploymentId ?? ""),
+                    entryBotDeploymentId: String(value.entryBotDeploymentId ?? ""),
+                    delegationToolName: value.delegationToolName ? String(value.delegationToolName) : undefined,
+                  };
+                  setFlowChatMessages((prev) => {
+                    const last = prev[prev.length - 1];
+                    if (!last || last.role !== "assistant") {
+                      return [...prev, { role: "assistant", content: "", artifactPreviews: [preview] }];
+                    }
+                    const existing = last.artifactPreviews ?? [];
+                    if (existing.some((p) => p.blockId === preview.blockId)) return prev;
+                    return [...prev.slice(0, -1), { ...last, artifactPreviews: [...existing, preview] }];
+                  });
                 }
               }
             } catch {
@@ -4386,6 +4418,13 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
                         <div className="mt-1 space-y-1.5" data-testid="team-chat-canvas-cards">
                           {msg.canvasCards.map((card) => (
                             <TeamChatCanvasCard key={card.id} card={card} onRemove={handleRemoveCanvasCard} />
+                          ))}
+                        </div>
+                      )}
+                      {msg.artifactPreviews && msg.artifactPreviews.length > 0 && (
+                        <div className="mt-1.5 space-y-1" data-testid="team-chat-artifact-previews">
+                          {msg.artifactPreviews.map((preview) => (
+                            <ArtifactPreviewCard key={preview.blockId} preview={preview} />
                           ))}
                         </div>
                       )}

@@ -707,9 +707,22 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
 
           if (delegationResult.uiBlocks?.length) {
             for (const block of delegationResult.uiBlocks) {
+              // Full block data for canvas rendering (backward compat)
               sendEvent(res, { type: CUSTOM, name: "jarble.flow.delegation.uiblock",
                 value: { delegationToolName: call.toolName, sourceDeploymentId: tool.targetDeploymentId,
                   sourceRole: roleName, block } });
+
+              // Lightweight preview for team chat — links to entry bot canvas
+              sendEvent(res, { type: CUSTOM, name: "jarble.flow.delegation.artifact",
+                value: {
+                  blockId: block.id || nanoid(),
+                  component: block.component || (block as any).type || "component",
+                  title: block.props?.title || (block.component || "component").replace(/_/g, " "),
+                  producerRole: roleName,
+                  producerDeploymentId: tool.targetDeploymentId,
+                  entryBotDeploymentId: entryNode.deploymentId,
+                  delegationToolName: call.toolName,
+                } });
             }
           }
         } else if (delegationError) {
@@ -856,6 +869,17 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
                     block,
                   },
                 });
+                // Artifact preview for synthesis blocks
+                sendEvent(res, { type: CUSTOM, name: "jarble.flow.delegation.artifact",
+                  value: {
+                    blockId: block.id || nanoid(),
+                    component: block.component || (block as any).type || "component",
+                    title: block.props?.title || (block.component || "component").replace(/_/g, " "),
+                    producerRole: "Coordinator (composed)",
+                    producerDeploymentId: entryNode.deploymentId,
+                    entryBotDeploymentId: entryNode.deploymentId,
+                    delegationToolName: "compose",
+                  } });
               }
             }
           } catch (err) {
