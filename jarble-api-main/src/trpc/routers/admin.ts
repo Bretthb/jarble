@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router, adminProcedure } from "../middleware.js";
 import { tables, db, dbDate } from "../../db/index.js";
-import { eq, and, like, sql, or, isNotNull, desc } from "drizzle-orm";
+import { eq, and, like, sql, or, isNotNull, desc, ne } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import {
   startDeployment,
@@ -903,6 +903,12 @@ const createAnnouncement = adminProcedure
     // Critical banners are intentionally not dismissible regardless of input.
     const dismissible = input.severity === "critical" ? false : input.dismissible;
 
+    // Only one announcement is active at a time — deactivate all others first.
+    await db
+      .update(announcements)
+      .set({ active: false })
+      .where(eq(announcements.active, true));
+
     const [inserted] = await db
       .insert(announcements)
       .values({
@@ -969,6 +975,14 @@ const updateAnnouncement = adminProcedure
 
     if (Object.keys(patch).length === 0) return { success: true };
 
+    // If this edit turns the announcement on, any other active row must turn off.
+    if (patch.active === true) {
+      await db
+        .update(announcements)
+        .set({ active: false })
+        .where(and(eq(announcements.active, true), ne(announcements.id, input.id)));
+    }
+
     await db.update(announcements).set(patch).where(eq(announcements.id, input.id));
 
     await logAdminAction({
@@ -977,6 +991,30 @@ const updateAnnouncement = adminProcedure
       targetType: "announcement",
       targetId: input.id,
       metadata: patch as Record<string, unknown>,
+      ipAddress: ctx.ip ?? undefined,
+    });
+
+    return { success: true };
+  });
+
+const deleteAnnouncement = adminProcedure
+  .input(z.object({ id: z.string() }))
+  .mutation(async ({ ctx, input }) => {
+    const existing = await db.query.announcements.findFirst({
+      where: eq(announcements.id, input.id),
+    });
+    if (!existing) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "Announcement not found" });
+    }
+
+    await db.delete(announcements).where(eq(announcements.id, input.id));
+
+    await logAdminAction({
+      userId: ctx.user.id,
+      action: "delete_announcement",
+      targetType: "announcement",
+      targetId: input.id,
+      metadata: { message: existing.message, severity: existing.severity },
       ipAddress: ctx.ip ?? undefined,
     });
 
@@ -1079,4 +1117,5 @@ export const adminRouter = router({
   listAnnouncements,
   createAnnouncement,
   updateAnnouncement,
+  deleteAnnouncement,
 });
