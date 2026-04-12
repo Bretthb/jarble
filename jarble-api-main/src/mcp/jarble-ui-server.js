@@ -396,6 +396,25 @@ function loadSubagentTools() {
 }
 loadSubagentTools();
 
+// Retry loading subagent tools after a delay if the file wasn't available at startup.
+// ConfigSync writes subagent-tools.json to PVC after the pod boots, so the MCP server
+// often starts before the file exists. This retry catches the common case where the file
+// arrives within 10-15 seconds of boot. The file watcher below handles later updates.
+if (SUBAGENT_TOOLS.length === 0) {
+  setTimeout(function() {
+    if (SUBAGENT_TOOLS.length === 0) {
+      log.info("Retrying subagent tools load (file may have arrived via configSync)...");
+      loadSubagentTools();
+    }
+  }, 10000);
+  setTimeout(function() {
+    if (SUBAGENT_TOOLS.length === 0) {
+      log.info("Second retry for subagent tools...");
+      loadSubagentTools();
+    }
+  }, 30000);
+}
+
 // Watch for changes to subagent-tools.json (configSync writes this on subagent create/update/delete)
 try {
   const subagentToolsDir = path.dirname(SUBAGENT_TOOLS_PATH);
