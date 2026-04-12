@@ -13,6 +13,8 @@
  *       "sandbox-only" - legacy behavior, all sandbox HTML
  */
 import { Router, Request, Response } from "express";
+import { eq, and, sql } from "drizzle-orm";
+import { db, tables } from "../db/index.js";
 import { collectLlmCompletion, LlmMessage } from "../services/llmProxy.js";
 import { COMPONENT_AGENT_SYSTEM_PROMPT } from "../prompts/componentAgent.js";
 import { DASHBOARD_PLANNER_SYSTEM_PROMPT } from "../prompts/dashboardPlanner.js";
@@ -322,6 +324,41 @@ composeRouter.post("/", async (req: Request, res: Response) => {
   }
 
   const deploymentId = (req as any).podDeploymentId as string;
+
+  // Block compose_dashboard when the deployment has custom subagents.
+  // The bot should route through its specialist subagents via jarble_delegate instead.
+  try {
+    const deploymentSubagents = (tables as any).deploymentSubagents;
+    if (deploymentSubagents && deploymentId) {
+      const subagentCount = await db.select({ id: deploymentSubagents.id })
+        .from(deploymentSubagents)
+        .where(and(
+          eq(deploymentSubagents.deploymentId, deploymentId),
+          eq(deploymentSubagents.enabled, true),
+        ))
+        .limit(1);
+      // Only block if there are non-platform custom subagents
+      if (subagentCount.length > 0) {
+        const hasCustom = await db.query.deploymentSubagents?.findFirst?.({
+          where: and(
+            eq(deploymentSubagents.deploymentId, deploymentId),
+            eq(deploymentSubagents.enabled, true),
+            sql`${deploymentSubagents.source} NOT IN ('platform')`,
+          ),
+        });
+        if (hasCustom) {
+          logger.info({ deploymentId }, "compose_dashboard blocked — deployment has custom subagents");
+          res.status(400).json({
+            error: "compose_dashboard is disabled for this deployment. Use your custom subagents via jarble_delegate for component generation.",
+          });
+          return;
+        }
+      }
+    }
+  } catch (err) {
+    // Non-fatal — allow compose_dashboard if the check fails
+    logger.warn({ deploymentId, err }, "compose: failed to check for custom subagents (non-fatal)");
+  }
   const dashboardId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
   logger.info(
