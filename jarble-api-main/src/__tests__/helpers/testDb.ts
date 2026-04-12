@@ -684,6 +684,23 @@ const CREATE_TABLES_SQL = `
   CREATE INDEX IF NOT EXISTS idx_flow_dep_membership_deployment_id ON flow_deployment_memberships(deployment_id);
   CREATE INDEX IF NOT EXISTS idx_flow_dep_membership_flow_id ON flow_deployment_memberships(flow_id);
 
+  CREATE TABLE IF NOT EXISTS team_files (
+    id TEXT PRIMARY KEY,
+    flow_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    filename TEXT NOT NULL,
+    mime_type TEXT,
+    size_bytes INTEGER NOT NULL,
+    s3_key TEXT NOT NULL,
+    uploaded_by_deployment_id TEXT,
+    uploaded_by_node_id TEXT,
+    user_id TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    expires_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_team_files_flow_session ON team_files(flow_id, session_id);
+  CREATE INDEX IF NOT EXISTS idx_team_files_user ON team_files(user_id);
+
   CREATE TABLE IF NOT EXISTS organizations (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,

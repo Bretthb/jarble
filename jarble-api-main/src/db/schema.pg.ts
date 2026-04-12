@@ -1083,3 +1083,25 @@ export const promoRedemptions = pgTable("promo_redemptions", {
   deploymentId: varchar("deployment_id", { length: 255 }).references(() => deployments.id),
   redeemedAt: timestamp("redeemed_at").defaultNow().notNull(),
 });
+
+// ── Team Files ──────────────────────────────────────────────────────────
+// Metadata tracking for S3-backed files shared between team members.
+// S3 is source of truth for content; DB tracks metadata for queries.
+
+export const teamFiles = pgTable("team_files", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  flowId: varchar("flow_id", { length: 255 }).notNull(),
+  sessionId: varchar("session_id", { length: 255 }).notNull(),
+  filename: varchar("filename", { length: 500 }).notNull(),
+  mimeType: varchar("mime_type", { length: 255 }),
+  sizeBytes: integer("size_bytes").notNull(),
+  s3Key: varchar("s3_key", { length: 1000 }).notNull(),
+  uploadedByDeploymentId: varchar("uploaded_by_deployment_id", { length: 255 }),
+  uploadedByNodeId: varchar("uploaded_by_node_id", { length: 255 }),
+  userId: varchar("user_id", { length: 255 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at"),
+}, (table) => ({
+  flowSessionIdx: index("idx_team_files_flow_session").on(table.flowId, table.sessionId),
+  userIdx: index("idx_team_files_user").on(table.userId),
+}));

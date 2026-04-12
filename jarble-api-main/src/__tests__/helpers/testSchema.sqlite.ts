@@ -938,6 +938,26 @@ export const flowDeploymentMembershipsRelations = relations(flowDeploymentMember
   deployment: one(deployments, { fields: [flowDeploymentMemberships.deploymentId], references: [deployments.id] }),
 }));
 
+// ── Team Files ────────────────────────────────────────────────────────────
+
+export const teamFiles = sqliteTable("team_files", {
+  id: text("id").primaryKey(),
+  flowId: text("flow_id").notNull(),
+  sessionId: text("session_id").notNull(),
+  filename: text("filename").notNull(),
+  mimeType: text("mime_type"),
+  sizeBytes: integer("size_bytes").notNull(),
+  s3Key: text("s3_key").notNull(),
+  uploadedByDeploymentId: text("uploaded_by_deployment_id"),
+  uploadedByNodeId: text("uploaded_by_node_id"),
+  userId: text("user_id").notNull(),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+  expiresAt: text("expires_at"),
+}, (table) => ({
+  flowSessionIdx: index("idx_team_files_flow_session").on(table.flowId, table.sessionId),
+  userIdx: index("idx_team_files_user").on(table.userId),
+}));
+
 // ── Organizations ─────────────────────────────────────────────────────────
 
 export const organizations = sqliteTable("organizations", {

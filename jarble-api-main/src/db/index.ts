@@ -68,6 +68,7 @@ export const tables = {
   flowChatMessages: pgSchema.flowChatMessages,
   promoCodes: pgSchema.promoCodes,
   promoRedemptions: pgSchema.promoRedemptions,
+  teamFiles: pgSchema.teamFiles,
 };
 
 /**

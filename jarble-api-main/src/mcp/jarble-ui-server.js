@@ -1322,6 +1322,46 @@ const TOOLS = [
       required: ["action"],
     },
   },
+  // ── Team File Sharing tools — upload/download files between team members ──
+  {
+    name: "upload_team_file",
+    description: "Upload a file to shared team storage so other bots in your team (or the user) can access it. Returns a team:// URI you can include in your response or delegation context. Use for CSVs, images, PDFs, generated reports, or any binary data that needs to be shared.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        content: { type: "string", description: "File content as a base64-encoded string" },
+        filename: { type: "string", description: "Filename with extension (e.g. 'report.csv', 'chart.png')" },
+        mimeType: { type: "string", description: "MIME type (e.g. 'text/csv', 'image/png'). Optional — inferred from extension if omitted." },
+        flowId: { type: "string", description: "The team/flow ID this file belongs to. Use the flow ID from your Team Context." },
+        sessionId: { type: "string", description: "Session identifier to group files within a conversation. Use your current session ID." },
+      },
+      required: ["content", "filename"],
+    },
+  },
+  {
+    name: "download_team_file",
+    description: "Download a file from shared team storage. Use when you receive a team:// URI from a teammate's delegation result and need to read the file contents.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fileId: { type: "string", description: "The file ID (from a team://{fileId} URI)" },
+        flowId: { type: "string", description: "The team/flow ID" },
+        sessionId: { type: "string", description: "The session ID" },
+      },
+      required: ["fileId"],
+    },
+  },
+  {
+    name: "list_team_files",
+    description: "List all files uploaded to shared team storage for the current session. Returns file IDs, names, sizes, and URIs.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        flowId: { type: "string", description: "The team/flow ID" },
+        sessionId: { type: "string", description: "The session ID" },
+      },
+    },
+  },
   {
     name: "update_design_context",
     description: "Save your current design choices (color palette, chart style, typography, layout preferences) so they persist across the session. Call this after rendering your first charts/components to lock in a consistent visual style. The saved context is automatically included in subsequent messages via [DESIGN_CONTEXT] so you can maintain consistency without re-specifying styles.",
@@ -6326,6 +6366,81 @@ async function executePlatformLogAction(args) {
   };
 }
 
+// ── Team File Sharing executors ─────────────────────────────────────────
+
+async function executeUploadTeamFile(args) {
+  const content = args.content || "";
+  const filename = (args.filename || "").trim();
+  if (!content) return { isError: true, text: "Missing required 'content' parameter (base64-encoded file data)" };
+  if (!filename) return { isError: true, text: "Missing required 'filename' parameter" };
+
+  // Use flow/session from args or fall back to env defaults
+  const flowId = args.flowId || process.env.ACTIVE_FLOW_ID || "default";
+  const sessionId = args.sessionId || process.env.JARBLE_CURRENT_SESSION_ID || "default";
+
+  const res = await callPlatformApi("/api/pod/team-files/upload", "POST", {
+    content,
+    filename,
+    mimeType: args.mimeType || undefined,
+    flowId,
+    sessionId,
+  });
+
+  if (!res.ok) return { isError: true, text: `Failed to upload team file: ${res.error}` };
+
+  const data = res.data || {};
+  return {
+    isError: false,
+    text: `File "${filename}" uploaded to team storage.\nURI: ${data.uri || "team://" + data.fileId}\nSize: ${data.size || "unknown"} bytes\nFile ID: ${data.fileId}\n\nInclude the URI in your response or delegation context so teammates can access it.`,
+  };
+}
+
+async function executeDownloadTeamFile(args) {
+  const fileId = (args.fileId || "").trim().replace(/^team:\/\//, "");
+  if (!fileId) return { isError: true, text: "Missing required 'fileId' parameter" };
+
+  const flowId = args.flowId || process.env.ACTIVE_FLOW_ID || "default";
+  const sessionId = args.sessionId || process.env.JARBLE_CURRENT_SESSION_ID || "default";
+
+  const res = await callPlatformApi(
+    `/api/pod/team-files/${encodeURIComponent(fileId)}?flowId=${encodeURIComponent(flowId)}&sessionId=${encodeURIComponent(sessionId)}`,
+    "GET"
+  );
+
+  if (!res.ok) return { isError: true, text: `Failed to download team file: ${res.error}` };
+
+  const data = res.data || {};
+  return {
+    isError: false,
+    text: `File downloaded: ${data.filename || fileId}\nMIME type: ${data.mimeType || "unknown"}\nSize: ${data.size || "unknown"} bytes\n\nContent (base64):\n${data.content || ""}`,
+  };
+}
+
+async function executeListTeamFiles(args) {
+  const flowId = args.flowId || process.env.ACTIVE_FLOW_ID || "default";
+  const sessionId = args.sessionId || process.env.JARBLE_CURRENT_SESSION_ID || "default";
+
+  const res = await callPlatformApi(
+    `/api/pod/team-files/list?flowId=${encodeURIComponent(flowId)}&sessionId=${encodeURIComponent(sessionId)}`,
+    "GET"
+  );
+
+  if (!res.ok) return { isError: true, text: `Failed to list team files: ${res.error}` };
+
+  const files = (res.data && res.data.files) || [];
+  if (files.length === 0) {
+    return { isError: false, text: "No team files found for this session." };
+  }
+
+  const lines = files.map(function(f) {
+    return `- ${f.filename} (${f.size} bytes, ID: ${f.fileId}, URI: team://${f.fileId})`;
+  });
+  return {
+    isError: false,
+    text: `${files.length} team file(s):\n${lines.join("\n")}`,
+  };
+}
+
 // ── Design Context (session-level style tracking) ───────────────────────
 
 const DESIGN_CONTEXT_PATH = (() => {
@@ -7685,6 +7800,10 @@ async function executeTool(name, args) {
     case "platform_list_team": return executePlatformListTeam();
     case "platform_log_action": return executePlatformLogAction(args || {});
     case "update_design_context": return executeUpdateDesignContext(args || {});
+    // Team File Sharing tools
+    case "upload_team_file": return executeUploadTeamFile(args || {});
+    case "download_team_file": return executeDownloadTeamFile(args || {});
+    case "list_team_files": return executeListTeamFiles(args || {});
     // Web & Search tools
     case "web_fetch": return executeWebFetch(args || {});
     case "web_search": return executeWebSearch(args || {});

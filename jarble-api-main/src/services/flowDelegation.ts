@@ -48,6 +48,8 @@ export interface DelegationResult {
   depth?: number;
   /** Recursively collected child delegations this call made */
   children?: DelegationResult[];
+  /** Team files referenced or uploaded during this delegation */
+  teamFiles?: Array<{ fileId: string; filename: string; mimeType?: string; size: number; uri: string }>;
 }
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -451,6 +453,19 @@ export function buildFlowSystemPrompt(
       "5. If you can handle the request yourself AND the user has not invoked any of " +
       "the strong triggers above, respond directly without emitting any " +
       "`jarble_delegate` block.",
+    );
+  }
+
+  // Team file sharing instructions (always added when in a team)
+  if (delegationTools.length > 0) {
+    parts.push(
+      "\n\n## Sharing Files with Teammates\n" +
+      "You can share files (CSVs, images, PDFs, generated data) with your teammates using the team file storage:\n" +
+      "- **Upload**: Call `upload_team_file` with base64 content + filename. Returns a `team://{fileId}` URI.\n" +
+      "- **Download**: Call `download_team_file` with a fileId from a `team://` URI.\n" +
+      "- **List**: Call `list_team_files` to see all files in the current session.\n\n" +
+      "Include `team://` URIs in your delegation context so teammates can access your files. " +
+      "Example: `{ \"to\": \"analyst\", \"task\": \"Analyze the data\", \"context\": \"Data file: team://abc123\" }`",
     );
   }
 

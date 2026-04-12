@@ -24,6 +24,8 @@
     "test:openclaw:rendering": "node scripts/test-openclaw-rendering.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1029.0",
+    "@aws-sdk/s3-request-presigner": "^3.1029.0",
     "@kubernetes/client-node": "^0.20.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@opentelemetry/api": "^1.9.1",
