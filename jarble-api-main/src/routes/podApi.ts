@@ -1235,35 +1235,48 @@ podApiRouter.post("/platform/register-agent", async (req: Request, res: Response
 
     const now = dbDate();
 
-    // Atomic upsert using ON CONFLICT to avoid TOCTOU race
-    const agentId = `sa_${nanoid(12)}`;
-    const result = await db.insert(tables.deploymentSubagents).values({
-      id: agentId,
-      deploymentId,
-      name,
-      slug,
-      description: description || null,
-      systemPrompt: systemPrompt || "",
-      model: model || null,
-      triggerType: "manual",
-      source: "delegation",
-      enabled: true,
-      sortOrder: 0,
-      createdAt: now,
-      updatedAt: now,
-    }).onConflictDoUpdate({
-      target: [tables.deploymentSubagents.deploymentId, tables.deploymentSubagents.slug],
-      set: {
+    // Upsert: check if a subagent with this deployment+slug already exists,
+    // then insert or update. Uses separate queries instead of ON CONFLICT
+    // for compatibility with both Postgres and SQLite test DBs.
+    const existing = await db.query.deploymentSubagents.findFirst({
+      where: and(
+        eq(tables.deploymentSubagents.deploymentId, deploymentId),
+        eq(tables.deploymentSubagents.slug, slug),
+      ),
+    });
+
+    let resolvedId: string;
+    if (existing) {
+      // Update existing subagent
+      await db.update(tables.deploymentSubagents).set({
         name,
-        description: description || undefined,
-        systemPrompt: systemPrompt || undefined,
-        model: model || undefined,
+        description: description || existing.description,
+        systemPrompt: systemPrompt || existing.systemPrompt,
+        model: model || existing.model,
         source: "delegation",
         updatedAt: now,
-      },
-    }).returning({ id: tables.deploymentSubagents.id });
+      }).where(eq(tables.deploymentSubagents.id, existing.id));
+      resolvedId = existing.id;
+    } else {
+      // Insert new subagent
+      resolvedId = `sa_${nanoid(12)}`;
+      await db.insert(tables.deploymentSubagents).values({
+        id: resolvedId,
+        deploymentId,
+        name,
+        slug,
+        description: description || null,
+        systemPrompt: systemPrompt || "",
+        model: model || null,
+        triggerType: "manual",
+        source: "delegation",
+        enabled: true,
+        sortOrder: 0,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
 
-    const resolvedId = result[0]?.id ?? agentId;
     logger.info({ deploymentId, agentId: resolvedId, slug }, "Pod API: subagent upserted");
 
     // Trigger configSync so subagent-tools.json is written to PVC and the

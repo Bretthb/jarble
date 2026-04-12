@@ -374,13 +374,14 @@ describe("Artifact API routes", () => {
       expect(data.artifact.pinned).toBe(true);
     });
 
-    it("returns 429 on rapid successive syncs", async () => {
+    it("serializes rapid successive syncs of the same artifact (no 429)", async () => {
+      // The old per-deployment rate limiter was replaced with a per-artifact
+      // promise lock. Two rapid syncs of the SAME artifact serialize — both
+      // succeed with 200 instead of the second getting 429.
       setupAuthMocks();
       (findPodForDeployment as any).mockResolvedValue("pod-1");
       (execInPod as any).mockResolvedValue("__NOT_FOUND__");
 
-      // Use a unique deployment ID so the rate limit state doesn't
-      // interfere with other tests
       mockFindFirst.mockResolvedValue({ id: "dep-rate", userId: "user-1", status: "running" });
 
       // First call should succeed
@@ -394,7 +395,7 @@ describe("Artifact API routes", () => {
       );
       expect(res1.status).toBe(200);
 
-      // Second immediate call should be rate limited
+      // Second immediate call also succeeds (serialized, not rejected)
       const res2 = await fetch(
         `${baseUrl}/api/deployments/dep-rate/artifact/sync`,
         {
@@ -403,7 +404,7 @@ describe("Artifact API routes", () => {
           body: JSON.stringify(validBody),
         }
       );
-      expect(res2.status).toBe(429);
+      expect(res2.status).toBe(200);
     });
   });
 

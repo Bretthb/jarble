@@ -158,14 +158,11 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
       return;
     }
 
-    // Normalize orchestration fields (role/goal/canDelegate/contextScope) so
-    // nodes saved by the UI (fields under `config`) and by the API (fields at
-    // top level) both read identically in the engine and delegation layer.
-    definition = normalizeFlowDefinition(definition as any) as FlowDefinition;
-
+    // Validate structure before normalizing — normalizeFlowDefinition
+    // assumes nodes is an array-like value.
     if (
-      !Array.isArray(definition.nodes) ||
-      !Array.isArray(definition.edges)
+      !Array.isArray((definition as any).nodes) ||
+      !Array.isArray((definition as any).edges)
     ) {
       res.status(400).json({
         error: "Invalid flow definition: nodes and edges must be arrays",
@@ -173,12 +170,17 @@ flowExecutionRouter.post("/:flowId/execute", async (req, res) => {
       return;
     }
 
-    if (definition.nodes.length > 50) {
+    if ((definition as any).nodes.length > 50) {
       res.status(400).json({
         error: "Flow too large: maximum 50 nodes",
       });
       return;
     }
+
+    // Normalize orchestration fields (role/goal/canDelegate/contextScope) so
+    // nodes saved by the UI (fields under `config`) and by the API (fields at
+    // top level) both read identically in the engine and delegation layer.
+    definition = normalizeFlowDefinition(definition as any) as FlowDefinition;
 
     // For ad-hoc definitions (not from DB), validate deployment ownership
     if (dbFlow.length === 0 && definition) {

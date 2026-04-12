@@ -60,7 +60,7 @@ vi.mock("../../services/serviceHandshake.js", () => ({
   performInstallHandshake: vi.fn().mockResolvedValue({ success: true }),
 }));
 vi.mock("../../utils/safeAsync.js", () => ({
-  safeFireAndForget: vi.fn((fn: any) => fn?.()),
+  safeFireAndForget: vi.fn(),
 }));
 vi.mock("../../utils/logger.js", () => ({
   createModuleLogger: () => ({
