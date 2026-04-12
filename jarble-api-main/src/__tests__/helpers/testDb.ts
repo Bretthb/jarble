@@ -38,6 +38,9 @@ const CREATE_TABLES_SQL = `
     pending_stripe_subscription_id TEXT,
     free_deployment_used INTEGER DEFAULT 0 NOT NULL,
     free_trial_expires_at TEXT,
+    tos_accepted_at TEXT,
+    tos_version TEXT,
+    privacy_accepted_at TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );

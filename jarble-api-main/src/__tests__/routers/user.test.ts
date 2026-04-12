@@ -229,6 +229,62 @@ describe("user router", () => {
     });
   });
 
+  // ── user.acceptTerms (JAR-TOS) ──────────────────────────────────────────────
+
+  describe("acceptTerms", () => {
+    it("writes tos_accepted_at, tos_version, and privacy_accepted_at on the user row", async () => {
+      // Confirm starting state: the seeded user has no consent recorded
+      const before = ctx.raw
+        .prepare("SELECT tos_accepted_at, tos_version, privacy_accepted_at FROM users WHERE id = ?")
+        .get(ctx.testUserId) as Record<string, string | null>;
+      expect(before.tos_accepted_at).toBeNull();
+      expect(before.tos_version).toBeNull();
+      expect(before.privacy_accepted_at).toBeNull();
+
+      const result = await caller().user.acceptTerms({ tosVersion: "1.0" });
+      expect(result.success).toBe(true);
+      expect(result.tosVersion).toBe("1.0");
+
+      const after = ctx.raw
+        .prepare("SELECT tos_accepted_at, tos_version, privacy_accepted_at FROM users WHERE id = ?")
+        .get(ctx.testUserId) as Record<string, string | null>;
+      expect(after.tos_accepted_at).not.toBeNull();
+      expect(after.tos_version).toBe("1.0");
+      expect(after.privacy_accepted_at).not.toBeNull();
+    });
+
+    it("is idempotent — re-accepting just refreshes the timestamps", async () => {
+      await caller().user.acceptTerms({ tosVersion: "1.0" });
+      const first = ctx.raw
+        .prepare("SELECT tos_accepted_at FROM users WHERE id = ?")
+        .get(ctx.testUserId) as Record<string, string | null>;
+
+      // Small delay so the second timestamp is distinguishable
+      await new Promise((r) => setTimeout(r, 10));
+
+      await caller().user.acceptTerms({ tosVersion: "1.0" });
+      const second = ctx.raw
+        .prepare("SELECT tos_accepted_at FROM users WHERE id = ?")
+        .get(ctx.testUserId) as Record<string, string | null>;
+
+      // Second call succeeds and did not null out the column
+      expect(second.tos_accepted_at).not.toBeNull();
+    });
+
+    it("rejects unknown tosVersion values", async () => {
+      await expect(
+        // @ts-expect-error — intentionally invalid literal to check zod enum
+        caller().user.acceptTerms({ tosVersion: "99.9" }),
+      ).rejects.toThrow();
+    });
+
+    it("rejects unauthenticated calls", async () => {
+      await expect(
+        anonCaller().user.acceptTerms({ tosVersion: "1.0" }),
+      ).rejects.toThrow();
+    });
+  });
+
   // ── user.resendVerificationEmail ───────────────────────────────────────────
 
   describe("resendVerificationEmail", () => {

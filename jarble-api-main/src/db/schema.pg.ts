@@ -17,6 +17,16 @@ export const users = pgTable("users", {
   pendingStripeSubscriptionId: varchar("pending_stripe_subscription_id", { length: 255 }),
   freeDeploymentUsed: boolean("free_deployment_used").notNull().default(false),
   freeTrialExpiresAt: timestamp("free_trial_expires_at"),
+  // Terms of Service + Privacy Policy acknowledgment gate.
+  // Nullable by design: we do NOT backfill existing users. A null
+  // tosAcceptedAt on an authenticated user is the signal that the
+  // returning-user consent modal must block all navigation until they
+  // accept. tosVersion captures which version of the terms they agreed
+  // to so a future version bump can force re-acceptance without losing
+  // the audit trail of the previous one.
+  tosAcceptedAt: timestamp("tos_accepted_at"),
+  tosVersion: varchar("tos_version", { length: 32 }),
+  privacyAcceptedAt: timestamp("privacy_accepted_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
