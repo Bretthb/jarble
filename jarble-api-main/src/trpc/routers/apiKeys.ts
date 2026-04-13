@@ -7,7 +7,7 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { eq, and, isNull } from "drizzle-orm";
-import { db, tables } from "../../db/index.js";
+import { db, tables, dbDate } from "../../db/index.js";
 import { router, protectedProcedure } from "../middleware.js";
 import { generateApiKey, hashApiKey } from "../../middleware/apiKeyAuth.js";
 import { createModuleLogger } from "../../utils/logger.js";
@@ -128,7 +128,7 @@ export const apiKeysRouter = router({
       }
 
       await db.update(tables.apiKeys)
-        .set({ revokedAt: new Date().toISOString() } as any)
+        .set({ revokedAt: dbDate() } as any)
         .where(eq(tables.apiKeys.id, input.keyId));
 
       log.info({ userId: ctx.user.id, keyId: input.keyId }, "API key revoked");

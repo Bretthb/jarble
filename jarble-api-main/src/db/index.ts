@@ -51,10 +51,15 @@ export const tables = {
 };
 
 /**
- * Create a date value for Postgres timestamp columns.
- * Always returns a Date object.
+ * Create a date value compatible with both Postgres timestamp columns (Date)
+ * and SQLite text columns (ISO string) used in the test mirror.
+ * Returns a Date for Postgres, ISO string for SQLite.
  */
-export function dbDate(date: Date = new Date()): Date {
+export function dbDate(date: Date = new Date()): Date | string {
+  // In test environment, SQLite text columns need ISO strings
+  if (process.env.VITEST || process.env.NODE_ENV === "test") {
+    return date.toISOString();
+  }
   return date;
 }
 

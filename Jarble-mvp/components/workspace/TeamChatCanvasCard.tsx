@@ -24,7 +24,17 @@
  */
 
 import { memo } from "react";
-import { X } from "lucide-react";
+import {
+  X,
+  BarChart3,
+  Table2,
+  Code2,
+  Image as ImageIcon,
+  Activity,
+  LayoutGrid,
+  Layers,
+  ExternalLink,
+} from "lucide-react";
 import CanvasRenderer, { type UIBlock } from "@/components/canvas/CanvasRenderer";
 
 /** Origin of a team-chat canvas card — which phase of the flow emitted it. */
@@ -119,17 +129,6 @@ export default memo(TeamChatCanvasCardInner);
 // Lightweight preview shown in team chat when a delegated bot produces UI
 // components. Links to the entry bot's canvas at /d/[id] where the actual
 // component renders.
-
-import {
-  BarChart3,
-  Table2,
-  Code2,
-  Image as ImageIcon,
-  Activity,
-  LayoutGrid,
-  Layers,
-  ExternalLink,
-} from "lucide-react";
 
 const COMPONENT_ICONS: Record<string, typeof BarChart3> = {
   chart: BarChart3,

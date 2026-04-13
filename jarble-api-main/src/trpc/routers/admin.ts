@@ -903,23 +903,25 @@ const createAnnouncement = adminProcedure
     // Critical banners are intentionally not dismissible regardless of input.
     const dismissible = input.severity === "critical" ? false : input.dismissible;
 
-    // Only one announcement is active at a time — deactivate all others first.
-    await db
-      .update(announcements)
-      .set({ active: false })
-      .where(eq(announcements.active, true));
+    // Only one announcement is active at a time — deactivate + insert atomically.
+    const [inserted] = await db.transaction(async (tx) => {
+      await tx
+        .update(announcements)
+        .set({ active: false })
+        .where(eq(announcements.active, true));
 
-    const [inserted] = await db
-      .insert(announcements)
-      .values({
-        message: input.message,
-        severity: input.severity,
-        dismissible,
-        startsAt: input.startsAt ? new Date(input.startsAt) : null,
-        endsAt: input.endsAt ? new Date(input.endsAt) : null,
-        createdBy: ctx.user.id,
-      })
-      .returning({ id: announcements.id });
+      return tx
+        .insert(announcements)
+        .values({
+          message: input.message,
+          severity: input.severity,
+          dismissible,
+          startsAt: input.startsAt ? new Date(input.startsAt) : null,
+          endsAt: input.endsAt ? new Date(input.endsAt) : null,
+          createdBy: ctx.user.id,
+        })
+        .returning({ id: announcements.id });
+    });
 
     await logAdminAction({
       userId: ctx.user.id,
@@ -975,15 +977,18 @@ const updateAnnouncement = adminProcedure
 
     if (Object.keys(patch).length === 0) return { success: true };
 
-    // If this edit turns the announcement on, any other active row must turn off.
+    // If this edit turns the announcement on, deactivate + update atomically.
     if (patch.active === true) {
-      await db
-        .update(announcements)
-        .set({ active: false })
-        .where(and(eq(announcements.active, true), ne(announcements.id, input.id)));
+      await db.transaction(async (tx) => {
+        await tx
+          .update(announcements)
+          .set({ active: false })
+          .where(and(eq(announcements.active, true), ne(announcements.id, input.id)));
+        await tx.update(announcements).set(patch).where(eq(announcements.id, input.id));
+      });
+    } else {
+      await db.update(announcements).set(patch).where(eq(announcements.id, input.id));
     }
-
-    await db.update(announcements).set(patch).where(eq(announcements.id, input.id));
 
     await logAdminAction({
       userId: ctx.user.id,

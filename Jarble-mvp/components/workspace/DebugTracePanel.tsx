@@ -8,7 +8,7 @@
  * Langfuse links, and copy buttons.
  */
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   X, Activity, ChevronDown, ChevronRight, Loader2, ExternalLink,
@@ -98,30 +98,25 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-// ── Deployment name cache (avoids N+1 queries) ─────────────────────────────
-
-const deploymentNameCache = new Map<string, string>();
+// ── Deployment name resolver (React Query handles caching) ──────────────────
 
 function useDeploymentNames(ids: string[]) {
-  // Batch-fetch deployment names for all unique IDs in the trace
-  const unique = [...new Set(ids.filter(Boolean))];
-  const missing = unique.filter((id) => !deploymentNameCache.has(id));
-
-  // Only fetch if we have missing IDs
   const listQuery = trpc.deployment.list.useQuery(undefined, {
     staleTime: 60_000,
-    enabled: missing.length > 0,
+    enabled: ids.length > 0,
   });
 
-  if (listQuery.data) {
-    for (const dep of listQuery.data as any[]) {
-      deploymentNameCache.set(dep.id, dep.name);
+  const byId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const dep of (listQuery.data as any[]) ?? []) {
+      m.set(dep.id, dep.name);
     }
-  }
+    return m;
+  }, [listQuery.data]);
 
   return (id: string | null) => {
     if (!id) return "unknown";
-    return deploymentNameCache.get(id) || id.slice(0, 8);
+    return byId.get(id) || id.slice(0, 8);
   };
 }
 
@@ -249,7 +244,7 @@ function TraceTreeRow({ row, depth, langfuseBase, getName }: {
 function ExpandedTrace({ traceId, langfuseBase }: { traceId: string; langfuseBase?: string }) {
   const query = trpc.deployment.getAgentCallsByTrace.useQuery(
     { traceId },
-    { staleTime: 5_000, refetchInterval: 3_000 },
+    { staleTime: 30_000 },
   );
 
   // Collect deployment IDs for name resolution
@@ -312,7 +307,9 @@ export default function DebugTracePanel({ deploymentId, onClose }: DebugTracePan
     });
   };
 
-  const langfuseBase = process.env.NEXT_PUBLIC_LANGFUSE_UI_URL;
+  const langfuseBase = process.env.NEXT_PUBLIC_LANGFUSE_UI_URL?.startsWith("https://")
+    ? process.env.NEXT_PUBLIC_LANGFUSE_UI_URL
+    : undefined;
 
   return (
     <div className="flex-1 overflow-y-auto">

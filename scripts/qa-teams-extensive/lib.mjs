@@ -48,17 +48,25 @@ export async function trpcQ(path, input = {}, token) {
   return { status: r.status, body };
 }
 
-/** tRPC mutation (POST) */
-export async function trpcM(path, input = {}, token) {
-  const r = await fetch(`${API_BASE}/trpc/${path}`, {
-    method: "POST",
-    headers: authHeaders(token),
-    body: JSON.stringify({ json: input }),
-  });
-  const text = await r.text();
-  let body;
-  try { body = JSON.parse(text); } catch { body = { raw: text }; }
-  return { status: r.status, body };
+/** tRPC mutation (POST) with automatic 429 retry */
+export async function trpcM(path, input = {}, token, { retries = 3 } = {}) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const r = await fetch(`${API_BASE}/trpc/${path}`, {
+      method: "POST",
+      headers: authHeaders(token),
+      body: JSON.stringify({ json: input }),
+    });
+    if (r.status === 429 && attempt < retries) {
+      const wait = 2000 * (attempt + 1);
+      console.log(`    [429] ${path} — retrying in ${wait}ms (attempt ${attempt + 1}/${retries})`);
+      await sleep(wait);
+      continue;
+    }
+    const text = await r.text();
+    let body;
+    try { body = JSON.parse(text); } catch { body = { raw: text }; }
+    return { status: r.status, body };
+  }
 }
 
 /** Unwrap tRPC response data */
@@ -95,7 +103,7 @@ export async function chatWithDeployment(deploymentId, message, token, opts = {}
       headers: authHeaders(token),
       body: JSON.stringify({
         deploymentId,
-        message,
+        messages: [{ role: "user", content: message }],
         conversationId,
         sessionId: opts.sessionId,
       }),

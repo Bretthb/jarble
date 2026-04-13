@@ -20,3 +20,19 @@ export function noHtmlTags(val: string): boolean {
 }
 
 export const NO_HTML_MESSAGE = "HTML tags are not allowed in this field";
+
+/**
+ * Zod refinement: blocks dangerous HTML/JS patterns in freeform text fields
+ * like systemPrompt where XML-like tags (e.g. <think>, <tool_use>) are
+ * legitimate but executable HTML (script, event handlers) is not.
+ */
+const DANGEROUS_HTML_RE =
+  /<\s*(script|iframe|embed|object|form|svg|math)\b/i;
+const EVENT_HANDLER_RE = /\bon\w+\s*=/i;
+
+export function noDangerousHtml(val: string): boolean {
+  return !DANGEROUS_HTML_RE.test(val) && !EVENT_HANDLER_RE.test(val);
+}
+
+export const NO_DANGEROUS_HTML_MESSAGE =
+  "Script tags, iframes, and event handlers are not allowed";

@@ -1394,6 +1394,20 @@ tamboAgentRouter.post("/", async (req, res) => {
       log.warn({ deploymentId, textLength: gatewayResult.rawText.length }, "Chat: response truncated by gateway timeout");
     }
 
+    // ── Delegation trace: collects results from both team and subagent
+    // delegations for the synthesis step at the end. ────────────────────────
+    interface DelegationTraceEntry {
+      toolName: string;
+      roleName: string;
+      fullResponse: string;
+      uiBlockCount: number;
+      blockTypes: string[];
+      success: boolean;
+      error?: string;
+    }
+    const delegationTrace: DelegationTraceEntry[] = [];
+    let synthesisPerformed = false;
+
     // ── Team delegation round-trips ──────────────────────────────────────────
     // If this bot has delegation tools (is part of a team), check if the
     // response contains delegation calls and execute them.
@@ -1615,6 +1629,20 @@ tamboAgentRouter.post("/", async (req, res) => {
                   safeSendEvent(res, { type: TOOL_CALL_END, toolCallId });
                 }
               }
+
+              // Track for synthesis
+              const blockTypes = (delegationResult.uiBlocks || []).map((b: any) => {
+                const t = b.component || (b as any).type;
+                return typeof t === "string" && t ? t : "component";
+              });
+              delegationTrace.push({
+                toolName: job.call.toolName,
+                roleName: job.roleName,
+                fullResponse: delegationResult.response || "",
+                uiBlockCount: (delegationResult.uiBlocks || []).length,
+                blockTypes,
+                success: true,
+              });
             } else {
               // Rejected delegation
               log.error(
@@ -1638,6 +1666,16 @@ tamboAgentRouter.post("/", async (req, res) => {
                 type: "TEXT_MESSAGE_CONTENT",
                 messageId,
                 delta: `\n\n*Delegation to ${job.roleName} was unsuccessful. The team member may be busy or temporarily unavailable.*`,
+              });
+
+              delegationTrace.push({
+                toolName: job.call.toolName,
+                roleName: job.roleName,
+                fullResponse: "",
+                uiBlockCount: 0,
+                blockTypes: [],
+                success: false,
+                error: String(entry.reason),
               });
             }
           }
@@ -1794,6 +1832,15 @@ tamboAgentRouter.post("/", async (req, res) => {
                     messageId,
                     delta: `\n\n**${job.name}:** ${responseText}`,
                   });
+
+                  delegationTrace.push({
+                    toolName: job.slug,
+                    roleName: job.name,
+                    fullResponse: responseText,
+                    uiBlockCount: 0,
+                    blockTypes: [],
+                    success: true,
+                  });
                 } else {
                   const errMsg = result.reason instanceof Error ? result.reason.message : String(result.reason);
                   log.error({ deploymentId, slug: job.slug, error: errMsg }, "Chat: subagent delegation failed");
@@ -1815,6 +1862,16 @@ tamboAgentRouter.post("/", async (req, res) => {
                     messageId,
                     delta: `\n\n*Delegation to ${job.name} was unsuccessful.*`,
                   });
+
+                  delegationTrace.push({
+                    toolName: job.slug,
+                    roleName: job.name,
+                    fullResponse: "",
+                    uiBlockCount: 0,
+                    blockTypes: [],
+                    success: false,
+                    error: errMsg,
+                  });
                 }
               }
             }
@@ -1828,7 +1885,141 @@ tamboAgentRouter.post("/", async (req, res) => {
       }
     }
 
-    safeSendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+    // ── Synthesis: send delegation results back to the entry bot ─────────────
+    // Previously, delegation results were streamed to the user but the entry
+    // bot never saw them — its OpenClaw session had no record of what its
+    // specialists returned. This ports the synthesis step from flowChat.ts
+    // so the bot receives [DELEGATION RESULTS] and can produce a summary.
+    if (delegationTrace.length > 0 && delegationTrace.some(d => d.success) && !abortController.signal.aborted) {
+      const synthesisPrompt = delegationTrace
+        .filter((d) => d.success)
+        .map((d) => {
+          const slug = d.toolName.replace(/^delegate_to_/, "").replace(/^agent_/, "");
+          const trimmedText = d.fullResponse.trim();
+          const body =
+            trimmedText ||
+            (d.uiBlockCount > 0
+              ? `(no text reply; rendered ${d.uiBlockCount} UI component${d.uiBlockCount > 1 ? "s" : ""}: ${d.blockTypes.join(", ")} -- the user has already seen them streamed above)`
+              : "(no text reply, no components)");
+          return `[BEGIN ${slug} FULL REPLY]\n${body}\n[END ${slug} FULL REPLY]`;
+        })
+        .join("\n\n");
+
+      if (synthesisPrompt) {
+        // Close the current assistant message (raw delegation results already streamed)
+        safeSendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+        synthesisPerformed = true;
+
+        safeSendEvent(res, {
+          type: CUSTOM,
+          name: "jarble.flow.synthesis.start",
+          value: { delegationCount: delegationTrace.length },
+        });
+
+        const synthMessageId = nanoid();
+        const entryRole = teamFlowNode?.role || teamFlowNode?.label || "Coordinator";
+
+        safeSendEvent(res, {
+          type: "TEXT_MESSAGE_START",
+          messageId: synthMessageId,
+          role: "assistant",
+          sourceRole: entryRole,
+          sourceDeploymentId: deploymentId,
+          phase: "synthesis",
+        });
+
+        try {
+          const synthPodName = await findPodForDeployment(deploymentId, { requireReady: false, managedBy });
+          if (!synthPodName) throw new Error("No pod found for synthesis");
+
+          // Compose instruction when multiple specialists produced UI components
+          const delegationsWithBlocks = delegationTrace.filter((d) => d.success && d.uiBlockCount > 0);
+          let composeInstruction = "";
+          if (delegationsWithBlocks.length >= 2) {
+            const blockSpecs = delegationsWithBlocks
+              .map((d) => {
+                const slug = d.toolName.replace(/^delegate_to_/, "").replace(/^agent_/, "");
+                return `  - From ${slug}: ${d.uiBlockCount} UI component(s)`;
+              })
+              .join("\n");
+            composeInstruction =
+              `\n\nCOMPOSE OPPORTUNITY: Multiple team members produced UI components:\n${blockSpecs}\n` +
+              `You MAY render a single unified sandbox that combines all their results into one ` +
+              `cohesive dashboard view. Use render_ui with a "sandbox" component containing HTML/CSS/JS ` +
+              `that inlines the data from each member's reply. This is optional -- only compose if the ` +
+              `user would benefit from seeing everything in one place.`;
+          }
+
+          const synthResult = await chatViaExec(
+            synthPodName,
+            sessionKey,
+            `[DELEGATION RESULTS]\n${synthesisPrompt}\n[/DELEGATION RESULTS]\n\n` +
+              `Each block above contains the COMPLETE, untruncated reply from one team member, ` +
+              `bounded by [BEGIN ... FULL REPLY] / [END ... FULL REPLY] markers. The full reply ` +
+              `is everything between those markers -- there is no hidden continuation. Do NOT ` +
+              `claim any reply was "truncated", "cut off", "shortened", "incomplete", or that ` +
+              `you "only saw a preview". If a reply ends mid-thought it is because the team ` +
+              `member chose to stop there, not because it was truncated by the system.\n\n` +
+              `Briefly weave these replies into a cohesive response for the user. Be concise -- ` +
+              `the raw replies were already streamed to the user above, so your job is just to ` +
+              `add a short framing summary, not to repeat the contents.` +
+              composeInstruction,
+            undefined,
+            undefined,
+            abortController.signal,
+          );
+
+          const synthText = synthResult.text
+            .replace(/<(think|reasoning)>[\s\S]*?<\/\1>/gi, "")
+            .replace(/\n{3,}/g, "\n\n")
+            .trim();
+
+          if (synthText) {
+            safeSendEvent(res, {
+              type: "TEXT_MESSAGE_CONTENT",
+              messageId: synthMessageId,
+              delta: `\n\n---\n**Summary:** ${synthText}`,
+            });
+          }
+
+          // Forward composed UI blocks from synthesis
+          if (synthResult.uiBlocks?.length) {
+            for (const block of synthResult.uiBlocks) {
+              safeSendEvent(res, {
+                type: CUSTOM,
+                name: "jarble.flow.delegation.uiblock",
+                value: {
+                  delegationToolName: "compose",
+                  sourceDeploymentId: deploymentId,
+                  sourceRole: "Coordinator (composed)",
+                  block,
+                },
+              });
+            }
+          }
+        } catch (err) {
+          log.warn({ deploymentId, err: err instanceof Error ? err.message : err }, "Synthesis call failed (non-fatal)");
+          safeSendEvent(res, {
+            type: "TEXT_MESSAGE_CONTENT",
+            messageId: synthMessageId,
+            delta: "\n\n---\n*Team results shown above.*",
+          });
+        }
+
+        safeSendEvent(res, { type: "TEXT_MESSAGE_END", messageId: synthMessageId });
+
+        safeSendEvent(res, {
+          type: CUSTOM,
+          name: "jarble.flow.synthesis.end",
+          value: { delegationCount: delegationTrace.length },
+        });
+      }
+    }
+
+    // Only close the original message if synthesis didn't already close it
+    if (!synthesisPerformed) {
+      safeSendEvent(res, { type: "TEXT_MESSAGE_END", messageId });
+    }
 
     log.info(
       {

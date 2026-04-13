@@ -1208,7 +1208,7 @@ export const deploymentRouter = router({
       // the client (P1-2). Kept as a local function so every return
       // branch uses the same sanitization pass.
       const sanitize = (list: typeof rows) =>
-        list.map(({ userId, errorMessage, requestBody, responseBody, ...rest }) => ({
+        list.map(({ userId, spanId, errorMessage, requestBody, responseBody, ...rest }) => ({
           ...rest,
           errorMessage: errorMessage ? errorMessage.slice(0, 500) : null,
           requestBody: requestBody ? requestBody.slice(0, 5000) : null,

@@ -222,24 +222,29 @@ export async function runTeam3(token) {
     if (result.error) {
       runner.fail("team-chat-delegation-events", `Error: ${result.fullText}`);
     } else {
-      // Look for delegation-related SSE event types
-      const eventTypes = result.events.map((e) => e.type || e.event || "").filter(Boolean);
-      const delegationEvents = eventTypes.filter(
-        (t) =>
+      // Look for delegation-related SSE events — delegation events use AG-UI CUSTOM
+      // type with the semantic name in e.name (e.g. "jarble.flow.delegation.start")
+      const delegationEvents = result.events.filter((e) => {
+        const t = e.type || e.event || "";
+        const n = e.name || "";
+        return (
+          n.includes("delegation") ||
+          n.includes("flow") ||
           t.includes("delegation") ||
           t.includes("substep") ||
           t.includes("step") ||
-          t.includes("DELEGATION") ||
-          t.includes("flow")
-      );
+          t.includes("DELEGATION")
+        );
+      });
 
       if (delegationEvents.length > 0) {
+        const uniqueNames = [...new Set(delegationEvents.map((e) => e.name || e.type))];
         runner.pass(
           "team-chat-delegation-events",
-          `Found ${delegationEvents.length} delegation/flow events: ${[...new Set(delegationEvents)].join(", ")}`
+          `Found ${delegationEvents.length} delegation/flow events: ${uniqueNames.join(", ")}`
         );
       } else if (result.events.length > 0) {
-        const uniqueTypes = [...new Set(eventTypes)];
+        const uniqueTypes = [...new Set(result.events.map((e) => e.type || e.event || "").filter(Boolean))];
         runner.warn(
           "team-chat-delegation-events",
           `Got ${result.events.length} events but no delegation-specific types. Types: ${uniqueTypes.join(", ")}`
@@ -439,7 +444,8 @@ async function cleanup(runner, flowIds, token) {
     let failed = 0;
     for (const id of toDelete) {
       try {
-        const res = await trpcMR("flows.delete", { id, hard: true }, token);
+        await sleep(300);
+        const res = await trpcM("flows.delete", { id, hard: true }, token);
         if (res.status === 200) deleted++;
         else failed++;
       } catch {
