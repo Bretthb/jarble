@@ -25,6 +25,9 @@ const CREATE_TABLES_SQL = `
     pending_stripe_tier TEXT,
     free_deployment_used INTEGER DEFAULT 0 NOT NULL,
     free_trial_expires_at TEXT,
+    tos_accepted_at TEXT,
+    tos_version TEXT,
+    privacy_accepted_at TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
@@ -70,6 +73,8 @@ const CREATE_TABLES_SQL = `
     bio TEXT,
     showcase_prompts TEXT,
     org_id TEXT,
+    memory_scope TEXT NOT NULL DEFAULT 'global',
+    max_budget_cents INTEGER,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );

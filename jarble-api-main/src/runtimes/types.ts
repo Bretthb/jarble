@@ -126,6 +126,19 @@ export interface DeploymentFields {
     role: string | null;
     slug: string;
   }>;
+  /** Instruction snippets from installed marketplace services (package/hybrid hosting model) */
+  packageSnippets?: Array<{ packageName: string; snippet: string }>;
+  /** Remote skill proxy configs for remote/hybrid hosted marketplace services */
+  remoteSkillConfigs?: Array<{ skillName: string; endpoint: string }>;
+  /** Installed marketplace components (canvas components from the component marketplace) */
+  installedComponents?: Array<{
+    name: string;
+    displayName: string;
+    description?: string;
+    botDescription?: string;
+    tier?: string;
+    category?: string;
+  }>;
 }
 
 /**

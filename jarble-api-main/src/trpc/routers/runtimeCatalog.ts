@@ -47,7 +47,7 @@ export const runtimeCatalogRouter = router({
       const row = await ctx.db.query.runtimeCatalog.findFirst({
         where: eq(runtimeCatalog.id, input.id),
       });
-      return row ? toPublicRuntime(row) : null;
+      return row ? toPublicRuntime(row) : undefined;
     }),
 
   // Get runtime by slug (public — returns display-safe fields only)

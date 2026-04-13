@@ -32,7 +32,8 @@ import { noHtmlTags, NO_HTML_MESSAGE } from "../../utils/sanitize.js";
 import { requireOrgRole } from "./org.js";
 import type { OrgRole } from "./org.js";
 
-const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, chatSessions, chatMessages, agentCalls, orchestrationFlows, orgMembers, organizations, deploymentSecrets, promoRedemptions } = tables;
+const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, chatSessions, chatMessages, agentCalls, orchestrationFlows, orgMembers, organizations, deploymentSecrets } = tables;
+const promoRedemptions = (tables as any).promoRedemptions;
 
 /**
  * Find a deployment and verify the caller has access.
@@ -415,7 +416,7 @@ export const deploymentRouter = router({
       linkToDeploymentId: z.string().optional(), // Link to an existing deployment's credit pool instead of provisioning a new key
       cpuLimit: z.string().optional(),    // e.g. "2.0" - overrides runtime catalog default
       memoryMb: z.number().int().positive().optional(),   // e.g. 2048 - RAM in MB
-      storageMb: z.number().int().positive().max(500).optional(),  // e.g. 30 - storage in GiB (historical naming). Max 500 GiB to prevent runaway provisioning.
+      storageMb: z.number().int().positive().max(10000).optional(),  // e.g. 30 - storage in GiB (historical naming). Server-side pre-flight validates against the actual largest tier usable limit.
       telegramBotToken: z.string().optional(), // Pre-validated Telegram bot token (included in initial K8s Secret)
       messagingOnly: z.boolean().optional(), // If true, omit web-chat UI prompt (~1,250 tokens saved)
       isolationLevel: z.enum(["standard", "gvisor", "kata"]).optional(), // Runtime sandbox isolation (default: "standard")
@@ -2295,9 +2296,11 @@ export const deploymentRouter = router({
       logger.debug({ deploymentId: input.id }, "delete: agent_calls removed");
 
       // Clean up promo_redemptions (no ON DELETE CASCADE on deployment FK)
-      await ctx.db.delete(promoRedemptions)
-        .where(eq(promoRedemptions.deploymentId, input.id));
-      logger.debug({ deploymentId: input.id }, "delete: promo_redemptions removed");
+      if (promoRedemptions) {
+        await ctx.db.delete(promoRedemptions)
+          .where(eq(promoRedemptions.deploymentId, input.id));
+        logger.debug({ deploymentId: input.id }, "delete: promo_redemptions removed");
+      }
 
       await ctx.db.delete(deployments)
         .where(and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)));

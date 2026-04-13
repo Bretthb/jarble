@@ -837,9 +837,11 @@ describe("openclawHandler.renderConfigs - Team Context (Bot Teams)", () => {
     expect(tools[0].name).toBe("a2a_delegate");
   });
 
-  it("includes a2a_delegate instructions in Agent Pool Team Members section", () => {
-    // A2A Phase 1: the Agent Pool block now teaches a2a_delegate as the
-    // preferred delegation method, with legacy tools as fallback.
+  it("uses jarble_delegate via teamContext block when both teamMembers and teamContext are set", () => {
+    // When teamContext is present it is the authoritative delegation source —
+    // the legacy "Team Members" + a2a_delegate section is intentionally suppressed
+    // to avoid conflicting delegation paths (see openclaw.ts comment near "Agent Pool").
+    // The Team Context block already teaches `jarble_delegate` and `### Your teammates`.
     const files = openclawHandler.renderConfigs(
       makeDeployment({
         teamMembers: [
@@ -858,9 +860,11 @@ describe("openclawHandler.renderConfigs - Team Context (Bot Teams)", () => {
     );
     const soulMd = files.find((f) => f.path === "soul.md")!;
 
-    // A2A Phase 1: soul.md now includes Team Members section with a2a_delegate
-    expect(soulMd.content).toContain("a2a_delegate");
-    expect(soulMd.content).toContain("### Team Members");
+    // Team Context block handles delegation via jarble_delegate blocks
+    expect(soulMd.content).toContain("jarble_delegate");
+    expect(soulMd.content).toContain("### Your teammates");
+    // The legacy a2a_delegate / "Team Members" section is suppressed when teamContext is present
+    expect(soulMd.content).not.toContain("### Team Members");
   });
 
   it("renders Team Context to BOTH soul.md and the workspace SOUL.md path", () => {

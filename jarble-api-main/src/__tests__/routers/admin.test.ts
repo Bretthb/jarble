@@ -25,7 +25,7 @@ const dbHolder = vi.hoisted(() => ({
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
 vi.mock("../../utils/admin.js", () => {
-  const adminIds = new Set(["admin-001"]);
+  const adminIds = new Set(["auth0|admin-001"]);
   return {
     isAdmin: (userId: string) => adminIds.has(userId),
     getAdminUserIds: () => adminIds,

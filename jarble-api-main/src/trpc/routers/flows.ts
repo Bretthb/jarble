@@ -246,7 +246,7 @@ const FlowNodeSchema = z.object({
   deploymentId: z.string().optional(),
   serviceId: z.string().optional(),
   skillName: z.string().optional(),
-  label: z.string().min(1).max(255).refine(noHtmlTags, NO_HTML_MESSAGE),
+  label: z.string().min(1).max(10_000).refine(noHtmlTags, NO_HTML_MESSAGE),
   // Bot team fields — text shown in the canvas UI and rendered into
   // bot system prompts. All user-visible text is HTML-rejected.
   role: z.string().max(500).refine(noHtmlTags, NO_HTML_MESSAGE).optional(),

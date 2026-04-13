@@ -204,6 +204,71 @@ async function buildDeploymentFields(
     }
   }
 
+  // Load installed marketplace services → packageSnippets + remoteSkillConfigs
+  const packageSnippets: Array<{ packageName: string; snippet: string }> = [];
+  const remoteSkillConfigs: Array<{ skillName: string; endpoint: string }> = [];
+  const serviceInstallsTable = (tables as any).serviceInstalls;
+  const marketplaceServicesTable = (tables as any).marketplaceServices;
+  if (serviceInstallsTable && marketplaceServicesTable) {
+    try {
+      const serviceInstallRows = await db.query.serviceInstalls?.findMany?.({
+        where: eq(serviceInstallsTable.deploymentId, deployment.id),
+      });
+      for (const row of serviceInstallRows ?? []) {
+        const svc = await db.query.marketplaceServices?.findFirst?.({
+          where: eq(marketplaceServicesTable.id, row.packageId),
+        });
+        if (!svc) continue;
+        if (svc.instructionSnippet) {
+          packageSnippets.push({ packageName: svc.displayName, snippet: svc.instructionSnippet });
+        }
+        if ((svc.hostingModel === "remote" || svc.hostingModel === "hybrid") && svc.remoteApiEndpoint && svc.remoteApiConfig) {
+          try {
+            const parsed = JSON.parse(svc.remoteApiConfig);
+            for (const skill of (parsed.skills ?? [])) {
+              if (skill.name) {
+                remoteSkillConfigs.push({ skillName: skill.name, endpoint: svc.remoteApiEndpoint });
+              }
+            }
+          } catch (parseErr) {
+            log.warn({ deploymentId: deployment.id, packageId: row.packageId, err: parseErr }, "configSync: failed to parse remoteApiConfig, skipping");
+          }
+        }
+      }
+    } catch (err) {
+      log.debug({ deploymentId: deployment.id, err }, "configSync: failed to load service installs (non-fatal)");
+    }
+  }
+
+  // Load installed marketplace components → installedComponents
+  const installedComponentsList: Array<{
+    name: string; displayName: string; description?: string;
+    botDescription?: string; tier?: string; category?: string;
+  }> = [];
+  const componentInstallsTable = (tables as any).componentInstalls;
+  if (componentInstallsTable) {
+    try {
+      const componentInstallRows = await db.query.componentInstalls?.findMany?.({
+        where: eq(componentInstallsTable.deploymentId, deployment.id),
+        with: { component: true },
+      });
+      for (const row of (componentInstallRows ?? [])) {
+        if (row.component) {
+          installedComponentsList.push({
+            name: row.component.name,
+            displayName: row.component.displayName,
+            description: row.component.description ?? undefined,
+            botDescription: row.component.botDescription ?? undefined,
+            tier: row.component.tier ?? undefined,
+            category: row.component.category ?? undefined,
+          });
+        }
+      }
+    } catch (err) {
+      log.debug({ deploymentId: deployment.id, err }, "configSync: failed to load component installs (non-fatal)");
+    }
+  }
+
   // Load team context from flow_deployment_memberships.
   // Finds the flow this deployment participates in, captures self's role +
   // entry-point status, and lists the other deployments in the same flow as teammates.
@@ -344,6 +409,9 @@ async function buildDeploymentFields(
     // configSync always sent `undefined`, the handler defaulted to "global",
     // and the Secret never reflected a user-triggered scope change (PR #69).
     memoryScope: deployment.memoryScope ?? undefined,
+    packageSnippets: packageSnippets.length > 0 ? packageSnippets : undefined,
+    remoteSkillConfigs: remoteSkillConfigs.length > 0 ? remoteSkillConfigs : undefined,
+    installedComponents: installedComponentsList.length > 0 ? installedComponentsList : undefined,
   };
 }
 
