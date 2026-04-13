@@ -37,13 +37,16 @@ export default function ControlPanel({ deploymentId, liveStatus }: ControlPanelP
         if (!tokenRes.ok) throw new Error("Failed to get gateway token");
         const { gatewayToken } = await tokenRes.json();
 
-        // 2. Build the WS proxy URL (for the SPA to connect its WebSocket)
+        // 2. Build the WS proxy URL — NO JWT in the URL (cookie auth instead).
+        // The session cookie set by the HTTP proxy authenticates the WS upgrade.
         const apiHost = API_URL.replace(/^https?:\/\//, "");
         const wsProtocol = API_URL.startsWith("https") ? "wss" : "ws";
-        const gatewayWsUrl = `${wsProtocol}://${apiHost}/ws/admin?token=${encodeURIComponent(token)}&deploymentId=${encodeURIComponent(deploymentId)}`;
+        const gatewayWsUrl = `${wsProtocol}://${apiHost}/ws/admin?deploymentId=${encodeURIComponent(deploymentId)}`;
 
-        // 3. Build iframe src: proxy URL + gateway token in hash for auto-connect
-        // The hash #token=GATEWAY_TOKEN is the format openclaw dashboard uses
+        // 3. Build iframe src: proxy URL + gateway token in hash for auto-connect.
+        // The hash #token=GATEWAY_TOKEN is the format openclaw dashboard uses.
+        // Only the JWT is passed as ?token= for the initial HTTP proxy auth — it's
+        // stripped from the forwarded request and not shown in the SPA's UI.
         const src = `${API_URL}/api/deployments/${deploymentId}/admin/?token=${encodeURIComponent(token)}&gatewayUrl=${encodeURIComponent(gatewayWsUrl)}#token=${gatewayToken}`;
 
         if (!cancelled) {
