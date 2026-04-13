@@ -244,12 +244,15 @@ adminProxyRouter.get("/:id/admin/*", async (req: Request, res: Response) => {
   // The SPA reads ?gatewayUrl= to know where to connect via WS.
   // Point it at the admin WS proxy so the connection goes through
   // the Jarble API (not directly to the pod's internal cluster IP).
+  // Include the JWT in the WS URL so the upgrade request is authenticated.
   try {
     var wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    var wsUrl = wsProto + '//' + window.location.host + '/ws/admin?deploymentId=${deploymentId}';
-    var url = new URL(window.location.href);
-    url.searchParams.set('gatewayUrl', wsUrl);
-    window.history.replaceState({}, '', url.toString());
+    // Extract the JWT from the page URL ?token= param (set by the iframe src)
+    var pageUrl = new URL(window.location.href);
+    var jwtToken = pageUrl.searchParams.get('token') || '';
+    var wsUrl = wsProto + '//' + window.location.host + '/ws/admin?deploymentId=${deploymentId}' + (jwtToken ? '&token=' + encodeURIComponent(jwtToken) : '');
+    pageUrl.searchParams.set('gatewayUrl', wsUrl);
+    window.history.replaceState({}, '', pageUrl.toString());
     if (!window.location.hash || !window.location.hash.includes('token=')) {
       window.location.hash = 'token=${escapedToken}';
     }
