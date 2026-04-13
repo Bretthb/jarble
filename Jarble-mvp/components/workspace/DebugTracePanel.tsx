@@ -3,28 +3,17 @@
 /**
  * DebugTracePanel — shows recent agent_calls trees for this deployment.
  *
- * Part of JAR-51 Phase 5 (observability drawer). Pulls rows from the
- * `deployment.listRecentTraces` + `deployment.getAgentCallsByTrace`
- * procedures added in the same PR, and renders a click-to-expand
- * fractal tree of the delegation chain for each trace.
- *
- * Each row shows:
- *  - depth (indented)
- *  - span_name (jarble.chat.turn / jarble.delegation.hop / etc)
- *  - skill_name
- *  - status badge (completed / failed / abandoned / pending)
- *  - duration (ms)
- *  - caller → callee (as short deployment ids)
- *  - link to Langfuse trace if LANGFUSE_HOST is exposed (optional)
- *
- * The debug drawer is ONLY shown to authed users who own the deployment
- * (the tRPC procedures enforce this). We still gate rendering on
- * deployment.status so a fresh deployment doesn't show empty state forever.
+ * Each trace expands into a tree of delegation hops. Each hop is expandable
+ * to show the full task/response content, deployment names, per-span
+ * Langfuse links, and copy buttons.
  */
 
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
-import { X, Activity, ChevronDown, ChevronRight, Loader2, ExternalLink } from "lucide-react";
+import {
+  X, Activity, ChevronDown, ChevronRight, Loader2, ExternalLink,
+  Copy, Check, ArrowRight,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -70,40 +59,209 @@ function statusClass(status: string | null): string {
   }
 }
 
-function TraceTreeRow({ row, depth }: { row: {
-  id: string;
-  parentCallId: string | null;
-  kind: string | null;
-  skillName: string | null;
-  spanName: string | null;
-  depth: number;
-  status: string | null;
-  durationMs: number | null;
-  callerDeploymentId: string | null;
-  calleeDeploymentId: string | null;
-}; depth: number }) {
+function statusBorderClass(status: string | null): string {
+  switch (status) {
+    case "completed": return "border-l-emerald-500/40";
+    case "failed": return "border-l-rose-500/40";
+    case "pending": return "border-l-sky-500/40";
+    default: return "border-l-border/40";
+  }
+}
+
+/** Extract the task text from requestBody (may be JSON with a .task field or plain text) */
+function extractTask(requestBody: string | null): string | null {
+  if (!requestBody) return null;
+  try {
+    const parsed = JSON.parse(requestBody);
+    return parsed.task || parsed.message || requestBody;
+  } catch {
+    return requestBody;
+  }
+}
+
+/** Copy text to clipboard with visual feedback */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }, [text]);
   return (
-    <div
-      className="flex items-center gap-2 py-1 text-xs"
-      style={{ paddingLeft: `${depth * 16}px` }}
+    <button
+      onClick={handleCopy}
+      className="p-0.5 rounded hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+      title="Copy to clipboard"
     >
-      <span className="text-muted-foreground font-mono">{depth}</span>
-      <span className="text-foreground font-medium truncate max-w-[180px]">
-        {row.spanName || row.skillName || row.kind || "span"}
-      </span>
-      <span className={cn("px-1.5 py-0.5 rounded border text-[10px] uppercase tracking-wide", statusClass(row.status))}>
-        {row.status}
-      </span>
-      <span className="text-muted-foreground ml-auto">{formatDuration(row.durationMs)}</span>
+      {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+    </button>
+  );
+}
+
+// ── Deployment name cache (avoids N+1 queries) ─────────────────────────────
+
+const deploymentNameCache = new Map<string, string>();
+
+function useDeploymentNames(ids: string[]) {
+  // Batch-fetch deployment names for all unique IDs in the trace
+  const unique = [...new Set(ids.filter(Boolean))];
+  const missing = unique.filter((id) => !deploymentNameCache.has(id));
+
+  // Only fetch if we have missing IDs
+  const listQuery = trpc.deployment.list.useQuery(undefined, {
+    staleTime: 60_000,
+    enabled: missing.length > 0,
+  });
+
+  if (listQuery.data) {
+    for (const dep of listQuery.data as any[]) {
+      deploymentNameCache.set(dep.id, dep.name);
+    }
+  }
+
+  return (id: string | null) => {
+    if (!id) return "unknown";
+    return deploymentNameCache.get(id) || id.slice(0, 8);
+  };
+}
+
+// ── Expandable trace tree row ───────────────────────────────────────────────
+
+function TraceTreeRow({ row, depth, langfuseBase, getName }: {
+  row: {
+    id: string;
+    parentCallId: string | null;
+    kind: string | null;
+    skillName: string | null;
+    spanName: string | null;
+    depth: number;
+    status: string | null;
+    durationMs: number | null;
+    callerDeploymentId: string | null;
+    calleeDeploymentId: string | null;
+    traceId: string | null;
+    spanId?: string | null;
+    requestBody?: string | null;
+    responseBody?: string | null;
+    errorMessage?: string | null;
+    creditsCharged?: number | null;
+  };
+  depth: number;
+  langfuseBase?: string;
+  getName: (id: string | null) => string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const hasContent = !!(row.requestBody || row.responseBody || row.errorMessage);
+  const task = extractTask(row.requestBody ?? null);
+  const callerName = getName(row.callerDeploymentId);
+  const calleeName = getName(row.calleeDeploymentId);
+  const showRoute = row.callerDeploymentId && row.calleeDeploymentId && row.callerDeploymentId !== row.calleeDeploymentId;
+
+  return (
+    <div className={cn("border-l-2 ml-1", statusBorderClass(row.status))} style={{ marginLeft: `${depth * 12}px` }}>
+      <button
+        className={cn(
+          "w-full text-left px-2 py-1.5 flex items-center gap-1.5 text-xs hover:bg-secondary/30 transition-colors",
+          hasContent ? "cursor-pointer" : "cursor-default"
+        )}
+        onClick={() => hasContent && setExpanded(!expanded)}
+      >
+        {hasContent ? (
+          expanded ? <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" /> : <ChevronRight className="w-3 h-3 text-muted-foreground shrink-0" />
+        ) : (
+          <span className="w-3 shrink-0" />
+        )}
+
+        <span className="text-foreground font-medium truncate max-w-[140px]">
+          {row.spanName || row.skillName || row.kind || "span"}
+        </span>
+
+        <span className={cn("px-1 py-0 rounded border text-[9px] uppercase tracking-wide shrink-0", statusClass(row.status))}>
+          {row.status}
+        </span>
+
+        {showRoute && (
+          <span className="text-[9px] text-muted-foreground flex items-center gap-0.5 shrink-0">
+            {callerName} <ArrowRight className="w-2.5 h-2.5" /> {calleeName}
+          </span>
+        )}
+
+        <span className="text-muted-foreground ml-auto shrink-0">{formatDuration(row.durationMs)}</span>
+
+        {row.creditsCharged != null && row.creditsCharged > 0 && (
+          <span className="text-amber-400 text-[9px] shrink-0">${(row.creditsCharged / 100).toFixed(2)}</span>
+        )}
+
+        {langfuseBase && row.spanId && row.traceId && (
+          <a
+            href={`${langfuseBase.replace(/\/+$/, "")}/traces/${row.traceId}?observation=${row.spanId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="text-muted-foreground hover:text-foreground shrink-0"
+            title="View in Langfuse"
+          >
+            <ExternalLink className="w-3 h-3" />
+          </a>
+        )}
+      </button>
+
+      {expanded && hasContent && (
+        <div className="px-3 py-2 bg-secondary/10 border-t border-border/20 space-y-2 text-[11px]">
+          {task && (
+            <div>
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-[9px] font-semibold uppercase tracking-wider text-sky-400">Task</span>
+                <CopyButton text={task} />
+              </div>
+              <pre className="whitespace-pre-wrap break-words text-foreground/80 font-mono bg-background/50 rounded px-2 py-1.5 max-h-[120px] overflow-y-auto">
+                {task}
+              </pre>
+            </div>
+          )}
+          {row.responseBody && (
+            <div>
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-[9px] font-semibold uppercase tracking-wider text-emerald-400">Response</span>
+                <CopyButton text={row.responseBody} />
+              </div>
+              <pre className="whitespace-pre-wrap break-words text-foreground/80 font-mono bg-background/50 rounded px-2 py-1.5 max-h-[200px] overflow-y-auto">
+                {row.responseBody}
+              </pre>
+            </div>
+          )}
+          {row.errorMessage && (
+            <div>
+              <span className="text-[9px] font-semibold uppercase tracking-wider text-rose-400">Error</span>
+              <pre className="whitespace-pre-wrap break-words text-rose-300/80 font-mono bg-rose-500/5 rounded px-2 py-1.5 mt-1">
+                {row.errorMessage}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
-function ExpandedTrace({ traceId }: { traceId: string }) {
+// ── Expanded trace tree ─────────────────────────────────────────────────────
+
+function ExpandedTrace({ traceId, langfuseBase }: { traceId: string; langfuseBase?: string }) {
   const query = trpc.deployment.getAgentCallsByTrace.useQuery(
     { traceId },
-    { staleTime: 30_000 },
+    { staleTime: 5_000, refetchInterval: 3_000 },
   );
+
+  // Collect deployment IDs for name resolution
+  const allIds: string[] = [];
+  if (query.data?.rows) {
+    for (const r of query.data.rows) {
+      if (r.callerDeploymentId) allIds.push(r.callerDeploymentId);
+      if (r.calleeDeploymentId) allIds.push(r.calleeDeploymentId);
+    }
+  }
+  const getName = useDeploymentNames(allIds);
+
   if (query.isLoading) {
     return (
       <div className="flex items-center gap-2 py-2 px-3 text-xs text-muted-foreground">
@@ -119,28 +277,25 @@ function ExpandedTrace({ traceId }: { traceId: string }) {
     return <div className="py-2 px-3 text-xs text-muted-foreground">No spans in this trace.</div>;
   }
   return (
-    <div className="py-1 px-3 bg-secondary/10 border-t border-border/30">
-      {rows.map((r) => (
-        <TraceTreeRow key={r.id} row={r} depth={r.depth ?? 0} />
+    <div className="py-1 px-1 bg-secondary/10 border-t border-border/30">
+      {rows.map((r: any) => (
+        <TraceTreeRow key={r.id} row={r} depth={r.depth ?? 0} langfuseBase={langfuseBase} getName={getName} />
       ))}
     </div>
   );
 }
 
+// ── Main panel ──────────────────────────────────────────────────────────────
+
 export default function DebugTracePanel({ deploymentId, onClose }: DebugTracePanelProps) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
-  // Fetch deployment data for budget display
   const depQuery = trpc.deployment.getById.useQuery({ id: deploymentId }, { staleTime: 30_000 });
   const maxBudgetCents = (depQuery.data as any)?.maxBudgetCents as number | null | undefined;
 
   const query = trpc.deployment.listRecentTraces.useQuery(
     { id: deploymentId, limit: 25 },
-    {
-      // Traces update often — 10s stale is reasonable for a debug panel
-      staleTime: 10_000,
-      refetchInterval: 15_000,
-    },
+    { staleTime: 5_000, refetchInterval: 5_000 },
   );
 
   const traces = (query.data?.traces ?? []) as TraceRow[];
@@ -157,8 +312,6 @@ export default function DebugTracePanel({ deploymentId, onClose }: DebugTracePan
     });
   };
 
-  // Langfuse deep-link base URL — optional; only renders when the env
-  // var is exposed via NEXT_PUBLIC_LANGFUSE_UI_URL. No sensitive info.
   const langfuseBase = process.env.NEXT_PUBLIC_LANGFUSE_UI_URL;
 
   return (
@@ -258,7 +411,7 @@ export default function DebugTracePanel({ deploymentId, onClose }: DebugTracePan
                       </a>
                     )}
                   </button>
-                  {isExpanded && t.traceId && <ExpandedTrace traceId={t.traceId} />}
+                  {isExpanded && t.traceId && <ExpandedTrace traceId={t.traceId} langfuseBase={langfuseBase} />}
                 </div>
               );
             })}

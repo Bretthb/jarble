@@ -1185,6 +1185,11 @@ export const deploymentRouter = router({
           callerDeploymentId: agentCalls.callerDeploymentId,
           calleeDeploymentId: agentCalls.calleeDeploymentId,
           traceId: agentCalls.traceId,
+          spanId: agentCalls.spanId,
+          // Content fields for the debug trace panel — capped to 5KB
+          // for wire safety (full body available in Langfuse).
+          requestBody: agentCalls.requestBody,
+          responseBody: agentCalls.responseBody,
           // Retained for the auth gate below but stripped before return.
           userId: agentCalls.userId,
           errorMessage: agentCalls.errorMessage,
@@ -1203,9 +1208,11 @@ export const deploymentRouter = router({
       // the client (P1-2). Kept as a local function so every return
       // branch uses the same sanitization pass.
       const sanitize = (list: typeof rows) =>
-        list.map(({ userId, errorMessage, ...rest }) => ({
+        list.map(({ userId, errorMessage, requestBody, responseBody, ...rest }) => ({
           ...rest,
-          errorMessage: errorMessage ? errorMessage.slice(0, 200) : null,
+          errorMessage: errorMessage ? errorMessage.slice(0, 500) : null,
+          requestBody: requestBody ? requestBody.slice(0, 5000) : null,
+          responseBody: responseBody ? responseBody.slice(0, 5000) : null,
         }));
 
       // Ownership gate: the authed user must own at least one of the
