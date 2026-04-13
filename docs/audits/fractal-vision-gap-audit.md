@@ -6,12 +6,12 @@
 
 ## Executive Summary
 
-**Overall completeness: ~35%.** The 1-level delegation case (entry agent → flat specialists) works end-to-end in both `flowChat.ts` and `tamboAgent.ts`. Everything the vision adds on top of that — true N-level recursion, subagents as delegation-graph participants, per-deployment membership UI, tree visualization, canvas attribution, origin-tagged chat history — is missing or half-wired.
+**Overall completeness: ~60% (updated 2026-04-13).** N-level recursive delegation (Pieces 1-2) is now fully implemented across both `tamboAgent.ts` and `flowChat.ts`, with `parent_call_id`, `depth`, `kind` on `agent_calls`, cycle detection, and `MAX_DELEGATION_DEPTH` enforcement. Remaining gaps are UI-facing: per-deployment membership panel, delegation tree visualization, canvas attribution, and origin-tagged chat history.
 
-### Top 3 gaps
+### Top 3 gaps (updated 2026-04-13)
 
-1. **No true N-level recursion.** `executeDelegation()` calls `chatViaExec` and returns the child's text verbatim — it never re-runs `parseDelegationCalls` on the child output. Both callsites hard-code `depth: 1`. `MAX_DELEGATION_DEPTH = 5` is unreachable. **Fractal depth is effectively capped at 1.**
-2. **No `parent_call_id` anywhere.** `agent_calls` has no parent FK, no depth, no kind. SSE delegation events carry no parent pointer. Subagent calls (`executeSubagentTool` in `jarble-ui-server.js`) live on a separate rail with no link to the delegation chain they happen inside. **Tree reconstruction is impossible.**
+1. ~~**No true N-level recursion.**~~ **RESOLVED.** `executeDelegation()` now re-parses child output via `parseDelegationCalls()`, recurses with `depth+1`, and chains `parent_call_id` through the tree. Both `tamboAgent.ts` and `flowChat.ts` create root `agent_calls` rows and pass them as `parentCallId`. `MAX_DELEGATION_DEPTH=4` is enforced. 16 recursion tests cover 1-level, 2-level, 3-level, cycle detection, depth limits, and parent_call_id reconstruction.
+2. ~~**No `parent_call_id` anywhere.**~~ **RESOLVED.** `agent_calls` has `parent_call_id` (varchar, indexed), `depth` (int, default 0), `kind` (varchar: delegation|chat_turn|tool|flow_step|llm). SSE delegation events carry `parentStepId` and `depth`. Migration 0008 adds the columns.
 3. **No per-deployment team membership UI.** `flow_deployment_memberships` table exists and is populated, but there is zero read path (no `listMembershipsForDeployment` tRPC) and no sidebar panel on `/d/[id]`.
 
 ### Recommended build order
