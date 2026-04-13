@@ -207,11 +207,27 @@ fi
 CLEANUP_PID=$!
 echo "[entrypoint] Periodic cleanup started (PID $CLEANUP_PID)"
 
+# ── OpenClaw runtime: PVC-resident for persistent updates ────────────
+# The Docker image bakes OpenClaw into /opt/openclaw as a seed. On first
+# boot we copy it to /data/openclaw-runtime on the PVC. The Control UI's
+# "Update OpenClaw" button writes to this PVC copy, so updates persist
+# across pod restarts. On subsequent boots we skip the copy and use
+# whatever version is on the PVC (which may be newer than the image).
+RUNTIME_DIR="/data/openclaw-runtime"
+if [ ! -d "$RUNTIME_DIR/node_modules" ]; then
+  echo "[entrypoint] First boot — copying OpenClaw runtime to PVC..."
+  mkdir -p "$RUNTIME_DIR"
+  cp -a /opt/openclaw/. "$RUNTIME_DIR/"
+  echo "[entrypoint] OpenClaw runtime copied to $RUNTIME_DIR"
+else
+  echo "[entrypoint] Using PVC-resident OpenClaw runtime at $RUNTIME_DIR"
+fi
+
 # ── Start OpenClaw Gateway (restart loop for hot reload) ─────────────
 export HOME=/data
-export PATH="/opt/openclaw/node_modules/.bin:$PATH"
+export PATH="$RUNTIME_DIR/node_modules/.bin:$PATH"
 
-cd /opt/openclaw
+cd "$RUNTIME_DIR"
 
 while true; do
   # Source env overrides written by configSync (hot reload support)
@@ -223,7 +239,7 @@ while true; do
   echo "[entrypoint] Starting OpenClaw gateway on port 18789..."
   echo "[entrypoint] Provider: ${LLM_PROVIDER:-openrouter}, Model: ${LLM_MODEL:-openrouter/auto}"
 
-  /opt/openclaw/node_modules/.bin/openclaw gateway --port 18789 --bind lan --allow-unconfigured &
+  "$RUNTIME_DIR/node_modules/.bin/openclaw" gateway --port 18789 --bind lan --allow-unconfigured &
   OPENCLAW_PID=$!
   echo "[entrypoint] OpenClaw gateway started (PID $OPENCLAW_PID)"
 
