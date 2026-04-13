@@ -215,16 +215,13 @@ adminProxyRouter.get("/:id/admin/*", async (req: Request, res: Response) => {
       const escapedToken = podAddr.gatewayToken.replace(/[\\'"]/g, "\\$&");
 
       const autoConnectScript = `<script>
-// Jarble: enrich gatewayUrl with gateway token before SPA init.
-// Runs in <head> before type="module" scripts (which are deferred).
+// Jarble: inject gateway token via page hash before SPA init.
+// The SPA reads the gateway token from window.location.hash (#token=...).
+// The gatewayUrl param sets the WS URL; the hash sets the auth token.
 (function() {
   try {
-    var url = new URL(window.location.href);
-    var gwUrl = url.searchParams.get('gatewayUrl');
-    if (gwUrl && gwUrl.indexOf('#token=') === -1) {
-      gwUrl += '#token=${escapedToken}';
-      url.searchParams.set('gatewayUrl', gwUrl);
-      window.history.replaceState(null, '', url.toString());
+    if (!window.location.hash || !window.location.hash.includes('token=')) {
+      window.location.hash = 'token=${escapedToken}';
     }
   } catch(e) {}
 
