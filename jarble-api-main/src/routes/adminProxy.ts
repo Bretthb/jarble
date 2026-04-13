@@ -199,8 +199,46 @@ adminProxyRouter.get("/:id/admin/*", async (req: Request, res: Response) => {
     const ct = proxyRes.headers.get("content-type");
     if (ct) res.setHeader("Content-Type", ct);
 
-    const body = await proxyRes.arrayBuffer();
-    res.send(Buffer.from(body));
+    const body = Buffer.from(await proxyRes.arrayBuffer());
+
+    // For the HTML page: inject a script that auto-confirms the ?gatewayUrl=
+    // dialog and auto-fills the gateway token. The OpenClaw SPA shows a security
+    // confirmation when ?gatewayUrl= is present — we auto-accept it since the
+    // URL is constructed by our own authenticated proxy, not user-supplied.
+    const isHtml = ct?.includes("text/html") && suffix === "";
+    if (isHtml) {
+      let html = body.toString("utf-8");
+      const autoConnectScript = `<script>
+// Jarble: auto-connect to gateway without confirmation dialog.
+// Watch for the confirm dialog and click the confirm button.
+(function() {
+  var observer = new MutationObserver(function(mutations) {
+    for (var m of mutations) {
+      for (var node of m.addedNodes) {
+        if (node.nodeType !== 1) continue;
+        // Look for confirm/connect buttons in dialogs
+        var btns = node.querySelectorAll ? node.querySelectorAll('button') : [];
+        for (var btn of btns) {
+          var text = (btn.textContent || '').trim().toLowerCase();
+          if (text === 'confirm' || text === 'connect' || text === 'yes' || text === 'accept') {
+            setTimeout(function() { btn.click(); }, 50);
+            observer.disconnect();
+            return;
+          }
+        }
+      }
+    }
+  });
+  observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+  // Safety timeout: stop observing after 10s
+  setTimeout(function() { observer.disconnect(); }, 10000);
+})();
+</script>`;
+      html = html.replace("</body>", autoConnectScript + "</body>");
+      res.send(html);
+    } else {
+      res.send(body);
+    }
   } catch (err) {
     log.error({ err, deploymentId, upstream: upstream.toString() }, "admin proxy error");
     res.status(502).json({ error: "Upstream unreachable" });
