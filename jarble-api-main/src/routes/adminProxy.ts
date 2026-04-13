@@ -201,22 +201,38 @@ adminProxyRouter.get("/:id/admin/*", async (req: Request, res: Response) => {
 
     const body = Buffer.from(await proxyRes.arrayBuffer());
 
-    // For the HTML page: inject a script that auto-confirms the ?gatewayUrl=
-    // dialog and auto-fills the gateway token. The OpenClaw SPA shows a security
-    // confirmation when ?gatewayUrl= is present — we auto-accept it since the
-    // URL is constructed by our own authenticated proxy, not user-supplied.
+    // For the HTML page: inject the gateway token into the gatewayUrl param
+    // so the SPA can auto-connect without showing the login form.
+    //
+    // The OpenClaw SPA reads ?gatewayUrl= and expects the gateway token as
+    // a URL fragment: ws://host:port#token=GATEWAY_TOKEN
+    // We enrich the gatewayUrl before the SPA's module scripts execute.
     const isHtml = ct?.includes("text/html") && suffix === "";
     if (isHtml) {
       let html = body.toString("utf-8");
+
+      // Escape the gateway token for safe JS string embedding
+      const escapedToken = podAddr.gatewayToken.replace(/[\\'"]/g, "\\$&");
+
       const autoConnectScript = `<script>
-// Jarble: auto-connect to gateway without confirmation dialog.
-// Watch for the confirm dialog and click the confirm button.
+// Jarble: enrich gatewayUrl with gateway token before SPA init.
+// Runs in <head> before type="module" scripts (which are deferred).
 (function() {
+  try {
+    var url = new URL(window.location.href);
+    var gwUrl = url.searchParams.get('gatewayUrl');
+    if (gwUrl && gwUrl.indexOf('#token=') === -1) {
+      gwUrl += '#token=${escapedToken}';
+      url.searchParams.set('gatewayUrl', gwUrl);
+      window.history.replaceState(null, '', url.toString());
+    }
+  } catch(e) {}
+
+  // Also auto-confirm the security dialog if it still appears
   var observer = new MutationObserver(function(mutations) {
     for (var m of mutations) {
       for (var node of m.addedNodes) {
         if (node.nodeType !== 1) continue;
-        // Look for confirm/connect buttons in dialogs
         var btns = node.querySelectorAll ? node.querySelectorAll('button') : [];
         for (var btn of btns) {
           var text = (btn.textContent || '').trim().toLowerCase();
@@ -229,12 +245,18 @@ adminProxyRouter.get("/:id/admin/*", async (req: Request, res: Response) => {
       }
     }
   });
-  observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
-  // Safety timeout: stop observing after 10s
+  if (document.body) {
+    observer.observe(document.body, { childList: true, subtree: true });
+  } else {
+    document.addEventListener('DOMContentLoaded', function() {
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+  }
   setTimeout(function() { observer.disconnect(); }, 10000);
 })();
 </script>`;
-      html = html.replace("</body>", autoConnectScript + "</body>");
+      // Inject in <head> so it runs before module scripts
+      html = html.replace("</head>", autoConnectScript + "</head>");
       res.send(html);
     } else {
       res.send(body);
