@@ -32,7 +32,7 @@ import { noHtmlTags, NO_HTML_MESSAGE } from "../../utils/sanitize.js";
 import { requireOrgRole } from "./org.js";
 import type { OrgRole } from "./org.js";
 
-const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, serviceInstalls, componentInstalls, marketplaceServices, marketplaceComponents, chatSessions, chatMessages, agentCalls, orchestrationFlows, orgMembers, organizations, deploymentSecrets, promoRedemptions } = tables;
+const { deployments, users, runtimeCatalog, platformCredentials, deploymentSkills, chatSessions, chatMessages, agentCalls, orchestrationFlows, orgMembers, organizations, deploymentSecrets, promoRedemptions } = tables;
 
 /**
  * Find a deployment and verify the caller has access.
@@ -2354,38 +2354,7 @@ export const deploymentRouter = router({
         status: "pending",
       } as any);
 
-      // 6. Copy serviceInstalls (fresh install records)
-      const existingServiceInstalls = await ctx.db.query.serviceInstalls.findMany({
-        where: eq(serviceInstalls.deploymentId, input.sourceId),
-      });
-      for (const si of existingServiceInstalls) {
-        await ctx.db.insert(serviceInstalls).values({
-          id: `pki_${nanoid()}`,
-          packageId: si.packageId,
-          deploymentId: newId,
-          userId: ctx.user.id,
-          installedAt: now,
-        } as any);
-      }
-
-      // 7. Copy componentInstalls (fresh install records)
-      const existingComponentInstalls = await ctx.db.query.componentInstalls.findMany({
-        where: eq(componentInstalls.deploymentId, input.sourceId),
-      });
-      for (const ci of existingComponentInstalls) {
-        await ctx.db.insert(componentInstalls).values({
-          id: `inst_${nanoid()}`,
-          componentId: ci.componentId,
-          versionId: ci.versionId,
-          deploymentId: newId,
-          userId: ctx.user.id,
-          pinnedVersion: ci.pinnedVersion,
-          autoUpdate: ci.autoUpdate,
-          installedAt: now,
-        } as any);
-      }
-
-      // 8. Copy deploymentSkills (fresh records)
+      // 6. Copy deploymentSkills (fresh records)
       const existingSkills = await ctx.db.query.deploymentSkills.findMany({
         where: eq(deploymentSkills.deploymentId, input.sourceId),
       });
@@ -2498,36 +2467,6 @@ export const deploymentRouter = router({
         status: "stopped",
       } as any);
 
-      // 6. Copy serviceInstalls
-      const existingServiceInstalls = await ctx.db.query.serviceInstalls.findMany({
-        where: eq(serviceInstalls.deploymentId, input.sourceId),
-      });
-      for (const si of existingServiceInstalls) {
-        await ctx.db.insert(serviceInstalls).values({
-          id: `pki_${nanoid()}`,
-          packageId: si.packageId,
-          deploymentId: newId,
-          userId: ctx.user.id,
-          installedAt: now,
-        } as any);
-      }
-
-      // 7. Copy componentInstalls
-      const existingComponentInstalls = await ctx.db.query.componentInstalls.findMany({
-        where: eq(componentInstalls.deploymentId, input.sourceId),
-      });
-      for (const ci of existingComponentInstalls) {
-        await ctx.db.insert(componentInstalls).values({
-          id: `inst_${nanoid()}`,
-          componentId: ci.componentId,
-          versionId: ci.versionId,
-          deploymentId: newId,
-          userId: ctx.user.id,
-          pinnedVersion: ci.pinnedVersion,
-          autoUpdate: ci.autoUpdate,
-          installedAt: now,
-        } as any);
-      }
 
       // 8. Copy deploymentSkills
       const existingSkills = await ctx.db.query.deploymentSkills.findMany({
@@ -2648,24 +2587,6 @@ export const deploymentRouter = router({
         showcasePrompts = (deployment as any).showcasePrompts ? JSON.parse((deployment as any).showcasePrompts as string) : [];
       } catch { /* ignore parse errors */ }
 
-      // Fetch installed service names
-      const installedServices = await ctx.db.query.serviceInstalls.findMany({
-        where: eq(serviceInstalls.deploymentId, input.id),
-        with: { package: true },
-      });
-      const serviceNames = installedServices
-        .map((si: any) => si.package?.name)
-        .filter(Boolean);
-
-      // Fetch installed component names
-      const installedComponents = await ctx.db.query.componentInstalls.findMany({
-        where: eq(componentInstalls.deploymentId, input.id),
-        with: { component: true },
-      });
-      const componentNames = installedComponents
-        .map((ci: any) => ci.component?.name)
-        .filter(Boolean);
-
       // Return sanitized profile - never expose llmApiKey, stripeSubscriptionId, userId
       return {
         name: deployment.name,
@@ -2680,8 +2601,6 @@ export const deploymentRouter = router({
         showcasePrompts,
         forkedFromId: deployment.forkedFromId,
         themeConfig: deployment.themeConfig,
-        installedServices: serviceNames,
-        installedComponents: componentNames,
       };
     }),
 
