@@ -240,8 +240,16 @@ adminProxyRouter.get("/:id/admin/*", async (req: Request, res: Response) => {
 // 3. Intercepts WS messages to bridge jarble_ui components to parent
 // 4. Receives edit-sync messages from parent to inject into chat
 (function() {
-  // ── 1. Gateway token injection ────────────────────────────────────
+  // ── 1. Gateway URL + token injection ────────────────────────────────
+  // The SPA reads ?gatewayUrl= to know where to connect via WS.
+  // Point it at the admin WS proxy so the connection goes through
+  // the Jarble API (not directly to the pod's internal cluster IP).
   try {
+    var wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var wsUrl = wsProto + '//' + window.location.host + '/ws/admin?deploymentId=${deploymentId}';
+    var url = new URL(window.location.href);
+    url.searchParams.set('gatewayUrl', wsUrl);
+    window.history.replaceState({}, '', url.toString());
     if (!window.location.hash || !window.location.hash.includes('token=')) {
       window.location.hash = 'token=${escapedToken}';
     }
@@ -494,9 +502,10 @@ export function attachAdminWsProxy(server: http.Server) {
         }
       });
 
-      podWs.on("close", () => {
+      podWs.on("close", (code, reason) => {
+        log.info({ deploymentId, code, reason: reason?.toString() }, "Admin WS proxy: pod closed");
         if (clientWs.readyState === WebSocket.OPEN) {
-          clientWs.close(1000, "Pod disconnected");
+          clientWs.close(code || 1000, reason?.toString() || "Pod disconnected");
         }
       });
 
