@@ -552,8 +552,8 @@ async function createDeploymentLegacy(
               { name: "SCARF_NO_ANALYTICS", value: "true" },
             ],
             resources: {
-              requests: { cpu: "100m", memory: "256Mi" },
-              limits:   { cpu: "500m", memory: "512Mi" },
+              requests: { cpu: "100m", memory: "512Mi" },
+              limits:   { cpu: "500m", memory: "1Gi" },
             },
             securityContext: secCtx.container,
             volumeMounts: [
@@ -562,13 +562,13 @@ async function createDeploymentLegacy(
             ],
             readinessProbe: {
               httpGet: { path: "/health", port: OPEN_WEBUI_PORT },
-              initialDelaySeconds: 15,
+              initialDelaySeconds: 60,
               periodSeconds: 10,
             },
             livenessProbe: {
               httpGet: { path: "/health", port: OPEN_WEBUI_PORT },
-              initialDelaySeconds: 30,
-              periodSeconds: 30,
+              initialDelaySeconds: 90,
+              periodSeconds: 60,
             },
           }],
           volumes: [
