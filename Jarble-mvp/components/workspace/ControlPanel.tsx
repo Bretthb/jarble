@@ -28,12 +28,23 @@ export default function ControlPanel({ deploymentId, liveStatus }: ControlPanelP
     async function buildSrc() {
       try {
         const token = await getAccessTokenSilently();
-        // Build the gateway WS URL for the iframe to connect to
+
+        // 1. Fetch the pod's gateway token from the API
+        const tokenRes = await fetch(
+          `${API_URL}/api/deployments/${deploymentId}/admin-token`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (!tokenRes.ok) throw new Error("Failed to get gateway token");
+        const { gatewayToken } = await tokenRes.json();
+
+        // 2. Build the WS proxy URL (for the SPA to connect its WebSocket)
         const apiHost = API_URL.replace(/^https?:\/\//, "");
         const wsProtocol = API_URL.startsWith("https") ? "wss" : "ws";
         const gatewayWsUrl = `${wsProtocol}://${apiHost}/ws/admin?token=${encodeURIComponent(token)}&deploymentId=${encodeURIComponent(deploymentId)}`;
 
-        const src = `${API_URL}/api/deployments/${deploymentId}/admin/?token=${encodeURIComponent(token)}&gatewayUrl=${encodeURIComponent(gatewayWsUrl)}`;
+        // 3. Build iframe src: proxy URL + gateway token in hash for auto-connect
+        // The hash #token=GATEWAY_TOKEN is the format openclaw dashboard uses
+        const src = `${API_URL}/api/deployments/${deploymentId}/admin/?token=${encodeURIComponent(token)}&gatewayUrl=${encodeURIComponent(gatewayWsUrl)}#token=${gatewayToken}`;
 
         if (!cancelled) {
           setIframeSrc(src);
