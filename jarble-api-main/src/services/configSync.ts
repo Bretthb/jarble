@@ -48,7 +48,7 @@ import { createModuleLogger } from "../utils/logger.js";
 const log = createModuleLogger("configSync");
 import { nanoid } from "nanoid";
 
-const { deployments, platformCredentials, deploymentSecrets, deploymentSkills, skillsCatalog, serviceInstalls, marketplaceServices, componentInstalls, marketplaceComponents } = tables;
+const { deployments, platformCredentials, deploymentSecrets, deploymentSkills, skillsCatalog } = tables;
 // deploymentSubagents may not exist yet (schema created by separate agent)
 const deploymentSubagents = (tables as any).deploymentSubagents;
 
@@ -164,92 +164,6 @@ async function buildDeploymentFields(
   for (const row of skillRows) {
     if (row.skill) {
       skills.push({ name: row.skill.name, config: row.skill.config });
-    }
-  }
-
-  // Load instruction snippets from installed services.
-  // For remote/hybrid services, also collect remoteSkillConfigs so skill JSON
-  // files on the PVC can be stamped with the correct proxy URL.
-  const svcInstallRows = await db.query.serviceInstalls.findMany({
-    where: eq(serviceInstalls.deploymentId, deployment.id),
-  });
-
-  const serviceSnippets: Array<{ packageName: string; snippet: string }> = [];
-  const remoteSkillConfigs: Array<{ packageId: string; skillName: string; proxyUrl: string }> = [];
-
-  // Batch-fetch all services in one query instead of N+1 per install
-  const svcPackageIds = [...new Set(svcInstallRows.map((r) => r.packageId).filter(Boolean))];
-  const svcMap = new Map<string, any>();
-  if (svcPackageIds.length > 0) {
-    const svcRows = await db.query.marketplaceServices.findMany({
-      where: inArray(marketplaceServices.id, svcPackageIds),
-    });
-    for (const s of svcRows) svcMap.set(s.id, s);
-  }
-
-  for (const svcInstall of svcInstallRows) {
-    const svc = svcMap.get(svcInstall.packageId);
-    if (!svc) continue;
-
-    if (svc.instructionSnippet) {
-      serviceSnippets.push({ packageName: svc.displayName, snippet: svc.instructionSnippet });
-    }
-
-    // For remote/hybrid services with a remoteApiConfig, derive proxyUrl per skill.
-    // The proxy URL routes skill calls through the Jarble API, which signs requests
-    // with the stored HMAC secret before forwarding to the creator's endpoint.
-    if (
-      (svc.hostingModel === "remote" || svc.hostingModel === "hybrid" || svc.hostingModel === "platform_managed") &&
-      svc.remoteApiConfig
-    ) {
-      try {
-        const card = JSON.parse(svc.remoteApiConfig) as { skills?: Array<{ name: string }> };
-        const apiBase = process.env.JARBLE_API_URL ?? process.env.API_BASE_URL ?? "http://localhost:3001";
-
-        if (Array.isArray(card.skills)) {
-          for (const skill of card.skills) {
-            if (typeof skill.name === "string" && skill.name) {
-              const proxyUrl = svc.hostingModel === "platform_managed"
-                ? `${apiBase}/api/services/execute/${svc.id}/${skill.name}?deploymentId=${deployment.id}`
-                : `${apiBase}/api/services/proxy/${deployment.id}/${svc.id}/${skill.name}`;
-              remoteSkillConfigs.push({
-                packageId: svc.id,
-                skillName: skill.name,
-                proxyUrl,
-              });
-            }
-          }
-        }
-      } catch (err) {
-        log.warn(
-          { deploymentId: deployment.id, serviceId: svc.id, err },
-          "configSync: failed to parse remoteApiConfig for remote skill proxy URLs, skipping"
-        );
-      }
-    }
-  }
-
-  // Load installed marketplace components for soul.md awareness
-  const installedComponents: Array<{
-    name: string; displayName: string; description: string;
-    botDescription: string | null; tier: string; category: string;
-  }> = [];
-
-  const compInstallRows = await db.query.componentInstalls.findMany({
-    where: eq(componentInstalls.deploymentId, deployment.id),
-    with: { component: true },
-  });
-
-  for (const row of compInstallRows) {
-    if (row.component) {
-      installedComponents.push({
-        name: row.component.name,
-        displayName: row.component.displayName,
-        description: row.component.botDescription || row.component.description,
-        botDescription: row.component.botDescription,
-        tier: row.component.tier,
-        category: row.component.category,
-      });
     }
   }
 
@@ -420,9 +334,6 @@ async function buildDeploymentFields(
     messagingOnly: deployment.messagingOnly ?? false,
     managedBy: managedBy ?? deployment.managedBy ?? "legacy",
     skills: skills.length > 0 ? skills : undefined,
-    packageSnippets: serviceSnippets.length > 0 ? serviceSnippets : undefined,
-    remoteSkillConfigs: remoteSkillConfigs.length > 0 ? remoteSkillConfigs : undefined,
-    installedComponents: installedComponents.length > 0 ? installedComponents : undefined,
     deploymentSecrets: Object.keys(deploymentSecretsMap).length > 0 ? deploymentSecretsMap : undefined,
     subagents: subagents.length > 0 ? subagents : undefined,
     teamContext,
@@ -1316,121 +1227,3 @@ export async function syncMcpServerToAllRunning(): Promise<{
   return results;
 }
 
-// ── Marketplace Component Sync ──────────────────────────────────────────────
-
-/**
- * Write a marketplace component to a deployment's PVC.
- * Called when a component is installed on a deployment.
- *
- * Writes to two locations:
- * 1. /data/marketplace/{componentId}/ - manifest.json + component file (metadata)
- * 2. /data/components/{name}.json - define_component format (for MCP server discovery)
- *
- * The MCP server on the pod reads custom components from /data/components/ using
- * the same resolution path as bot-defined components (define_component tool).
- * This ensures marketplace components work transparently with render_ui - the
- * template gets resolved to built-in primitives that the frontend can render.
- *
- * @param deploymentId - Target deployment
- * @param componentId - Unique component identifier (used as directory name)
- * @param componentName - Component name slug (used as filename in /data/components/)
- * @param manifest - Validated marketplace manifest object
- * @param componentDefinition - Component definition JSON: { name, description, layout } for template tier,
- *                              or { name, description, layout: [{ component: "sandbox", props: { html } }] } for sandbox tier
- * @param tier - "template" or "sandbox"
- */
-export async function syncMarketplaceComponent(
-  deploymentId: string,
-  componentId: string,
-  componentName: string,
-  manifest: Record<string, unknown>,
-  componentDefinition: Record<string, unknown> | null,
-  tier: "template" | "sandbox",
-  managedBy: ManagedBy = "legacy",
-): Promise<void> {
-  const podName = await findPodForDeployment(deploymentId, { managedBy });
-  if (!podName) {
-    throw new Error(`No running pod found for deployment ${deploymentId}`);
-  }
-
-  const containerName = getContainerName(managedBy);
-  const pvcMount = getPvcMountPath(managedBy);
-
-  // 1. Write to /data/marketplace/{componentId}/manifest.json (metadata)
-  const marketplacePath = `${pvcMount}/marketplace/${componentId}`;
-  await execInPod(podName, ["mkdir", "-p", marketplacePath], containerName);
-
-  const manifestContent = JSON.stringify(manifest, null, 2);
-  const manifestB64 = Buffer.from(manifestContent).toString("base64");
-  await execInPod(podName, [
-    "sh", "-c",
-    `echo '${manifestB64}' | base64 -d > '${marketplacePath}/manifest.json'`,
-  ], containerName);
-
-  // 2. Write component definition to /data/components/{name}.json
-  //    This is the same format as define_component uses, so the MCP server's
-  //    custom component resolution handles rendering transparently.
-  if (componentDefinition) {
-    const componentsDir = `${pvcMount}/components`;
-    await execInPod(podName, ["mkdir", "-p", componentsDir], containerName);
-
-    const defContent = JSON.stringify(componentDefinition, null, 2);
-    const defB64 = Buffer.from(defContent).toString("base64");
-    await execInPod(podName, [
-      "sh", "-c",
-      `echo '${defB64}' | base64 -d > '${componentsDir}/${componentName}.json'`,
-    ], containerName);
-
-    log.info(
-      { deploymentId, componentId, componentName, tier },
-      "syncMarketplaceComponent: wrote component definition to /data/components/"
-    );
-  } else {
-    log.warn(
-      { deploymentId, componentId, componentName },
-      "syncMarketplaceComponent: no component definition available, marketplace manifest only"
-    );
-  }
-}
-
-/**
- * Remove a marketplace component from a deployment's PVC.
- * Called when a component is uninstalled.
- *
- * Removes from both locations:
- * 1. /data/marketplace/{componentId}/ - metadata directory
- * 2. /data/components/{componentName}.json - define_component definition
- *
- * @param deploymentId - Target deployment
- * @param componentId - Component to remove
- * @param componentName - Component name slug (for /data/components/ cleanup)
- */
-export async function removeMarketplaceComponent(
-  deploymentId: string,
-  componentId: string,
-  componentName: string | null,
-  managedBy: ManagedBy = "legacy",
-): Promise<void> {
-  const podName = await findPodForDeployment(deploymentId, { managedBy });
-  if (!podName) {
-    throw new Error(`No running pod found for deployment ${deploymentId}`);
-  }
-
-  const containerName = getContainerName(managedBy);
-  const pvcMount = getPvcMountPath(managedBy);
-
-  // Remove marketplace metadata directory
-  const marketplacePath = `${pvcMount}/marketplace/${componentId}`;
-  await execInPod(podName, ["rm", "-rf", marketplacePath], containerName);
-
-  // Remove custom component definition
-  if (componentName) {
-    const componentPath = `${pvcMount}/components/${componentName}.json`;
-    await execInPod(podName, ["rm", "-f", componentPath], containerName);
-  }
-
-  log.info(
-    { deploymentId, componentId, componentName },
-    "removeMarketplaceComponent: removed component from PVC"
-  );
-}

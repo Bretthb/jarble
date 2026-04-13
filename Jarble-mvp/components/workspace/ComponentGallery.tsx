@@ -10,7 +10,7 @@
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import { trpc, API_URL } from "@/lib/trpc";
-import { Package, Loader2, Trash2, Plus, RefreshCw, ChevronDown, ChevronRight, Store } from "lucide-react";
+import { Package, Loader2, Trash2, Plus, RefreshCw, ChevronDown, ChevronRight } from "lucide-react";
 import { toast } from "sonner";
 import type { CanvasCard, CanvasAction } from "./types";
 import { DEFAULT_CARD_SIZES, DEFAULT_CARD_SIZE } from "./types";
@@ -31,27 +31,6 @@ interface ComponentGalleryProps {
   /** Incremented each time an unsave happens - triggers gallery refetch */
   refetchTrigger?: number;
 }
-
-interface MarketplaceInstall {
-  installId: string;
-  installedAt: string;
-  version: string | null;
-  component: {
-    id: string;
-    name: string;
-    displayName: string;
-    description: string;
-    tier: string;
-    category: string;
-  };
-}
-
-/** Tier → short label for the badge */
-const TIER_LABELS: Record<string, string> = {
-  template: "Template",
-  sandbox: "Sandbox",
-  code: "Code",
-};
 
 /** Component type → short label for the badge */
 const COMPONENT_LABELS: Record<string, string> = {
@@ -78,13 +57,6 @@ function ComponentGalleryInner({ deploymentId, cards, dispatch, refetchTrigger }
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const hasFetched = useRef(false);
-
-  // Fetch installed marketplace components
-  const { data: marketplaceItems = [], isLoading: marketplaceLoading } =
-    trpc.marketplace.listInstalled.useQuery(
-      { deploymentId },
-      { enabled: open },
-    ) as { data: MarketplaceInstall[]; isLoading: boolean };
 
   const fetchGallery = useCallback(async () => {
     setLoading(true);
@@ -231,39 +203,9 @@ function ComponentGalleryInner({ deploymentId, cards, dispatch, refetchTrigger }
     }
   }, [deploymentId, getAccessTokenSilently]);
 
-  const handleLoadMarketplace = useCallback((item: MarketplaceInstall) => {
-    const size = DEFAULT_CARD_SIZES[item.component.name] || DEFAULT_CARD_SIZE;
-
-    // Find a position that doesn't overlap existing cards
-    const existingPositions = cards.map(c => ({ x: c.position.x, y: c.position.y, w: c.size.width, h: c.size.height }));
-    let x = 60, y = 60;
-    if (existingPositions.length > 0) {
-      const last = existingPositions[existingPositions.length - 1];
-      x = last.x + 40;
-      y = last.y + 40;
-    }
-
-    const card: CanvasCard = {
-      id: `card-marketplace-${Date.now()}`,
-      component: item.component.name,
-      props: {},
-      position: { x, y },
-      size,
-      zIndex: 0,
-      minimized: false,
-      createdAt: Date.now(),
-      title: item.component.displayName,
-    };
-
-    dispatch({ type: "ADD_CARD", card });
-    dispatch({ type: "BRING_TO_FRONT", id: card.id });
-    toast.success(`Added "${item.component.displayName}" to canvas`);
-  }, [cards, dispatch]);
-
   const hasSavedItems = items.length > 0;
-  const hasMarketplaceItems = marketplaceItems.length > 0;
-  const totalCount = items.length + marketplaceItems.length;
-  const bothEmpty = !loading && !marketplaceLoading && !error && !hasSavedItems && !hasMarketplaceItems;
+  const totalCount = items.length;
+  const bothEmpty = !loading && !error && !hasSavedItems;
 
   return (
     <div className="shrink-0">
@@ -304,8 +246,8 @@ function ComponentGalleryInner({ deploymentId, cards, dispatch, refetchTrigger }
 
           {/* Content */}
           <div className="p-2">
-            {/* Combined loading state */}
-            {loading && items.length === 0 && marketplaceItems.length === 0 && (
+            {/* Loading state */}
+            {loading && items.length === 0 && (
               <div className="flex items-center justify-center py-6 text-muted-foreground">
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />
                 <span className="text-xs">Loading gallery...</span>
@@ -316,10 +258,10 @@ function ComponentGalleryInner({ deploymentId, cards, dispatch, refetchTrigger }
               <div className="text-xs text-red-400 px-2 py-3 text-center">{error}</div>
             )}
 
-            {/* Combined empty state */}
+            {/* Empty state */}
             {bothEmpty && (
               <div className="text-xs text-muted-foreground px-2 py-6 text-center">
-                No components yet. Use the bookmark button on any card to save it, or install components from the marketplace.
+                No components yet. Use the bookmark button on any card to save it.
               </div>
             )}
 
@@ -396,79 +338,6 @@ function ComponentGalleryInner({ deploymentId, cards, dispatch, refetchTrigger }
                     </div>
                   ))}
                 </div>
-              </>
-            )}
-
-            {/* ── Marketplace Section ── */}
-            {(hasMarketplaceItems || marketplaceLoading) && (
-              <>
-                {hasSavedItems && <div className="my-2 border-t border-border/30" />}
-                <div className="flex items-center gap-1.5 px-1 pb-1.5">
-                  <Store className="w-3 h-3 text-indigo-400" />
-                  <span className="text-[10px] font-medium text-indigo-400 uppercase tracking-wide">Marketplace</span>
-                  {hasMarketplaceItems && (
-                    <span className="text-[10px] text-muted-foreground-subtle">({marketplaceItems.length})</span>
-                  )}
-                </div>
-
-                {marketplaceLoading && !hasMarketplaceItems && (
-                  <div className="flex items-center justify-center py-4 text-muted-foreground">
-                    <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" />
-                    <span className="text-[10px]">Loading marketplace...</span>
-                  </div>
-                )}
-
-                {hasMarketplaceItems && (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
-                    {marketplaceItems.map(item => (
-                      <div
-                        key={item.installId}
-                        role="button"
-                        tabIndex={0}
-                        draggable
-                        onDragStart={(e) => {
-                          e.dataTransfer.setData(
-                            "application/x-jarble-component",
-                            JSON.stringify({ component: item.component.name, displayName: item.component.displayName, props: {} }),
-                          );
-                          e.dataTransfer.effectAllowed = "copy";
-                        }}
-                        className="group relative flex flex-col gap-1 p-2 rounded-md border border-indigo-500/20 bg-indigo-500/5 hover:bg-indigo-500/10 hover:border-indigo-500/40 transition-colors cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
-                        onClick={() => handleLoadMarketplace(item)}
-                        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && (e.preventDefault(), handleLoadMarketplace(item))}
-                        title={`Add "${item.component.displayName}" to canvas - or drag to drop`}
-                      >
-                        {/* Tier + Category badges */}
-                        <div className="flex items-center gap-1">
-                          <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-400/80 truncate">
-                            {TIER_LABELS[item.component.tier] || item.component.tier}
-                          </span>
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-secondary/40 text-muted-foreground truncate">
-                            {item.component.category}
-                          </span>
-                        </div>
-
-                        {/* Display name */}
-                        <span className="text-[11px] font-medium text-foreground truncate">{item.component.displayName}</span>
-
-                        {/* Description */}
-                        {item.component.description && (
-                          <span className="text-[9px] text-muted-foreground truncate">{item.component.description}</span>
-                        )}
-
-                        {/* Marketplace badge */}
-                        <span className="text-[8px] font-medium px-1 py-0.5 rounded bg-indigo-500/15 text-indigo-400/70 self-start">
-                          Marketplace
-                        </span>
-
-                        {/* Add icon overlay */}
-                        <div className="absolute bottom-1 right-1 w-5 h-5 flex items-center justify-center rounded-full bg-indigo-500/20 text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <Plus className="w-3 h-3" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </>
             )}
           </div>

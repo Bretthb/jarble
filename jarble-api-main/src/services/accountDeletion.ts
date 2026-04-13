@@ -121,36 +121,11 @@ export async function deleteAccount(params: {
       inArray(tables.platformCredentials.deploymentId, deploymentIds)
     );
 
-    // Component installs
-    await db.delete(tables.componentInstalls).where(
-      inArray(tables.componentInstalls.deploymentId, deploymentIds)
-    );
-
     // Deployments
     await db.delete(tables.deployments).where(
       inArray(tables.deployments.id, deploymentIds)
     );
   }
-
-  // Component purchases (references userId, not deploymentId)
-  await db.delete(tables.componentPurchases).where(
-    eq(tables.componentPurchases.userId, userId)
-  );
-
-  // Component reviews (references userId)
-  await db.delete(tables.componentReviews).where(
-    eq(tables.componentReviews.userId, userId)
-  );
-
-  // Creator profile (references userId)
-  await db.delete(tables.creatorProfiles).where(
-    eq(tables.creatorProfiles.userId, userId)
-  );
-
-  // Marketplace components authored by this user
-  await db.delete(tables.marketplaceComponents).where(
-    eq(tables.marketplaceComponents.creatorId, userId)
-  );
 
   // Audit logs: delete to satisfy FK constraint (audit record already written above)
   await db.delete(tables.auditLogs).where(

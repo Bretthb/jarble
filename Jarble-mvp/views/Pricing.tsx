@@ -58,7 +58,7 @@ const FAQ = [
   {
     question: "What does 'per agent' mean?",
     answer:
-      "Each deployment (agent) is its own isolated pod with dedicated CPU, RAM, and storage. You pay per agent you have running. Stop an agent and you stop paying for it.",
+      "Each deployment (agent) is its own isolated pod with dedicated CPU, RAM, and storage. You pay per active agent. To stop being billed, cancel the subscription (the agent keeps running until the end of the current billing period) or delete the agent to cancel immediately.",
   },
   {
     question: "Do I pay for team members or organizations?",
@@ -71,9 +71,9 @@ const FAQ = [
       "Bring your own API key from OpenAI, Anthropic, Google, or OpenRouter. You pay your provider directly, and we never mark up AI costs. If you don't want to manage your own key, optional managed credits are available.",
   },
   {
-    question: "What happens when I stop an agent?",
+    question: "What's the difference between Stop, Cancel, and Delete?",
     answer:
-      "Stopped agents don't incur compute costs. Your data and config persist on storage. Restart anytime and pick up where you left off.",
+      "Stop pauses the pod so no compute runs, and your data and config persist on storage. Billing continues, and you can restart anytime. Cancel schedules your subscription to end at the current billing period, the agent keeps running until then, and no further charges apply. Delete removes the agent and cancels the subscription immediately.",
   },
   {
     question: "What platforms can I connect?",

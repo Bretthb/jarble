@@ -94,7 +94,7 @@ If neither tag is present, assume NOT on dashboard.
 NEVER fabricate data. Use \`web_search\`/\`web_fetch\` to get real data FIRST, then render.
 
 ## Tools
-35+ MCP tools, all LIVE. Key categories: Search (\`web_search\`, \`web_fetch\`, \`news_search\`, \`wikipedia\`, etc.), UI (\`list_components\`, \`component_reference\`, \`skill_reference\`), Rendering (\`render_ui\`, \`render_page\`, \`compose_dashboard\`, \`save_artifact\`), Marketplace (\`browse_marketplace\`, \`install_marketplace_item\`, \`publish_component\`), Agents (\`discover_agents\`, \`call_agent\` - 1 credit/call), Knowledge (\`knowledge_search\`), Memory (\`core_memory_read\`/\`write\`, \`archival_insert\`/\`search\`).
+35+ MCP tools, all LIVE. Key categories: Search (\`web_search\`, \`web_fetch\`, \`news_search\`, \`wikipedia\`, etc.), UI (\`list_components\`, \`component_reference\`, \`skill_reference\`), Rendering (\`render_ui\`, \`render_page\`, \`compose_dashboard\`, \`save_artifact\`), Agents (\`discover_agents\`, \`call_agent\` - 1 credit/call), Knowledge (\`knowledge_search\`), Memory (\`core_memory_read\`/\`write\`, \`archival_insert\`/\`search\`).
 
 ## Jarble UI (dashboard only)
 
@@ -237,25 +237,6 @@ export const openclawHandler: RuntimeHandler = {
 
     if (deployment.systemPrompt) {
       soulParts.push(deployment.systemPrompt);
-    }
-
-    // Append instruction snippets from installed services
-    // Each snippet is wrapped in a labeled section so it can be cleanly identified
-    // and removed when the service is uninstalled (next syncConfigsToPvc excludes it).
-    if (deployment.packageSnippets && deployment.packageSnippets.length > 0) {
-      for (const ps of deployment.packageSnippets) {
-        soulParts.push(`## Service: ${ps.packageName}\n${ps.snippet}`);
-      }
-    }
-
-    // Append installed marketplace components so the bot knows what's available
-    if (deployment.installedComponents && deployment.installedComponents.length > 0) {
-      const lines = deployment.installedComponents.map((c) =>
-        `- **${c.name}** - ${c.description}`
-      );
-      soulParts.push(
-        `## Installed Marketplace Components\nYou have the following custom components installed. To use them, output a \`\`\`jarble_ui\`\`\` block with \`"component"\` set to the name below - they work exactly like built-in components. Call \`component_reference\` with the component name for full prop details.\n\n**IMPORTANT:** Do NOT use \`load_artifact\` or \`save_artifact\` for marketplace components. Just use \`render_ui\` / jarble_ui blocks directly. Artifacts are a separate persistence system for user-saved dashboards.\n${lines.join("\n")}`
-      );
     }
 
     // ── Team Context (Bot Teams) ────────────────────────────────────────
@@ -634,73 +615,10 @@ export const openclawHandler: RuntimeHandler = {
         // Sanitize skill name for use as filename (lowercase, alphanumeric + hyphens)
         const safeName = skill.name.toLowerCase().replace(/[^a-z0-9-]/g, "-");
 
-        // Check if there is a remote proxy config for this skill name
-        const remoteConfig = deployment.remoteSkillConfigs?.find(
-          (rc) => rc.skillName === skill.name
-        );
-
-        let skillContent = skill.config;
-        if (remoteConfig) {
-          try {
-            const skillJson = JSON.parse(skill.config);
-            skillJson.proxyUrl = remoteConfig.proxyUrl;
-            skillContent = JSON.stringify(skillJson);
-          } catch (err) {
-            log.warn(
-              { skillName: skill.name, proxyUrl: remoteConfig.proxyUrl, err },
-              "renderConfigs: failed to inject proxyUrl into skill config (non-fatal, using original)"
-            );
-          }
-        }
-
         files.push({
           path: `skills/${safeName}.json`,
-          content: skillContent,
+          content: skill.config,
         });
-      }
-    }
-
-    // Write service-tools.json - aggregate MCP tool definitions for installed services.
-    // The MCP server reads this file to dynamically register service skills as first-class
-    // bot tools (e.g. "weather_forecast" instead of generic service_call).
-    if (deployment.remoteSkillConfigs && deployment.remoteSkillConfigs.length > 0) {
-      const serviceTools: Array<{
-        name: string;
-        description: string;
-        inputSchema: Record<string, unknown>;
-        proxyUrl: string;
-        serviceId: string;
-      }> = [];
-
-      // Parse each installed skill to extract tool definitions
-      if (deployment.skills) {
-        for (const skill of deployment.skills) {
-          try {
-            const skillJson = JSON.parse(skill.config);
-            const remoteConfig = deployment.remoteSkillConfigs.find(
-              (rc) => rc.skillName === skill.name
-            );
-            if (remoteConfig && skillJson.inputSchema) {
-              serviceTools.push({
-                name: skill.name.toLowerCase().replace(/[^a-z0-9_]/g, "_"),
-                description: skillJson.description || `Service skill: ${skill.name}`,
-                inputSchema: skillJson.inputSchema,
-                proxyUrl: remoteConfig.proxyUrl,
-                serviceId: remoteConfig.packageId,
-              });
-            }
-          } catch {
-            // Skip malformed skill JSON
-          }
-        }
-      }
-
-      if (serviceTools.length > 0) {
-        files.push({
-          path: "service-tools.json",
-          content: JSON.stringify(serviceTools, null, 2),
-        });
-        log.info({ toolCount: serviceTools.length }, "renderConfigs: wrote service-tools.json");
       }
     }
 
