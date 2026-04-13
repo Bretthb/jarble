@@ -308,34 +308,52 @@ export function attachAdminWsProxy(server: http.Server) {
     const url = new URL(request.url || "", `http://${request.headers.host}`);
     if (url.pathname !== "/ws/admin") return;
 
-    const token = url.searchParams.get("token");
     const deploymentId = url.searchParams.get("deploymentId");
-
-    if (!token || !deploymentId) {
+    if (!deploymentId) {
       socket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
       socket.destroy();
       return;
     }
 
-    // Authenticate
-    let user: Awaited<ReturnType<typeof getUserFromToken>>;
-    try {
-      const payload = await verifyToken(token);
-      user = await getUserFromToken(payload);
-    } catch {
-      socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
-      socket.destroy();
-      return;
+    // Auth: try session cookie first (set by HTTP proxy), then ?token= fallback
+    let userId: string | null = null;
+
+    const cookieHeader = request.headers.cookie || "";
+    const cookies: Record<string, string> = {};
+    for (const pair of cookieHeader.split(";")) {
+      const [k, ...v] = pair.trim().split("=");
+      if (k) cookies[k] = v.join("=");
+    }
+    const cookieVal = cookies[COOKIE_NAME];
+    if (cookieVal) {
+      const session = verifyCookie(decodeURIComponent(cookieVal));
+      if (session && session.deploymentId === deploymentId) {
+        userId = session.userId;
+      }
     }
 
-    if (!user) {
+    // Fallback: ?token= JWT (for backward compat / non-cookie clients)
+    if (!userId) {
+      const token = url.searchParams.get("token");
+      if (token) {
+        try {
+          const payload = await verifyToken(token);
+          const user = await getUserFromToken(payload);
+          if (user) userId = user.id;
+        } catch {
+          // Invalid token — fall through to 401
+        }
+      }
+    }
+
+    if (!userId) {
       socket.write("HTTP/1.1 401 Unauthorized\r\n\r\n");
       socket.destroy();
       return;
     }
 
     // Verify ownership
-    const deployment = await verifyOwnership(deploymentId, user.id);
+    const deployment = await verifyOwnership(deploymentId, userId);
     if (!deployment) {
       socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
       socket.destroy();
