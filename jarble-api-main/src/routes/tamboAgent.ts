@@ -48,6 +48,7 @@ import {
   type ComponentDefinition,
 } from "../utils/componentResolver.js";
 import { classifyError } from "../utils/chatErrors.js";
+import { decryptApiKey } from "../utils/encryption.js";
 import { getOpenRouterCreditStatus } from "../utils/openrouter.js";
 import { generateSuggestions } from "../services/suggestions.js";
 import { generateReasoning } from "../services/reasoning.js";
@@ -1787,9 +1788,19 @@ tamboAgentRouter.post("/", async (req, res) => {
                 });
               }
 
-              // Execute subagent calls in parallel
-              const provider = env.AGENT_LLM_PROVIDER ?? "openrouter";
-              const apiKey = env.AGENT_LLM_API_KEY ?? env.OPENROUTER_API_KEY;
+              // Execute subagent calls in parallel.
+              // Use the deployment's own LLM key (same key the pod uses for chat),
+              // falling back to the platform-level key for backwards compat.
+              let deploymentLlmKey: string | null = null;
+              try {
+                if (deployment.llmApiKey) {
+                  deploymentLlmKey = decryptApiKey(deployment.llmApiKey);
+                }
+              } catch (err) {
+                log.warn({ deploymentId, err: err instanceof Error ? err.message : err }, "Chat: failed to decrypt deployment LLM key for subagent");
+              }
+              const provider = deployment.llmProvider || env.AGENT_LLM_PROVIDER || "openrouter";
+              const apiKey = deploymentLlmKey || env.AGENT_LLM_API_KEY || env.OPENROUTER_API_KEY;
 
               const subagentResults = await Promise.allSettled(
                 subagentJobs.map(async (job) => {
