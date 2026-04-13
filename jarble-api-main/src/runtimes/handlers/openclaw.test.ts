@@ -491,6 +491,61 @@ describe("openclawHandler.getSecretEntries", () => {
     expect(entries["OPENAI_API_KEY"]).toBeUndefined();
     expect(entries["GOOGLE_API_KEY"]).toBeUndefined();
   });
+
+  // ── JARBLE_API_URL derivation ──────────────────────────────────────────────
+  // Regression: chained .replace() turned "dev.jarble.ai" → "api.api.jarble.ai".
+  // Fix uses a single regex instead.
+  // Note: handler reads process.env.FRONTEND_URL directly (not the env utility mock).
+
+  it("sets JARBLE_API_URL to https://api.jarble.ai when FRONTEND_URL is not set", () => {
+    const prev = process.env.FRONTEND_URL;
+    delete process.env.FRONTEND_URL;
+    try {
+      const entries = openclawHandler.getSecretEntries(makeDeployment());
+      expect(entries["JARBLE_API_URL"]).toBe("https://api.jarble.ai");
+    } finally {
+      if (prev !== undefined) process.env.FRONTEND_URL = prev;
+    }
+  });
+
+  it("derives JARBLE_API_URL from dev.jarble.ai FRONTEND_URL correctly (no double-replace)", () => {
+    const prev = process.env.FRONTEND_URL;
+    process.env.FRONTEND_URL = "https://dev.jarble.ai";
+    try {
+      const entries = openclawHandler.getSecretEntries(makeDeployment());
+      expect(entries["JARBLE_API_URL"]).toBe("https://api.jarble.ai");
+      // Guard against the old double-replace bug
+      expect(entries["JARBLE_API_URL"]).not.toBe("https://api.api.jarble.ai");
+    } finally {
+      if (prev !== undefined) process.env.FRONTEND_URL = prev;
+      else delete process.env.FRONTEND_URL;
+    }
+  });
+
+  it("derives JARBLE_API_URL from bare jarble.ai FRONTEND_URL correctly", () => {
+    const prev = process.env.FRONTEND_URL;
+    process.env.FRONTEND_URL = "https://jarble.ai";
+    try {
+      const entries = openclawHandler.getSecretEntries(makeDeployment());
+      expect(entries["JARBLE_API_URL"]).toBe("https://api.jarble.ai");
+    } finally {
+      if (prev !== undefined) process.env.FRONTEND_URL = prev;
+      else delete process.env.FRONTEND_URL;
+    }
+  });
+
+  it("preserves non-jarble FRONTEND_URL as-is for JARBLE_API_URL", () => {
+    const prev = process.env.FRONTEND_URL;
+    process.env.FRONTEND_URL = "http://localhost:3000";
+    try {
+      const entries = openclawHandler.getSecretEntries(makeDeployment());
+      // Non-jarble URLs pass through unchanged
+      expect(entries["JARBLE_API_URL"]).toBe("http://localhost:3000");
+    } finally {
+      if (prev !== undefined) process.env.FRONTEND_URL = prev;
+      else delete process.env.FRONTEND_URL;
+    }
+  });
 });
 
 // ── parseConfigs ─────────────────────────────────────────────────────────────
