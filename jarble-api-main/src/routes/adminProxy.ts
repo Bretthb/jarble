@@ -10,6 +10,7 @@
  */
 
 import http from "http";
+import crypto from "crypto";
 import { Router, type Request, type Response } from "express";
 import { WebSocketServer, WebSocket } from "ws";
 import { URL } from "url";
@@ -22,6 +23,44 @@ import { injectViaGateway } from "../services/openclawGateway.js";
 import { createModuleLogger } from "../utils/logger.js";
 
 const log = createModuleLogger("admin-proxy");
+
+// ── Session cookie for iframe sub-resource auth ──────────────────────────
+// The initial HTML page request carries ?token=JWT. Sub-resource requests
+// (CSS, JS, images) don't carry the token. We set an HttpOnly cookie on
+// the first authenticated request so subsequent asset loads are authorized.
+
+const COOKIE_NAME = "jarble_admin_session";
+const COOKIE_SECRET = crypto.randomBytes(32).toString("hex"); // per-process secret
+const COOKIE_MAX_AGE = 3600; // 1 hour
+
+function signCookie(deploymentId: string, userId: string): string {
+  const data = `${deploymentId}:${userId}:${Math.floor(Date.now() / 1000)}`;
+  const sig = crypto.createHmac("sha256", COOKIE_SECRET).update(data).digest("hex");
+  return `${data}:${sig}`;
+}
+
+function verifyCookie(cookie: string): { deploymentId: string; userId: string } | null {
+  const parts = cookie.split(":");
+  if (parts.length !== 4) return null;
+  const [deploymentId, userId, ts, sig] = parts;
+  const data = `${deploymentId}:${userId}:${ts}`;
+  const expected = crypto.createHmac("sha256", COOKIE_SECRET).update(data).digest("hex");
+  if (sig !== expected) return null;
+  // Check expiry
+  const age = Math.floor(Date.now() / 1000) - parseInt(ts, 10);
+  if (age > COOKIE_MAX_AGE) return null;
+  return { deploymentId, userId };
+}
+
+function parseCookies(req: Request): Record<string, string> {
+  const header = req.headers.cookie || "";
+  const result: Record<string, string> = {};
+  for (const pair of header.split(";")) {
+    const [k, ...v] = pair.trim().split("=");
+    if (k) result[k] = v.join("=");
+  }
+  return result;
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -98,16 +137,42 @@ adminProxyRouter.post("/:id/inject", async (req: Request, res: Response) => {
  * running on the same port as the gateway (18789).
  */
 adminProxyRouter.get("/:id/admin/*", async (req: Request, res: Response) => {
-  const user = await resolveUser(req);
-  if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
-
   const deploymentId = req.params.id;
-  const deployment = await verifyOwnership(deploymentId, user.id);
+
+  // Auth: try JWT first (initial page load), then fall back to session cookie (sub-resources)
+  let userId: string | null = null;
+  let setSessionCookie = false;
+
+  const user = await resolveUser(req);
+  if (user) {
+    userId = user.id;
+    setSessionCookie = true; // First authenticated request — set cookie for asset loads
+  } else {
+    // Check session cookie for sub-resource requests (CSS, JS, images)
+    const cookies = parseCookies(req);
+    const cookieVal = cookies[COOKIE_NAME];
+    if (cookieVal) {
+      const session = verifyCookie(decodeURIComponent(cookieVal));
+      if (session && session.deploymentId === deploymentId) {
+        userId = session.userId;
+      }
+    }
+  }
+
+  if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const deployment = await verifyOwnership(deploymentId, userId);
   if (!deployment) { res.status(404).json({ error: "Not found" }); return; }
 
   const managedBy: ManagedBy = (deployment as any).managedBy ?? "legacy";
   const podAddr = await getPodAddress(deploymentId, managedBy);
   if (!podAddr) { res.status(503).json({ error: "Pod not reachable" }); return; }
+
+  // Set session cookie on the initial authenticated request
+  if (setSessionCookie) {
+    const cookie = signCookie(deploymentId, userId);
+    res.setHeader("Set-Cookie", `${COOKIE_NAME}=${encodeURIComponent(cookie)}; Path=/api/deployments/${deploymentId}/admin; HttpOnly; SameSite=None; Secure; Max-Age=${COOKIE_MAX_AGE}`);
+  }
 
   // Build the proxied URL — strip the /api/deployments/:id/admin prefix
   // req.params[0] captures the wildcard portion after /admin/
