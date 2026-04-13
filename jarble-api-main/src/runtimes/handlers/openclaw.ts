@@ -268,6 +268,10 @@ export const openclawHandler: RuntimeHandler = {
     log.debug({ deploymentId: deployment.name }, "renderConfigs");
     const files: ConfigFile[] = [];
 
+    // Feature gate: native subagents require OpenClaw >=2026.4.x (agents.list support).
+    // Set OPENCLAW_NATIVE_SUBAGENTS=true after rebuilding the runtime image.
+    const nativeSubagentsEnabled = process.env.OPENCLAW_NATIVE_SUBAGENTS === "true";
+
     // Compute container HOME based on management mode (affects absolute paths)
     // Legacy: HOME=/data, Operator: HOME=/home/openclaw
     const managedBy = deployment.managedBy ?? "legacy";
@@ -391,22 +395,40 @@ export const openclawHandler: RuntimeHandler = {
         (a) => !a.source || a.source === "custom" || a.source === "delegation"
       );
       if (customAgents.length > 0) {
-        const lines = customAgents.map((a) =>
-          `- **${a.slug}** — ${a.description || a.name}`
-        );
-        poolSections.push(
-          `### Your Specialist Agents\n` +
-          `You have access to these specialist agents via \`sessions_spawn\`:\n` +
-          lines.join("\n") + `\n\n` +
-          `**How to delegate**: Use \`sessions_spawn\` to dispatch tasks to your specialists. Each runs as a full native agent with its own SOUL.md, MCP tools, and render_ui access.\n\n` +
-          `Example: \`sessions_spawn({ task: "Build a KPI dashboard showing monthly revenue", agentId: "${customAgents[0].slug}" })\`\n\n` +
-          `Then call \`sessions_yield\` to wait for the result. The specialist will announce its output (including any rendered UI components) back to you when complete.\n\n` +
-          `Rules:\n` +
-          `1. Use \`sessions_spawn\` for ALL subagent calls. Do NOT emit \`jarble_delegate\` blocks for subagents.\n` +
-          `2. Your specialists have full MCP tool access — they can use \`render_ui\`, \`web_search\`, \`component_reference\`, and all other tools.\n` +
-          `3. Team delegations (cross-bot, different pods) still use \`jarble_delegate\` blocks.\n` +
-          `4. If no specialist fits, build it yourself using \`render_ui\` with the \`sandbox\` component.`
-        );
+        if (nativeSubagentsEnabled) {
+          // Native mode: sessions_spawn
+          const lines = customAgents.map((a) =>
+            `- **${a.slug}** — ${a.description || a.name}`
+          );
+          poolSections.push(
+            `### Your Specialist Agents\n` +
+            `You have access to these specialist agents via \`sessions_spawn\`:\n` +
+            lines.join("\n") + `\n\n` +
+            `**How to delegate**: Use \`sessions_spawn\` to dispatch tasks to your specialists. Each runs as a full native agent with its own SOUL.md, MCP tools, and render_ui access.\n\n` +
+            `Example: \`sessions_spawn({ task: "Build a KPI dashboard showing monthly revenue", agentId: "${customAgents[0].slug}" })\`\n\n` +
+            `Then call \`sessions_yield\` to wait for the result. The specialist will announce its output (including any rendered UI components) back to you when complete.\n\n` +
+            `Rules:\n` +
+            `1. Use \`sessions_spawn\` for ALL subagent calls. Do NOT emit \`jarble_delegate\` blocks for subagents.\n` +
+            `2. Your specialists have full MCP tool access — they can use \`render_ui\`, \`web_search\`, \`component_reference\`, and all other tools.\n` +
+            `3. Team delegations (cross-bot, different pods) still use \`jarble_delegate\` blocks.\n` +
+            `4. If no specialist fits, build it yourself using \`render_ui\` with the \`sandbox\` component.`
+          );
+        } else {
+          // Legacy mode: MCP tool calls
+          const lines = customAgents.map((a) =>
+            `- **agent_${a.slug}** — ${a.description || a.name}`
+          );
+          poolSections.push(
+            `### Custom Subagents\n` +
+            lines.join("\n") + `\n\n` +
+            `**How to call subagents**: Call them as MCP tools. Pass a \`task\` string argument describing what to build.\n\n` +
+            `Example: \`agent_${customAgents[0].slug}({ "task": "describe the task here", "context": "any extra data" })\`\n\n` +
+            `Rules:\n` +
+            `1. ALWAYS call the \`agent_*\` tool directly.\n` +
+            `2. Your subagents can render UI components on the canvas using \`render_ui\` and \`sandbox\`.\n` +
+            `3. If no subagent fits, build it yourself using \`render_ui\` with the \`sandbox\` component.`
+          );
+        }
       }
 
       // 3. Team members - other deployments linked via Bot Teams flows
@@ -433,17 +455,26 @@ export const openclawHandler: RuntimeHandler = {
         const hasCustomSubagents = customAgents.length > 0;
 
         const delegationGuidance = hasCustomSubagents
-          ? // Custom subagents exist — use native sessions_spawn
-            `### When to Delegate\n` +
-            `- **Simple request** (single chart, quick answer): Handle it yourself with \`render_ui\` or \`sandbox\`.\n` +
-            `- **Any UI component or specialized request**: Use \`sessions_spawn\` to dispatch to the matching specialist. They have full MCP access and can render UI directly.\n` +
-            `- Do NOT use \`compose_dashboard\` or \`create_component\` — use your specialist agents instead.\n\n` +
-            `### How to Call Specialists\n` +
-            `Use \`sessions_spawn\` + \`sessions_yield\`:\n` +
-            `1. \`sessions_spawn({ task: "Build a KPI grid with...", agentId: "dashboard_builder" })\`\n` +
-            `2. \`sessions_yield\` — wait for the specialist to finish\n` +
-            `3. Read the announced result and synthesize for the user\n\n` +
-            `Each specialist runs as a full native agent with its own SOUL.md, render_ui, and all MCP tools.\n\n`
+          ? (nativeSubagentsEnabled
+            ? // Native mode: sessions_spawn
+              `### When to Delegate\n` +
+              `- **Simple request** (single chart, quick answer): Handle it yourself with \`render_ui\` or \`sandbox\`.\n` +
+              `- **Any UI component or specialized request**: Use \`sessions_spawn\` to dispatch to the matching specialist. They have full MCP access and can render UI directly.\n` +
+              `- Do NOT use \`compose_dashboard\` or \`create_component\` — use your specialist agents instead.\n\n` +
+              `### How to Call Specialists\n` +
+              `Use \`sessions_spawn\` + \`sessions_yield\`:\n` +
+              `1. \`sessions_spawn({ task: "Build a KPI grid with...", agentId: "dashboard_builder" })\`\n` +
+              `2. \`sessions_yield\` — wait for the specialist to finish\n` +
+              `3. Read the announced result and synthesize for the user\n\n` +
+              `Each specialist runs as a full native agent with its own SOUL.md, render_ui, and all MCP tools.\n\n`
+            : // Legacy mode: MCP tool calls
+              `### When to Delegate\n` +
+              `- **Simple request** (single chart, quick answer): Handle it yourself with \`render_ui\` or \`sandbox\`.\n` +
+              `- **Any UI component request**: Call the matching \`agent_*\` tool directly. These are your specialist subagents.\n\n` +
+              `### How to Call Subagents\n` +
+              `Your subagents are MCP tools. Call them exactly like \`render_ui\` or \`web_search\`:\n` +
+              `\`agent_dashboard_builder({ "task": "Build a KPI grid with...", "context": "" })\`\n\n`
+          )
           : // No custom subagents — use platform orchestration (default for new users)
             `### When to Delegate\n` +
             `- **Simple request** (single chart, quick answer, one component): Handle it yourself with render_ui or sandbox. Fast and direct.\n` +
@@ -549,11 +580,13 @@ export const openclawHandler: RuntimeHandler = {
     // ── Native subagents: populate agents.list from deployment.subagents ──
     // Each custom subagent becomes a named agent in OpenClaw with its own
     // workspace + SOUL.md. The parent bot uses sessions_spawn to delegate.
+    //
+    // GATED: Only activate when OPENCLAW_NATIVE_SUBAGENTS=true (see top of renderConfigs).
     const customSubagents = (deployment.subagents ?? []).filter(
       (a) => a.systemPrompt && (!a.source || a.source === "custom" || a.source === "delegation")
     );
 
-    if (customSubagents.length > 0) {
+    if (nativeSubagentsEnabled && customSubagents.length > 0) {
       const agentsList: Array<Record<string, any>> = [];
 
       for (const agent of customSubagents) {
@@ -749,8 +782,29 @@ export const openclawHandler: RuntimeHandler = {
       }
     }
 
-    // Legacy subagent-tools.json removed — subagents are now native OpenClaw
-    // agents via agents.list + sessions_spawn (see agents.list block above).
+    // Legacy subagent-tools.json — used when native subagents are disabled
+    // (OPENCLAW_NATIVE_SUBAGENTS !== "true") or on older OpenClaw versions.
+    if (!nativeSubagentsEnabled && deployment.subagents && deployment.subagents.length > 0) {
+      const subagentTools = deployment.subagents.map((a) => ({
+        name: `agent_${a.slug}`,
+        slug: a.slug,
+        description: a.description || `Custom agent: ${a.name}`,
+        inputSchema: {
+          type: "object" as const,
+          properties: {
+            task: { type: "string", description: `Task or question to delegate to ${a.name}` },
+            context: { type: "string", description: "Additional context or data for the agent" },
+          },
+          required: ["task"],
+        },
+      }));
+
+      files.push({
+        path: "subagent-tools.json",
+        content: JSON.stringify(subagentTools, null, 2),
+      });
+      log.info({ toolCount: subagentTools.length }, "renderConfigs: wrote subagent-tools.json (legacy mode)");
+    }
 
     // Write delegation-tools.json - MCP tool definitions for Bot Teams delegation.
     // Phase 1 (A2A): single `a2a_delegate` tool with a `to` enum of teammate slugs,

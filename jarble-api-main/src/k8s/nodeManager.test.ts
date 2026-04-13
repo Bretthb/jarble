@@ -97,23 +97,19 @@ describe("SERVER_TYPES table", () => {
     expect(LONGHORN_DISK_OVERHEAD_GB).toBe(11);
   });
 
-  it("cpx11 usable disk is below 30 GiB (the original bug repro)", () => {
-    // The user's 30 GiB PVC ended up on a cpx11 with ~29 GiB usable.
-    // This test pins the constant so we never silently regress that value.
-    const cpx11 = SERVER_TYPES.find((t) => t.name === "cpx11");
-    expect(cpx11).toBeDefined();
-    expect(cpx11!.usableLonghornGb).toBeLessThan(30);
+  it("cpx31 (minimum tier) usable disk is well above 100 GiB", () => {
+    const cpx31 = SERVER_TYPES.find((t) => t.name === "cpx31");
+    expect(cpx31).toBeDefined();
+    expect(cpx31!.usableLonghornGb).toBeGreaterThan(100);
   });
 });
 
 // ── pickServerType: PVC dimension drives the pick ───────────────────────────
 
 describe("pickServerType — PVC dimension", () => {
-  it("a 30 GiB PVC + 1 vCPU + 1 GiB RAM bumps tier from cpx11 → cpx21", () => {
-    // Without the PVC check, CPU+RAM alone would pick cpx11.
-    // The 30 GiB PVC must force at least cpx21 (80 GiB root, ~69 GiB usable).
+  it("a 30 GiB PVC + 1 vCPU + 1 GiB RAM picks cpx31 (minimum tier)", () => {
     const picked = pickServerType(1, 1, 30);
-    expect(picked.name).toBe("cpx21");
+    expect(picked.name).toBe("cpx31");
   });
 
   it("a 200 GiB PVC + 1 vCPU + 1 GiB RAM picks cpx41", () => {
@@ -131,30 +127,26 @@ describe("pickServerType — PVC dimension", () => {
     );
   });
 
-  it("a 5 GiB PVC + 1 vCPU + 1 GiB RAM still picks cpx11 (small bot stays cheap)", () => {
-    // Tiny PVC must NOT bump the tier — cpx11 is the cheapest tier and a
-    // 5 GiB PVC fits comfortably in its ~29 GiB usable disk.
+  it("a 5 GiB PVC + 1 vCPU + 1 GiB RAM picks cpx31 (minimum tier)", () => {
     const picked = pickServerType(1, 1, 5);
-    expect(picked.name).toBe("cpx11");
+    expect(picked.name).toBe("cpx31");
   });
 
   it("PVC defaults to 20 GiB when not provided", () => {
-    // 20 GiB fits in cpx11's ~29 GiB usable, so a 1/1/<undefined> bot lands on cpx11.
     const picked = pickServerType(1, 1);
-    expect(picked.name).toBe("cpx11");
+    expect(picked.name).toBe("cpx31");
   });
 
-  it("a PVC exactly equal to usableLonghornGb is allowed", () => {
-    // Boundary check: requestedPvcGb <= usableLonghornGb (inclusive).
-    const cpx11 = SERVER_TYPES.find((t) => t.name === "cpx11")!;
-    const picked = pickServerType(1, 1, cpx11.usableLonghornGb);
-    expect(picked.name).toBe("cpx11");
+  it("a PVC exactly equal to cpx31 usableLonghornGb is allowed", () => {
+    const cpx31 = SERVER_TYPES.find((t) => t.name === "cpx31")!;
+    const picked = pickServerType(1, 1, cpx31.usableLonghornGb);
+    expect(picked.name).toBe("cpx31");
   });
 
-  it("a PVC one GiB over the cpx11 ceiling escalates to cpx21", () => {
-    const cpx11 = SERVER_TYPES.find((t) => t.name === "cpx11")!;
-    const picked = pickServerType(1, 1, cpx11.usableLonghornGb + 1);
-    expect(picked.name).toBe("cpx21");
+  it("a PVC one GiB over cpx31 ceiling escalates to cpx41", () => {
+    const cpx31 = SERVER_TYPES.find((t) => t.name === "cpx31")!;
+    const picked = pickServerType(1, 1, cpx31.usableLonghornGb + 1);
+    expect(picked.name).toBe("cpx41");
   });
 });
 

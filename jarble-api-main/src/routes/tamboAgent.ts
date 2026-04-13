@@ -1698,7 +1698,7 @@ tamboAgentRouter.post("/", async (req, res) => {
     // OpenClaw deployments use native sessions_spawn for subagent orchestration.
     // The agents.list config is written by renderConfigs in openclaw.ts — the bot
     // handles delegation internally via sessions_spawn, no API interception needed.
-    const hasNativeSubagents = deployment.runtime === "openclaw";
+    const hasNativeSubagents = deployment.runtime === "openclaw" && process.env.OPENCLAW_NATIVE_SUBAGENTS === "true";
 
     if (!hasNativeSubagents) {
       try {
