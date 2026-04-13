@@ -705,10 +705,21 @@ export const openclawHandler: RuntimeHandler = {
     openclawConfig.gateway = gatewayConfig;
 
     // Disable built-in tools that conflict with Jarble's web dashboard rendering.
-    // The canvas tool generates HTML artifacts that the dashboard can't render -
-    // the bot should use jarble_ui fenced blocks or the render_ui MCP tool instead.
     openclawConfig.tools = {
       deny: ["canvas"],
+    };
+
+    // Disable channel plugins not supported on the Jarble platform.
+    // Without this, the Control UI shows unconfigured Signal/iMessage/Nostr
+    // panels with "Unsupported type" errors.
+    openclawConfig.plugins = {
+      ...(openclawConfig.plugins || {}),
+      entries: {
+        ...(openclawConfig.plugins?.entries || {}),
+        signal: { enabled: false },
+        imessage: { enabled: false },
+        nostr: { enabled: false },
+      },
     };
 
     // NOTE: OpenClaw does NOT support user-configured MCP servers at runtime.
