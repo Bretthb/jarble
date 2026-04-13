@@ -29,8 +29,10 @@ const { deployments } = tables;
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 async function authenticateAndGetDeployment(req: Request) {
+  // Support both Bearer header (REST calls) and ?token= query param (iframe loads)
   const authHeader = req.headers.authorization;
-  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+  const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7)
+    : (req.query.token as string | undefined) ?? null;
   if (!token) return null;
 
   const payload = await verifyToken(token);
@@ -121,10 +123,12 @@ async function handleAdminProxy(req: Request, res: Response) {
     const prefix = `/api/deployments/${auth.deployment.id}/admin`;
     let targetPath = req.originalUrl.slice(req.originalUrl.indexOf(prefix) + prefix.length) || "/";
 
-    const targetUrl = `http://${podAddr.ip}:${podAddr.port}${targetPath}`;
-    log.debug({ deploymentId: auth.deployment.id, targetUrl }, "Admin proxy HTTP");
+    // Strip auth-related query params before forwarding to pod (don't leak JWT)
+    const targetUrl = new URL(`http://${podAddr.ip}:${podAddr.port}${targetPath}`);
+    targetUrl.searchParams.delete("token");
+    log.debug({ deploymentId: auth.deployment.id, targetUrl: targetUrl.toString() }, "Admin proxy HTTP");
 
-    const proxyRes = await fetch(targetUrl, {
+    const proxyRes = await fetch(targetUrl.toString(), {
       headers: {
         "Authorization": `Bearer ${podAddr.gatewayToken}`,
         "Accept": req.headers.accept || "*/*",

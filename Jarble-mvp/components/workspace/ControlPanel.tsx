@@ -46,7 +46,8 @@ export default function ControlPanel({ deploymentId, liveStatus }: ControlPanelP
         const gatewayUrl = `${wsProtocol}://${apiHost}/ws/admin?token=${encodeURIComponent(token)}&deploymentId=${encodeURIComponent(deploymentId)}`;
 
         // The HTTP proxy serves the Control UI SPA with auto-connect params
-        const src = `${API_URL}/api/deployments/${deploymentId}/admin/?gatewayUrl=${encodeURIComponent(gatewayUrl)}`;
+        // token= authenticates with our proxy; gatewayUrl= tells the SPA where to open its WS
+        const src = `${API_URL}/api/deployments/${deploymentId}/admin/?token=${encodeURIComponent(token)}&gatewayUrl=${encodeURIComponent(gatewayUrl)}`;
         setIframeSrc(src);
       } catch {
         if (!cancelled) {
