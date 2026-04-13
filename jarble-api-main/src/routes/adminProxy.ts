@@ -234,57 +234,133 @@ adminProxyRouter.get("/:id/admin/*", async (req: Request, res: Response) => {
       const escapedToken = podAddr.gatewayToken.replace(/[\\'"]/g, "\\$&");
 
       const autoConnectScript = `<script>
-// Jarble: inject gateway token via page hash before SPA init.
-// The SPA reads the gateway token from window.location.hash (#token=...).
-// The gatewayUrl param sets the WS URL; the hash sets the auth token.
+// Jarble Control UI Bridge — runs in <head> before SPA module scripts.
+// 1. Injects gateway token for auto-connect
+// 2. Auto-confirms the gateway URL dialog
+// 3. Intercepts WS messages to bridge jarble_ui components to parent
+// 4. Receives edit-sync messages from parent to inject into chat
 (function() {
+  // ── 1. Gateway token injection ────────────────────────────────────
   try {
     if (!window.location.hash || !window.location.hash.includes('token=')) {
       window.location.hash = 'token=${escapedToken}';
     }
   } catch(e) {}
 
-  // Auto-confirm the gateway URL security dialog.
-  // Check both existing DOM and newly added nodes (the dialog may render
-  // before or after our script runs depending on module load timing).
+  // ── 2. Auto-confirm gateway URL dialog ────────────────────────────
   function clickConfirmButton() {
     var btns = document.querySelectorAll('button');
     for (var btn of btns) {
-      var text = (btn.textContent || '').trim().toLowerCase();
-      if (text === 'confirm') {
+      if ((btn.textContent || '').trim().toLowerCase() === 'confirm') {
         setTimeout(function() { btn.click(); }, 50);
         return true;
       }
     }
     return false;
   }
-
-  // Try immediately, then poll briefly, then watch for mutations
   function startAutoConfirm() {
     if (clickConfirmButton()) return;
-
-    // Poll every 100ms for up to 3s (handles SPA render timing)
     var attempts = 0;
     var poller = setInterval(function() {
       if (clickConfirmButton() || ++attempts > 30) clearInterval(poller);
     }, 100);
-
-    // Also watch for DOM mutations as backup
     var observer = new MutationObserver(function() {
-      if (clickConfirmButton()) {
-        observer.disconnect();
-        clearInterval(poller);
-      }
+      if (clickConfirmButton()) { observer.disconnect(); clearInterval(poller); }
     });
     observer.observe(document.documentElement, { childList: true, subtree: true });
     setTimeout(function() { observer.disconnect(); clearInterval(poller); }, 10000);
   }
-
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', startAutoConfirm);
   } else {
     startAutoConfirm();
   }
+
+  // ── 3. WS interception — bridge jarble_ui blocks to parent ────────
+  // Monkey-patch WebSocket to intercept bot responses containing
+  // jarble_ui fenced blocks and forward them to the parent page.
+  var _WS = window.WebSocket;
+  var _activeWs = null;
+  var _emittedBlocks = 0; // Track blocks already sent to parent
+
+  function extractJarbleBlocks(text) {
+    var blocks = [];
+    var re = /\`\`\`jarble_ui\\n([\\s\\S]*?)\`\`\`/g;
+    var m;
+    while ((m = re.exec(text)) !== null) {
+      try { blocks.push(JSON.parse(m[1])); } catch(e) {}
+    }
+    return blocks;
+  }
+
+  function extractText(msg) {
+    if (typeof msg === 'string') return msg;
+    if (Array.isArray(msg)) return msg.filter(function(b) { return b.type === 'text'; }).map(function(b) { return b.text || ''; }).join('');
+    if (msg && typeof msg === 'object') {
+      if (msg.content) return extractText(msg.content);
+      if (msg.text) return String(msg.text);
+    }
+    return '';
+  }
+
+  window.WebSocket = function(url, protocols) {
+    var ws = protocols ? new _WS(url, protocols) : new _WS(url);
+    _activeWs = ws;
+
+    ws.addEventListener('message', function(event) {
+      try {
+        var data = JSON.parse(event.data);
+        if (data.type !== 'event') return;
+        var payload = data.payload || data;
+        var state = payload.state;
+        if (state !== 'delta' && state !== 'final') return;
+
+        var text = extractText(payload.message);
+        if (!text || text.indexOf('jarble_ui') === -1) return;
+
+        var blocks = extractJarbleBlocks(text);
+        // Only send new blocks (incremental — delta sends accumulated text)
+        for (var i = _emittedBlocks; i < blocks.length; i++) {
+          window.parent.postMessage({ type: 'jarble:ui_block', block: blocks[i] }, '*');
+        }
+        _emittedBlocks = blocks.length;
+
+        if (state === 'final') {
+          _emittedBlocks = 0; // Reset for next message
+          window.parent.postMessage({ type: 'jarble:turn_complete' }, '*');
+        }
+      } catch(e) {}
+    });
+
+    return ws;
+  };
+  window.WebSocket.prototype = _WS.prototype;
+  window.WebSocket.CONNECTING = _WS.CONNECTING;
+  window.WebSocket.OPEN = _WS.OPEN;
+  window.WebSocket.CLOSING = _WS.CLOSING;
+  window.WebSocket.CLOSED = _WS.CLOSED;
+
+  // ── 4. Edit sync — receive messages from parent, inject into chat ─
+  // When the parent sends a content_edit or chat message, we inject it
+  // into the active WS connection as a chat.send request.
+  window.addEventListener('message', function(event) {
+    if (!event.data || !event.data.type) return;
+
+    if (event.data.type === 'jarble:chat_send' && _activeWs && _activeWs.readyState === 1) {
+      var id = Math.random().toString(36).slice(2, 10);
+      _activeWs.send(JSON.stringify({
+        type: 'req',
+        id: id,
+        method: 'chat.send',
+        params: {
+          message: event.data.message,
+          deliver: false,
+          idempotencyKey: 'jarble-edit-' + id
+        }
+      }));
+      _emittedBlocks = 0; // Reset block counter for new response
+    }
+  });
 })();
 </script>`;
       // Inject in <head> so it runs before module scripts
