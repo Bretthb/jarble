@@ -19,7 +19,7 @@ import { canvasReducer, INITIAL_CANVAS_STATE } from "@/components/workspace/canv
 import SimpleCanvasGrid from "@/components/workspace/SimpleCanvasGrid";
 import DashboardCanvas from "@/components/workspace/DashboardCanvas";
 import EssentialControls from "@/components/workspace/EssentialControls";
-import ConfigPanel from "@/components/workspace/ConfigPanel";
+import ControlPanel from "@/components/workspace/ControlPanel";
 import MarketplacePanel from "@/components/workspace/MarketplacePanel";
 import HostedServicesPanel from "@/components/workspace/HostedServicesPanel";
 import FilePanel from "@/components/workspace/FilePanel";
@@ -30,7 +30,7 @@ import type { CanvasAction } from "@/components/canvas/CanvasActionContext";
 import { Button } from "@/components/ui/button";
 import ConversationHistoryPanel from "@/components/workspace/ConversationHistoryPanel";
 import SubagentsPanel from "@/components/workspace/SubagentsPanel";
-import { ArrowLeft, Loader2, SendHorizontal, Square, Settings, Store, Server, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Bot } from "lucide-react";
+import { ArrowLeft, Loader2, SendHorizontal, Square, Store, Server, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Bot, Monitor } from "lucide-react";
 import { useReducer, useRef, useState, useCallback, useEffect, useMemo, memo } from "react";
 import { cn } from "@/lib/utils";
 import { THEME_PRESETS, resolveThemeVars } from "@jarble/component-manifest";
@@ -297,7 +297,7 @@ function WorkspacePage({
   onRefetchDeployment?: () => void;
 }) {
   const router = useRouter();
-  const [configOpen, setConfigOpen] = useState(false);
+  const [controlMode, setControlMode] = useState(false);
   const [marketplaceOpen, setMarketplaceOpen] = useState(false);
   const [hostedServicesOpen, setHostedServicesOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
@@ -377,7 +377,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setHistoryOpen((v) => {
-                  if (!v) { setConfigOpen(false); setFilesOpen(false); setHostedServicesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
+                  if (!v) { setControlMode(false); setFilesOpen(false); setHostedServicesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
                   return !v;
                 });
               }}
@@ -391,7 +391,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setFilesOpen((v) => {
-                  if (!v) { setConfigOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
+                  if (!v) { setControlMode(false); setHostedServicesOpen(false); setHistoryOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
                   return !v;
                 });
               }}
@@ -405,7 +405,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setKnowledgeOpen((v) => {
-                  if (!v) { setConfigOpen(false); setFilesOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); setSubagentsOpen(false); }
+                  if (!v) { setControlMode(false); setFilesOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); setSubagentsOpen(false); }
                   return !v;
                 });
               }}
@@ -419,7 +419,7 @@ function WorkspacePage({
               isOpen={subagentsOpen}
               onClick={() => {
                 setSubagentsOpen((v) => {
-                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); }
+                  if (!v) { setControlMode(false); setFilesOpen(false); setKnowledgeOpen(false); setHostedServicesOpen(false); setHistoryOpen(false); }
                   return !v;
                 });
               }}
@@ -429,7 +429,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setHostedServicesOpen((v) => {
-                  if (!v) { setConfigOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
+                  if (!v) { setControlMode(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
                   return !v;
                 });
               }}
@@ -448,69 +448,68 @@ function WorkspacePage({
               <Store className="w-4 h-4" />
             </Button>
             <Button
-              variant={configOpen ? "secondary" : "ghost"}
+              variant={controlMode ? "secondary" : "ghost"}
               size="sm"
               onClick={() => {
-                setConfigOpen((v) => {
-                  if (!v) { setHostedServicesOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
+                setControlMode((v) => {
+                  if (!v) { setHostedServicesOpen(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); setMarketplaceOpen(false); setHistoryOpen(false); }
                   return !v;
                 });
               }}
               className="h-8 w-8 p-0 shrink-0"
-              title="Configuration"
+              title="Control Panel"
             >
-              <Settings className="w-4 h-4" />
+              <Monitor className="w-4 h-4" />
             </Button>
             <ProfileDropdown />
           </div>
         </div>
       </header>
 
-      {/* Main area: optional config/hosted panel + canvas + optional marketplace panel */}
+      {/* Main area: Control mode (OpenClaw UI) OR workspace (chat + canvas + panels) */}
       <div className="flex-1 flex overflow-hidden">
-        {filesOpen && (
-          <FilePanel
-            deploymentId={deploymentId}
-            onClose={() => setFilesOpen(false)}
-          />
-        )}
-        {knowledgeOpen && (
-          <KnowledgePanel
-            deploymentId={deploymentId}
-            onClose={() => setKnowledgeOpen(false)}
-          />
-        )}
-        {configOpen && (
-          <ConfigPanel
-            deploymentId={deploymentId}
-            liveStatus={liveStatus}
-            onClose={() => setConfigOpen(false)}
-          />
-        )}
-        {hostedServicesOpen && (
-          <HostedServicesPanel
-            deploymentId={deploymentId}
-            onClose={() => setHostedServicesOpen(false)}
-          />
-        )}
-        {subagentsOpen && (
-          <SubagentsPanel
-            deploymentId={deploymentId}
-            onClose={() => setSubagentsOpen(false)}
-          />
-        )}
-        <CanvasWorkspace
-          deploymentId={deploymentId}
-          liveStatus={liveStatus}
-          historyOpen={historyOpen}
-          onHistoryClose={() => setHistoryOpen(false)}
-          onRefetchDeployment={onRefetchDeployment}
-        />
-        {marketplaceOpen && (
-          <MarketplacePanel
-            deploymentId={deploymentId}
-            onClose={() => setMarketplaceOpen(false)}
-          />
+        {controlMode ? (
+          <ControlPanel deploymentId={deploymentId} liveStatus={liveStatus} />
+        ) : (
+          <>
+            {filesOpen && (
+              <FilePanel
+                deploymentId={deploymentId}
+                onClose={() => setFilesOpen(false)}
+              />
+            )}
+            {knowledgeOpen && (
+              <KnowledgePanel
+                deploymentId={deploymentId}
+                onClose={() => setKnowledgeOpen(false)}
+              />
+            )}
+            {hostedServicesOpen && (
+              <HostedServicesPanel
+                deploymentId={deploymentId}
+                onClose={() => setHostedServicesOpen(false)}
+              />
+            )}
+            {subagentsOpen && (
+              <SubagentsPanel
+                deploymentId={deploymentId}
+                onClose={() => setSubagentsOpen(false)}
+              />
+            )}
+            <CanvasWorkspace
+              deploymentId={deploymentId}
+              liveStatus={liveStatus}
+              historyOpen={historyOpen}
+              onHistoryClose={() => setHistoryOpen(false)}
+              onRefetchDeployment={onRefetchDeployment}
+            />
+            {marketplaceOpen && (
+              <MarketplacePanel
+                deploymentId={deploymentId}
+                onClose={() => setMarketplaceOpen(false)}
+              />
+            )}
+          </>
         )}
       </div>
     </div>
