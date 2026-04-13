@@ -178,12 +178,10 @@ const configFiles: ConfigFileSpec[] = [
   { path: "soul.md", description: "System prompt / personality", isGlob: false },
   { path: "openclaw.json", description: "Agent + channel configuration (OpenClaw native)", isGlob: false },
   { path: "skills/*", description: "Skill definitions", isGlob: true },
-  { path: "subagent-tools.json", description: "MCP tool definitions for user-configured subagents", isGlob: false },
-  // NOTE: `delegation-tools.json` was previously listed here, but no consumer
-  // on the pod loads it. `jarble-ui-server.js` statically hardcodes AGENT_TOOLS
-  // and only registers the two platform agents. Bot Team delegation is now
-  // coordinated by the platform via `jarble_delegate` JSON blocks emitted by
-  // the bot (instructed in soul.md), not by per-teammate MCP tools.
+  // NOTE: subagent-tools.json removed — custom subagents are now native OpenClaw
+  // agents registered in agents.list, invoked via sessions_spawn instead of MCP tools.
+  // NOTE: delegation-tools.json also removed — Bot Team delegation uses the
+  // jarble_delegate JSON-block protocol parsed by flowDelegation.ts.
 ];
 
 export const openclawHandler: RuntimeHandler = {
@@ -324,14 +322,20 @@ export const openclawHandler: RuntimeHandler = {
       }
 
       // 2. Custom subagents - source === "custom" or undefined (backward compat)
+      // These are registered as native OpenClaw agents in agents.list and can be
+      // invoked via sessions_spawn (async background delegation).
       const customAgents = (deployment.subagents ?? []).filter(
         (a) => !a.source || a.source === "custom"
       );
       if (customAgents.length > 0) {
         const lines = customAgents.map((a) =>
-          `- **agent_${a.slug}** - ${a.description || a.name}`
+          `- **${a.slug}** - ${a.description || a.name}`
         );
-        poolSections.push(`### Custom Subagents\n${lines.join("\n")}`);
+        poolSections.push(`### Custom Subagents\n` +
+          `These are native OpenClaw agents. Delegate to them using \`sessions_spawn\`:\n` +
+          `\`\`\`\nsessions_spawn({ task: "your task description", agentId: "agent_slug" })\n\`\`\`\n` +
+          `The subagent runs in the background and posts results back to this chat when done.\n\n` +
+          lines.join("\n"));
       }
 
       // NOTE: Team members were previously rendered here as a subsection of
@@ -351,17 +355,20 @@ export const openclawHandler: RuntimeHandler = {
           `- **Data + visualization** (user provides data or asks for analytics): Call \`delegate_to_data_agent\` first to process/structure the data, then use the result in your visualization.\n` +
           `- **Multi-step pipeline** (analyze → transform → visualize): Call agents sequentially - each one's output feeds the next.\n\n` +
           `### How to Call Agents\n` +
-          `All agents are MCP tools. Call them the same way you call render_ui or web_search. Pass a "task" string argument.\n` +
-          `IMPORTANT: Do NOT use call_agent or discover_agents for these. Call the tool name directly.\n\n` +
+          `**Platform agents** are MCP tools. Call them directly like render_ui or web_search. Pass a "task" string argument.\n` +
+          `**Custom subagents** are native OpenClaw agents. Use \`sessions_spawn\` to delegate:\n` +
+          `\`\`\`\nsessions_spawn({ task: "Analyze this dataset", agentId: "data_analyst" })\n\`\`\`\n` +
+          `The subagent runs in the background and announces its result back to this chat.\n` +
+          `IMPORTANT: Do NOT use call_agent or discover_agents. Use MCP tool names for platform agents, sessions_spawn for custom subagents.\n\n` +
           `### Orchestration Patterns\n` +
           `**Pattern 1 - Data-First Pipeline:**\n` +
           `1. Call \`delegate_to_data_agent\` with task: "Analyze this data and return chart_data format"\n` +
           `2. Use the structured result in your \`render_ui\` or sandbox call\n\n` +
-          `**Pattern 2 - Parallel Dashboard:**\n` +
-          `Call \`compose_dashboard\` with multiple component intents - agents generate each component in parallel\n\n` +
+          `**Pattern 2 - Parallel Subagent Delegation:**\n` +
+          `Spawn multiple subagents in parallel with \`sessions_spawn\` — each runs concurrently and announces its result.\n\n` +
           `**Pattern 3 - Sequential Multi-Agent:**\n` +
           `1. Call \`delegate_to_data_agent\` for data processing\n` +
-          `2. Call \`create_component\` for custom component generation\n` +
+          `2. Spawn a custom subagent with \`sessions_spawn\` for domain-specific work\n` +
           `3. Combine results in your response\n\n` +
           poolSections.join("\n\n")
         );
@@ -379,23 +386,86 @@ export const openclawHandler: RuntimeHandler = {
     // openclaw.json - agent config + channel credentials
     const openclawConfig: Record<string, any> = {};
 
-    // Agent section (model config)
+    // Agent section — model config + native subagent registration
     // OpenClaw reads model from agents.defaults.model.primary (NOT agent.model)
     // The entrypoint first-boot uses this same path: agents.defaults.model.primary
     // Model must be provider-prefixed (e.g. "anthropic/claude-opus-4-6-20250610")
-    if (deployment.llmModel) {
-      const provider = deployment.llmProvider || "anthropic";
-      const model = deployment.llmModel;
-      // Only prefix if not already prefixed (e.g. "openrouter/auto" already has it)
-      const prefixedModel = model.includes("/") ? model : `${provider}/${model}`;
+    {
+      const agentsConfig: Record<string, any> = { defaults: {} };
 
-      openclawConfig.agents = {
-        defaults: { model: { primary: prefixedModel } },
-      };
+      if (deployment.llmModel) {
+        const provider = deployment.llmProvider || "anthropic";
+        const model = deployment.llmModel;
+        const prefixedModel = model.includes("/") ? model : `${provider}/${model}`;
+        agentsConfig.defaults.model = { primary: prefixedModel };
+      }
+
+      // Register custom subagents as native OpenClaw agents via agents.list.
+      // Each gets its own workspace with a SOUL.md containing its system prompt.
+      // The main agent can invoke them via sessions_spawn(agentId: slug).
+      const customAgents = (deployment.subagents ?? []).filter(
+        (a) => !a.source || a.source === "custom"
+      );
+
+      if (customAgents.length > 0) {
+        // Configure subagent spawning limits
+        agentsConfig.defaults.subagents = {
+          maxSpawnDepth: 2,         // Allow orchestrator pattern (main → subagent → worker)
+          maxChildrenPerAgent: 5,   // Up to 5 concurrent subagent runs per session
+          maxConcurrent: 8,         // Global concurrency cap
+          runTimeoutSeconds: 120,   // 2 min timeout per subagent run
+          archiveAfterMinutes: 30,  // Clean up transcripts after 30 min
+          allowAgents: ["*"],       // Allow spawning any registered agent
+        };
+
+        const agentList: Array<Record<string, any>> = [];
+
+        for (const sa of customAgents) {
+          const provider = deployment.llmProvider || "anthropic";
+          const saModel = sa.model
+            ? (sa.model.includes("/") ? sa.model : `${provider}/${sa.model}`)
+            : undefined; // undefined = inherit from defaults
+
+          const agentEntry: Record<string, any> = {
+            id: sa.slug,
+            workspace: `${home}/agents/${sa.slug}/workspace`,
+            agentDir: `${home}/agents/${sa.slug}/agent`,
+            name: sa.name,
+          };
+
+          // Only set model if different from the main agent's model
+          if (saModel) {
+            agentEntry.model = { primary: saModel };
+          }
+
+          // Apply tool restrictions if configured
+          if (sa.tools) {
+            try {
+              const toolList = JSON.parse(sa.tools);
+              if (Array.isArray(toolList) && toolList.length > 0) {
+                agentEntry.tools = { allow: toolList };
+              }
+            } catch {
+              // Invalid tools JSON — skip restriction
+            }
+          }
+
+          agentList.push(agentEntry);
+
+          // Write per-agent SOUL.md with the subagent's system prompt
+          const agentWorkspacePath = `${home}/agents/${sa.slug}/workspace`;
+          files.push({
+            path: `${agentWorkspacePath}/SOUL.md`,
+            content: sa.systemPrompt,
+          });
+        }
+
+        agentsConfig.list = agentList;
+        log.info({ agentCount: agentList.length }, "renderConfigs: registered native OpenClaw agents");
+      }
+
+      openclawConfig.agents = agentsConfig;
     }
-
-    // NOTE: OpenClaw validates agents config strictly - only "defaults" is allowed.
-    // Custom subagents are routed via MCP tools (agent_{slug}) → API → LLM instead.
 
     // Channels section - build from platformCredentials
     // Only include channels the user has explicitly configured
@@ -450,9 +520,26 @@ export const openclawHandler: RuntimeHandler = {
     // Disable built-in tools that conflict with Jarble's web dashboard rendering.
     // The canvas tool generates HTML artifacts that the dashboard can't render -
     // the bot should use jarble_ui fenced blocks or the render_ui MCP tool instead.
-    openclawConfig.tools = {
+    const toolsConfig: Record<string, any> = {
       deny: ["canvas"],
     };
+
+    // Enable agent-to-agent communication when custom subagents are registered,
+    // so the main agent can use sessions_spawn to delegate to them.
+    const hasCustomAgents = (deployment.subagents ?? []).some(
+      (a) => !a.source || a.source === "custom"
+    );
+    if (hasCustomAgents) {
+      const agentIds = (deployment.subagents ?? [])
+        .filter((a) => !a.source || a.source === "custom")
+        .map((a) => a.slug);
+      toolsConfig.agentToAgent = {
+        enabled: true,
+        allow: agentIds,
+      };
+    }
+
+    openclawConfig.tools = toolsConfig;
 
     // NOTE: OpenClaw does NOT support user-configured MCP servers at runtime.
     // The MCP server script is deployed to /data/config/mcp/ and invoked via
@@ -556,29 +643,9 @@ export const openclawHandler: RuntimeHandler = {
       }
     }
 
-    // Write subagent-tools.json - MCP tool definitions for user-configured subagents.
-    // The MCP server reads this file to dynamically register subagent tools (agent_{slug}).
-    if (deployment.subagents && deployment.subagents.length > 0) {
-      const subagentTools = deployment.subagents.map((a) => ({
-        name: `agent_${a.slug}`,
-        slug: a.slug,
-        description: a.description || `Custom agent: ${a.name}`,
-        inputSchema: {
-          type: "object" as const,
-          properties: {
-            task: { type: "string", description: `Task or question to delegate to ${a.name}` },
-            context: { type: "string", description: "Additional context or data for the agent" },
-          },
-          required: ["task"],
-        },
-      }));
-
-      files.push({
-        path: "subagent-tools.json",
-        content: JSON.stringify(subagentTools, null, 2),
-      });
-      log.info({ toolCount: subagentTools.length }, "renderConfigs: wrote subagent-tools.json");
-    }
+    // NOTE: subagent-tools.json is no longer written. Custom subagents are now
+    // registered as native OpenClaw agents in agents.list (see agent section above)
+    // and invoked via sessions_spawn, eliminating the MCP tool → API → LLM hop.
 
     // NOTE: `delegation-tools.json` was previously written here, but no
     // consumer on the pod loads it. `jarble-ui-server.js` statically hardcodes

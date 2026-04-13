@@ -416,6 +416,125 @@ function extractThinking(payload: any): string {
   return "";
 }
 
+// ── chat.inject (admin whisper) ──────────────────────────────────────────────
+
+/**
+ * Inject an assistant-role message into a session without triggering an LLM run.
+ *
+ * Opens a WS connection, authenticates, sends `chat.inject`, waits for the
+ * response ack, then disconnects. Useful for deployment owners to push system
+ * notes or admin whispers into a running conversation.
+ */
+export async function injectViaGateway(
+  opts: Omit<GatewayOptions, "sessionKey"> & { sessionKey?: string },
+  message: string,
+  role: "assistant" | "system" = "assistant",
+): Promise<{ ok: boolean }> {
+  const { ip, port, gatewayToken, sessionKey } = opts;
+  const wsUrl = `ws://${ip}:${port}`;
+
+  return new Promise<{ ok: boolean }>((resolve, reject) => {
+    const timeoutMs = 15_000;
+    let connected = false;
+    let finished = false;
+    const pending = new Map<string, PendingRequest>();
+
+    const ws = new WebSocket(wsUrl, {
+      origin: `http://${ip}:${port}`,
+      handshakeTimeout: 10_000,
+    });
+
+    const timeout = setTimeout(() => {
+      if (!finished) {
+        finished = true;
+        ws.close();
+        reject(new Error("chat.inject timed out after 15s"));
+      }
+    }, timeoutMs);
+
+    const cleanup = () => {
+      clearTimeout(timeout);
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+    };
+
+    function sendRequest(method: string, params: Record<string, unknown>): Promise<any> {
+      const id = nanoid(8);
+      const msg = { type: "req", id, method, params };
+      ws.send(JSON.stringify(msg));
+      return new Promise((res, rej) => {
+        pending.set(id, { resolve: res, reject: rej });
+      });
+    }
+
+    ws.on("message", async (data) => {
+      if (finished) return;
+      let msg: any;
+      try { msg = JSON.parse(String(data)); } catch { return; }
+
+      if (msg.type === "event" && msg.event === "connect.challenge") {
+        try {
+          const device = createDeviceIdentity();
+          const signedAtMs = Date.now();
+          const nonce = msg.payload?.nonce;
+          const payload = [
+            "v2", device.deviceId, "openclaw-control-ui", "webchat",
+            "operator", "operator.read,operator.write",
+            String(signedAtMs), gatewayToken || "", nonce || "",
+          ].join("|");
+          const signature = signPayload(device.privateKeyPem, payload);
+
+          await sendRequest("connect", {
+            minProtocol: 3, maxProtocol: 3,
+            client: { id: "openclaw-control-ui", version: "1.0", platform: "server", mode: "webchat", instanceId: "jarble-api" },
+            role: "operator", scopes: ["operator.read", "operator.write"], caps: [],
+            auth: { token: gatewayToken },
+            device: { id: device.deviceId, publicKey: device.publicKeyB64, signature, signedAt: signedAtMs, nonce },
+          });
+
+          connected = true;
+
+          // Send the inject
+          const injectParams: Record<string, unknown> = { message, role };
+          if (sessionKey) injectParams.sessionKey = sessionKey;
+          await sendRequest("chat.inject", injectParams);
+
+          finished = true;
+          cleanup();
+          resolve({ ok: true });
+        } catch (err: unknown) {
+          finished = true;
+          cleanup();
+          reject(new Error(`chat.inject failed: ${err instanceof Error ? err.message : String(err)}`));
+        }
+        return;
+      }
+
+      if (msg.type === "res") {
+        const p = pending.get(msg.id);
+        if (p) {
+          pending.delete(msg.id);
+          if (msg.error || msg.ok === false) {
+            p.reject(new Error(msg.error?.message || JSON.stringify(msg.error)));
+          } else {
+            p.resolve(msg.payload ?? msg.result);
+          }
+        }
+      }
+    });
+
+    ws.on("error", (err) => {
+      if (!finished) { finished = true; cleanup(); reject(new Error(`WS error: ${err.message}`)); }
+    });
+    ws.on("close", () => {
+      if (!finished) { finished = true; clearTimeout(timeout); reject(new Error("WS closed before inject completed")); }
+      for (const [, p] of pending) p.reject(new Error("WS closed"));
+      pending.clear();
+    });
+  });
+}
+
 // ── HTTP Chat Completions (token-level streaming) ────────────────────────────
 
 /**

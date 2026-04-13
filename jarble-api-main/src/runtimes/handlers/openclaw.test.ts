@@ -90,17 +90,18 @@ describe("openclawHandler metadata", () => {
   });
 
   it("declares config file specs", () => {
-    // 4 entries: soul.md, openclaw.json, skills/*, subagent-tools.json.
-    // delegation-tools.json was removed (no consumer on the pod — Bot Team
-    // delegation now goes through `jarble_delegate` JSON blocks parsed by
-    // flowDelegation.ts on the platform side).
-    expect(openclawHandler.configFiles).toHaveLength(4);
+    // 3 entries: soul.md, openclaw.json, skills/*.
+    // subagent-tools.json removed — custom subagents are now native OpenClaw
+    // agents registered in agents.list, invoked via sessions_spawn.
+    // delegation-tools.json also removed — Bot Team delegation uses
+    // jarble_delegate JSON blocks parsed by flowDelegation.ts.
+    expect(openclawHandler.configFiles).toHaveLength(3);
     expect(openclawHandler.configFiles[0].path).toBe("soul.md");
     expect(openclawHandler.configFiles[1].path).toBe("openclaw.json");
     expect(openclawHandler.configFiles[2].path).toBe("skills/*");
     expect(openclawHandler.configFiles[2].isGlob).toBe(true);
-    expect(openclawHandler.configFiles[3].path).toBe("subagent-tools.json");
-    // delegation-tools.json must NOT be in the spec — confirms the cleanup.
+    // Neither subagent-tools.json nor delegation-tools.json should be in the spec.
+    expect(openclawHandler.configFiles.find((f) => f.path === "subagent-tools.json")).toBeUndefined();
     expect(openclawHandler.configFiles.find((f) => f.path === "delegation-tools.json")).toBeUndefined();
   });
 });

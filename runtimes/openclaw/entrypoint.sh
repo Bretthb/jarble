@@ -89,7 +89,8 @@ cleanup() {
 trap cleanup 15 2 3
 
 # Ensure directories exist (PVC may be fresh)
-mkdir -p "$CONFIG_DIR" "$OPENCLAW_HOME/workspace" "$OPENCLAW_STATE" "$LOG_DIR" /data/components
+# /data/agents/ holds per-subagent workspaces (created by Jarble configSync)
+mkdir -p "$CONFIG_DIR" "$OPENCLAW_HOME/workspace" "$OPENCLAW_STATE" "$LOG_DIR" /data/components /data/agents
 
 # ── Cleanup ephemeral storage ─────────────────────────────────────────
 echo "[entrypoint] Cleaning ephemeral storage..."
