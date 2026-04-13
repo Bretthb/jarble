@@ -73,7 +73,7 @@ export default function ControlPanel({ deploymentId, liveStatus }: ControlPanelP
         <iframe
           src={iframeSrc}
           className="flex-1 w-full border-0"
-          sandbox="allow-scripts allow-forms allow-popups"
+          sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
           title="OpenClaw Control UI"
           onLoad={() => setLoading(false)}
         />
