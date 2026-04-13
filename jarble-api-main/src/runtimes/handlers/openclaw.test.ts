@@ -452,6 +452,30 @@ describe("openclawHandler.getSecretEntries", () => {
     expect(entries["JARBLE_MEMORY_DIR"]).toBeUndefined();
   });
 
+  it("injects JARBLE_API_URL with default fallback when FRONTEND_URL not set", () => {
+    const prev = process.env.FRONTEND_URL;
+    delete process.env.FRONTEND_URL;
+    const entries = openclawHandler.getSecretEntries(makeDeployment({}));
+    expect(entries["JARBLE_API_URL"]).toBe("https://api.jarble.ai");
+    if (prev !== undefined) process.env.FRONTEND_URL = prev;
+  });
+
+  it("injects JARBLE_API_URL derived from FRONTEND_URL (dev subdomain)", () => {
+    const prev = process.env.FRONTEND_URL;
+    process.env.FRONTEND_URL = "https://dev.jarble.ai";
+    const entries = openclawHandler.getSecretEntries(makeDeployment({}));
+    expect(entries["JARBLE_API_URL"]).toBe("https://api.jarble.ai");
+    process.env.FRONTEND_URL = prev!;
+  });
+
+  it("injects JARBLE_API_URL derived from FRONTEND_URL (prod domain)", () => {
+    const prev = process.env.FRONTEND_URL;
+    process.env.FRONTEND_URL = "https://jarble.ai";
+    const entries = openclawHandler.getSecretEntries(makeDeployment({}));
+    expect(entries["JARBLE_API_URL"]).toBe("https://api.jarble.ai");
+    process.env.FRONTEND_URL = prev!;
+  });
+
   it("maps platform credential env vars for discord", () => {
     const entries = openclawHandler.getSecretEntries(
       makeDeployment({
@@ -842,6 +866,8 @@ describe("openclawHandler.renderConfigs - Team Context (Bot Teams)", () => {
     // the legacy "Team Members" + a2a_delegate section is intentionally suppressed
     // to avoid conflicting delegation paths (see openclaw.ts comment near "Agent Pool").
     // The Team Context block already teaches `jarble_delegate` and `### Your teammates`.
+    // The a2a_delegate MCP tool is still written to delegation-tools.json so the
+    // pod can still call it, but soul.md uses jarble_delegate blocks instead.
     const files = openclawHandler.renderConfigs(
       makeDeployment({
         teamMembers: [

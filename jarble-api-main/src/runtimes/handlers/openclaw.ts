@@ -921,8 +921,12 @@ export const openclawHandler: RuntimeHandler = {
     // Jarble API URL for the platform bridge tools (platform_register_agent, etc.)
     // Without this, the MCP server falls back to host.docker.internal:3001 which
     // doesn't resolve in Kubernetes. Use the API's public URL.
+    // Replace the frontend hostname with the API hostname. Use a regex anchored
+    // to the protocol boundary so that a URL already containing "api.jarble.ai"
+    // is not double-replaced (chaining .replace("dev.jarble.ai") then
+    // .replace("jarble.ai") turns "api.jarble.ai" into "api.api.jarble.ai").
     const apiUrl = process.env.FRONTEND_URL
-      ? process.env.FRONTEND_URL.replace("dev.jarble.ai", "api.jarble.ai").replace("jarble.ai", "api.jarble.ai")
+      ? process.env.FRONTEND_URL.replace(/^(https?:\/\/)(dev\.)?jarble\.ai/, "$1api.jarble.ai")
       : "https://api.jarble.ai";
     entries["JARBLE_API_URL"] = apiUrl;
 

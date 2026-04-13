@@ -474,7 +474,7 @@ function ConfigActions({ deploymentId }: { deploymentId: string }) {
         )}
 
         {/* Credentials overview */}
-        {deployment && <CredentialsSection deploymentId={deploymentId} deployment={dep} onUpdate={(updates: any) => updateMutation.mutate(updates)} isSaving={updateMutation.isPending} />}
+        {deployment && <CredentialsSection deploymentId={deploymentId} deployment={dep} onUpdate={(updates: any) => { if (updates.llmApiKey) pendingRestartRef.current = true; updateMutation.mutate(updates); }} isSaving={updateMutation.isPending} />}
 
         {/* Feedback display */}
         {feedback && (
