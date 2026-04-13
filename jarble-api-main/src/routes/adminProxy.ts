@@ -35,17 +35,21 @@ async function authenticateAndGetDeployment(req: Request) {
     : (req.query.token as string | undefined) ?? null;
   if (!token) return null;
 
-  const payload = await verifyToken(token);
-  const user = await getUserFromToken(payload);
-  if (!user) return null;
+  try {
+    const payload = await verifyToken(token);
+    const user = await getUserFromToken(payload);
+    if (!user) return null;
 
-  const deploymentId = req.params.id;
-  const deployment = await db.query.deployments.findFirst({
-    where: and(eq(deployments.id, deploymentId), eq(deployments.userId, user.id)),
-  });
+    const deploymentId = req.params.id;
+    const deployment = await db.query.deployments.findFirst({
+      where: and(eq(deployments.id, deploymentId), eq(deployments.userId, user.id)),
+    });
 
-  if (!deployment) return null;
-  return { user, deployment };
+    if (!deployment) return null;
+    return { user, deployment };
+  } catch {
+    return null;
+  }
 }
 
 // ── REST Router ─────────────────────────────────────────────────────────────
@@ -126,6 +130,7 @@ async function handleAdminProxy(req: Request, res: Response) {
     // Strip auth-related query params before forwarding to pod (don't leak JWT)
     const targetUrl = new URL(`http://${podAddr.ip}:${podAddr.port}${targetPath}`);
     targetUrl.searchParams.delete("token");
+    targetUrl.searchParams.delete("gatewayUrl");
     log.debug({ deploymentId: auth.deployment.id, targetUrl: targetUrl.toString() }, "Admin proxy HTTP");
 
     const proxyRes = await fetch(targetUrl.toString(), {
@@ -246,8 +251,8 @@ export function attachAdminWsProxy(server: http.Server) {
       // Teardown: close the other side when either side disconnects
       clientWs.on("close", () => { podWs.close(); });
       clientWs.on("error", () => { podWs.close(); });
-      podWs.on("close", () => { clientWs.close(); });
-      podWs.on("error", () => { clientWs.close(); });
+      podWs.on("close", () => { buffered.length = 0; clientWs.close(); });
+      podWs.on("error", () => { buffered.length = 0; clientWs.close(); });
 
       log.info({ deploymentId, userId }, "Admin WS proxy established");
     });

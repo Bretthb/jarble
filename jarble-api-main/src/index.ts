@@ -142,7 +142,7 @@ app.use("/api/beta-signup", betaRouter);
 app.use("/api/promo", promoRouter);
 app.use("/api/flows", authLimiter, flowExecutionRouter);
 app.use("/api/flows", authLimiter, flowChatRouter);
-app.use("/api/deployments", adminProxyRouter);
+app.use("/api/deployments", authLimiter, adminProxyRouter);
 
 // Debug endpoints - gated by ADMIN role (not just NODE_ENV).
 // Even on a deployed "development" API, /debug is accessible to the public

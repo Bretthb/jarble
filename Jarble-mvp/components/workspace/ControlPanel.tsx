@@ -24,7 +24,7 @@ interface ControlPanelProps {
 export default function ControlPanel({ deploymentId, liveStatus }: ControlPanelProps) {
   const { getAccessTokenSilently } = useAuth0();
   const [iframeSrc, setIframeSrc] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const isRunning = liveStatus === "running";
@@ -32,6 +32,8 @@ export default function ControlPanel({ deploymentId, liveStatus }: ControlPanelP
   // Build the iframe URL with auto-auth
   useEffect(() => {
     if (!isRunning) return;
+    setLoading(true);
+    setError(null);
 
     let cancelled = false;
 
@@ -101,7 +103,7 @@ export default function ControlPanel({ deploymentId, liveStatus }: ControlPanelP
             setLoading(false);
           }}
           allow="clipboard-write"
-          sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+          sandbox="allow-scripts allow-forms allow-popups"
           title="OpenClaw Control UI"
         />
       )}
