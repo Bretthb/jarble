@@ -709,16 +709,29 @@ export const openclawHandler: RuntimeHandler = {
       deny: ["canvas"],
     };
 
-    // Disable channel plugins not supported on the Jarble platform.
-    // Without this, the Control UI shows unconfigured Signal/iMessage/Nostr
-    // panels with "Unsupported type" errors.
+    // Plugin enablement — OpenClaw's plugin loader reads from plugins.entries,
+    // NOT from channels.<id>.enabled. Without matching entries here, configured
+    // channels won't load properly after configSync overwrites the first-boot config.
+    // Also explicitly disable unsupported channels (Signal, iMessage, Nostr, Google Chat).
+    const pluginEntries: Record<string, { enabled: boolean }> = {
+      // Always enable the 4 supported platforms — their channel config is gated
+      // by credentials above (no creds = channel section is empty, harmless)
+      whatsapp: { enabled: true },
+      telegram: { enabled: true },
+      discord: { enabled: true },
+      slack: { enabled: true },
+      // Disable unsupported platforms
+      signal: { enabled: false },
+      imessage: { enabled: false },
+      nostr: { enabled: false },
+      googlechat: { enabled: false },
+    };
+
     openclawConfig.plugins = {
       ...(openclawConfig.plugins || {}),
       entries: {
         ...(openclawConfig.plugins?.entries || {}),
-        signal: { enabled: false },
-        imessage: { enabled: false },
-        nostr: { enabled: false },
+        ...pluginEntries,
       },
     };
 
