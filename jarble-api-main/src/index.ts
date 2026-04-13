@@ -88,7 +88,15 @@ app.use(cors({
 app.use(helmet({
   contentSecurityPolicy: false,  // API-only, no HTML
   crossOriginResourcePolicy: { policy: "cross-origin" },
+  frameguard: false,  // Disabled — Control UI proxy serves OpenClaw's SPA in an iframe from the frontend. CSP frame-ancestors below is the replacement.
 }));
+
+// Allow the frontend to embed the Control UI proxy in an iframe.
+// Scoped to /api/deployments (where the admin proxy lives).
+app.use("/api/deployments", (_req, res, next) => {
+  res.setHeader("Content-Security-Policy", `frame-ancestors 'self' ${env.FRONTEND_URL} ${allowedOrigins.join(" ")}`);
+  next();
+});
 
 // ─── Stripe webhook (MUST be before express.json() AND rate limiter - needs raw body, must not be rate-limited) ───
 app.post("/api/stripe/webhook", express.raw({ type: "application/json" }), stripeWebhookHandler);
