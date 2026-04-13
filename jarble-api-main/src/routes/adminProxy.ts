@@ -244,31 +244,47 @@ adminProxyRouter.get("/:id/admin/*", async (req: Request, res: Response) => {
     }
   } catch(e) {}
 
-  // Also auto-confirm the security dialog if it still appears
-  var observer = new MutationObserver(function(mutations) {
-    for (var m of mutations) {
-      for (var node of m.addedNodes) {
-        if (node.nodeType !== 1) continue;
-        var btns = node.querySelectorAll ? node.querySelectorAll('button') : [];
-        for (var btn of btns) {
-          var text = (btn.textContent || '').trim().toLowerCase();
-          if (text === 'confirm' || text === 'connect' || text === 'yes' || text === 'accept') {
-            setTimeout(function() { btn.click(); }, 50);
-            observer.disconnect();
-            return;
-          }
-        }
+  // Auto-confirm the gateway URL security dialog.
+  // Check both existing DOM and newly added nodes (the dialog may render
+  // before or after our script runs depending on module load timing).
+  function clickConfirmButton() {
+    var btns = document.querySelectorAll('button');
+    for (var btn of btns) {
+      var text = (btn.textContent || '').trim().toLowerCase();
+      if (text === 'confirm') {
+        setTimeout(function() { btn.click(); }, 50);
+        return true;
       }
     }
-  });
-  if (document.body) {
-    observer.observe(document.body, { childList: true, subtree: true });
-  } else {
-    document.addEventListener('DOMContentLoaded', function() {
-      observer.observe(document.body, { childList: true, subtree: true });
-    });
+    return false;
   }
-  setTimeout(function() { observer.disconnect(); }, 10000);
+
+  // Try immediately, then poll briefly, then watch for mutations
+  function startAutoConfirm() {
+    if (clickConfirmButton()) return;
+
+    // Poll every 100ms for up to 3s (handles SPA render timing)
+    var attempts = 0;
+    var poller = setInterval(function() {
+      if (clickConfirmButton() || ++attempts > 30) clearInterval(poller);
+    }, 100);
+
+    // Also watch for DOM mutations as backup
+    var observer = new MutationObserver(function() {
+      if (clickConfirmButton()) {
+        observer.disconnect();
+        clearInterval(poller);
+      }
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+    setTimeout(function() { observer.disconnect(); clearInterval(poller); }, 10000);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', startAutoConfirm);
+  } else {
+    startAutoConfirm();
+  }
 })();
 </script>`;
       // Inject in <head> so it runs before module scripts
