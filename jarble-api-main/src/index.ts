@@ -13,7 +13,6 @@ import { isStripeConfigured } from "./services/stripe.js";
 import { startStorageEnforcement } from "./services/storageEnforcement.js";
 import { startSubscriptionEnforcement } from "./services/subscriptionEnforcement.js";
 import { startStatusReconciler } from "./services/statusReconciler.js";
-import { startServiceHealthCheck } from "./services/serviceHealthCheck.js";
 import { startWebhookCleanup } from "./services/webhookCleanup.js";
 import { startStuckDeploymentMonitor } from "./services/stuckDeploymentMonitor.js";
 import helmet from "helmet";
@@ -32,22 +31,13 @@ import { canvasFilesRouter } from "./routes/canvasFiles.js";
 import { artifactRouter } from "./routes/artifact.js";
 import { mcpRouter } from "./routes/mcp.js";
 import { diagnoseRouter } from "./routes/diagnose.js";
-import { serviceProxyRouter } from "./routes/serviceProxy.js";
-import { serviceExecutionRouter } from "./routes/serviceExecution.js";
-import { serviceStreamRouter } from "./routes/serviceStream.js";
-import { serviceHeartbeatRouter } from "./routes/serviceHeartbeat.js";
-import { serviceJobsRouter, startJobCleanup } from "./routes/serviceJobs.js";
 import { startNodeWatcher } from "./k8s/nodeManager.js";
 import { podApiRouter, authenticatePod } from "./routes/podApi.js";
 import { teamFilesRouter } from "./routes/teamFiles.js";
 import { agentRouter } from "./routes/agentLlm.js";
 import { composeRouter } from "./routes/compose.js";
-import { bridgeFetchRouter } from "./routes/bridgeFetch.js";
 import { botAskRouter } from "./routes/botAsk.js";
-import { meshGatewayRouter } from "./routes/meshGateway.js";
-import { meshDiscoveryRouter, registerAgentCard } from "./routes/meshDiscovery.js";
 import { a2aGatewayRouter } from "./routes/a2aGateway.js";
-import { agentHubRouter } from "./routes/agentHub.js";
 import { filesRouter } from "./routes/files.js";
 import { knowledgeRouter } from "./routes/knowledge.js";
 import { attachTerminalWs } from "./routes/terminal.js";
@@ -124,23 +114,14 @@ app.use("/api/deployments", canvasFilesRouter);
 app.use("/api/deployments", artifactRouter);
 app.use("/api/mcp", mcpRouter);
 app.use("/api/deployments", diagnoseRouter);
-app.use("/api/services", serviceProxyRouter);
-app.use("/api/services", serviceExecutionRouter);
-app.use("/api/services", serviceStreamRouter);
-app.use("/api/services", serviceHeartbeatRouter);
-app.use("/api/services", serviceJobsRouter);
 app.use("/api/pod", podApiRouter);
 app.use("/api/pod/agent", authenticatePod, agentRouter);
 app.use("/api/pod/compose", authenticatePod, composeRouter);
 app.use("/api/pod/team-files", authenticatePod, teamFilesRouter);
-app.use("/api/deployments", bridgeFetchRouter);
 app.use("/api/deployments", botAskRouter);
 app.use("/api/deployments", filesRouter);
 app.use("/api/deployments", knowledgeRouter);
-app.use("/api/mesh", meshGatewayRouter);
-app.use("/api/mesh", meshDiscoveryRouter);
 app.use("/api/a2a", authLimiter, a2aGatewayRouter);
-app.use("/api/agent-hub", agentHubRouter);
 app.use("/api/beta-signup", betaRouter);
 app.use("/api/promo", promoRouter);
 app.use("/api/flows", authLimiter, flowExecutionRouter);
@@ -182,9 +163,6 @@ if (env.NODE_ENV === "development") {
     res.status(404).json({ error: "Not found" });
   });
 }
-
-// A2A agent card - public discovery endpoint
-registerAgentCard(app);
 
 // Health check for K8s probes
 app.get("/health", (_req, res) => {
@@ -254,9 +232,7 @@ async function start() {
   startStorageEnforcement();
   // startSubscriptionEnforcement(); // Disabled until Stripe is fully configured
   startStatusReconciler();  // Syncs DB status with K8s reality (fixes "stuck at creating")
-  startServiceHealthCheck();  // Pings remote/hybrid service health endpoints every 5 min
   startWebhookCleanup();      // Purges processedWebhookEvents older than 30 days (every 24h)
-  startJobCleanup();          // Cleans up expired async service jobs (hourly)
   startNodeWatcher();         // Auto-scales Hetzner workers when bot pods go Pending
   if (env.STUCK_MONITOR_ENABLED !== "false") {
     startStuckDeploymentMonitor();  // Alerts on deployments stuck in transitional states >5 min

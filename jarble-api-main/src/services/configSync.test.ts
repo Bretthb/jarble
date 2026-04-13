@@ -142,7 +142,7 @@ vi.mock("nanoid", () => ({
 
 // ── Import after mocks ────────────────────────────────────────────────────
 
-import { syncConfigsToPvc, syncConfigsFromPvc, syncMarketplaceComponent, removeMarketplaceComponent } from "./configSync.js";
+import { syncConfigsToPvc, syncConfigsFromPvc } from "./configSync.js";
 import { db } from "../db/index.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -754,156 +754,6 @@ describe("configSync", () => {
         await expect(syncConfigsFromPvc("dep-1")).resolves.not.toThrow();
       });
     });
-  });
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // syncMarketplaceComponent
-  // ══════════════════════════════════════════════════════════════════════════
-
-  describe("syncMarketplaceComponent", () => {
-    it("throws when no running pod found", async () => {
-      mockFindPodForDeployment.mockResolvedValue(null);
-
-      await expect(
-        syncMarketplaceComponent("dep-1", "comp-1", "weather", {}, null, "template")
-      ).rejects.toThrow("No running pod found");
-    });
-
-    it("writes manifest to marketplace directory", async () => {
-      await syncMarketplaceComponent(
-        "dep-1",
-        "comp-1",
-        "weather",
-        { name: "weather", version: "1.0" },
-        null,
-        "template",
-      );
-
-      // Should create marketplace directory and write manifest
-      expect(mockExecInPod).toHaveBeenCalledWith(
-        "test-pod",
-        expect.arrayContaining(["mkdir", "-p"]),
-        "runtime",
-      );
-    });
-
-    it("writes component definition when provided", async () => {
-      const compDef = { name: "weather", description: "Weather widget", layout: [] };
-      await syncMarketplaceComponent(
-        "dep-1",
-        "comp-1",
-        "weather",
-        { name: "weather" },
-        compDef,
-        "template",
-      );
-
-      // Should write both manifest and component definition
-      expect(mockExecInPod).toHaveBeenCalledTimes(4); // mkdir + manifest, mkdir + def
-    });
-
-    it("skips component definition write when null", async () => {
-      await syncMarketplaceComponent(
-        "dep-1",
-        "comp-1",
-        "weather",
-        { name: "weather" },
-        null,
-        "template",
-      );
-
-      // Should only write manifest (2 calls: mkdir + manifest)
-      expect(mockExecInPod).toHaveBeenCalledTimes(2);
-    });
-
-    it("uses operator container name for operator mode", async () => {
-      await syncMarketplaceComponent(
-        "dep-1",
-        "comp-1",
-        "weather",
-        {},
-        null,
-        "template",
-        "operator",
-      );
-
-      expect(mockExecInPod).toHaveBeenCalledWith(
-        "test-pod",
-        expect.anything(),
-        "openclaw",
-      );
-    });
-
-    it("uses legacy paths for legacy mode", async () => {
-      await syncMarketplaceComponent(
-        "dep-1",
-        "comp-1",
-        "weather",
-        {},
-        null,
-        "template",
-        "legacy",
-      );
-
-      expect(mockExecInPod).toHaveBeenCalledWith(
-        "test-pod",
-        expect.arrayContaining(["mkdir", "-p", "/data/marketplace/comp-1"]),
-        "runtime",
-      );
-    });
-  });
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // removeMarketplaceComponent
-  // ══════════════════════════════════════════════════════════════════════════
-
-  describe("removeMarketplaceComponent", () => {
-    it("throws when no running pod found", async () => {
-      mockFindPodForDeployment.mockResolvedValue(null);
-
-      await expect(
-        removeMarketplaceComponent("dep-1", "comp-1", "weather")
-      ).rejects.toThrow("No running pod found");
-    });
-
-    it("removes marketplace directory and component file", async () => {
-      await removeMarketplaceComponent("dep-1", "comp-1", "weather");
-
-      expect(mockExecInPod).toHaveBeenCalledWith(
-        "test-pod",
-        ["rm", "-rf", "/data/marketplace/comp-1"],
-        "runtime",
-      );
-      expect(mockExecInPod).toHaveBeenCalledWith(
-        "test-pod",
-        ["rm", "-f", "/data/components/weather.json"],
-        "runtime",
-      );
-    });
-
-    it("skips component file removal when componentName is null", async () => {
-      await removeMarketplaceComponent("dep-1", "comp-1", null);
-
-      // Should only remove marketplace directory, not component file
-      expect(mockExecInPod).toHaveBeenCalledTimes(1);
-      expect(mockExecInPod).toHaveBeenCalledWith(
-        "test-pod",
-        ["rm", "-rf", "/data/marketplace/comp-1"],
-        "runtime",
-      );
-    });
-
-    it("uses operator paths for operator mode", async () => {
-      await removeMarketplaceComponent("dep-1", "comp-1", "weather", "operator");
-
-      expect(mockExecInPod).toHaveBeenCalledWith(
-        "test-pod",
-        ["rm", "-rf", "/home/openclaw/.openclaw/marketplace/comp-1"],
-        "openclaw",
-      );
-    });
-  });
-
   // ══════════════════════════════════════════════════════════════════════════
   // buildDeploymentFields edge cases (tested indirectly via syncConfigsToPvc)
   // ══════════════════════════════════════════════════════════════════════════
@@ -1490,4 +1340,5 @@ describe("compareSecrets logic (via syncConfigsToPvc tiers)", () => {
     // → Tier 1 (file-only)
     expect(mockRestartDeployment).not.toHaveBeenCalled();
   });
+});
 });

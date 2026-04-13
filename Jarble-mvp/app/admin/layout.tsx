@@ -25,7 +25,6 @@ const NAV_ITEMS = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
   { href: "/admin/users", label: "Users", icon: Users },
   { href: "/admin/deployments", label: "Deployments", icon: Server },
-  { href: "/admin/marketplace", label: "Marketplace", icon: Store },
   { href: "/admin/billing", label: "Billing", icon: CreditCard },
   { href: "/admin/promo", label: "Promo Codes", icon: Ticket },
   { href: "/admin/announcements", label: "Announcements", icon: Megaphone },

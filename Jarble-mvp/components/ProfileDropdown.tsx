@@ -91,11 +91,6 @@ export default function ProfileDropdown() {
             <LayoutDashboard className="w-4 h-4" />
             Dashboard
           </DropdownMenuItem>
-          {/* Linked Deployments removed — now a tab on the dashboard */}
-          <DropdownMenuItem onSelect={() => router.push("/marketplace")} className="py-1.5 gap-1.5">
-            <Store className="w-4 h-4" />
-            Marketplace
-          </DropdownMenuItem>
           {isAdmin && (
             <DropdownMenuItem onSelect={() => router.push("/admin")} className="py-1.5 gap-1.5">
               <Shield className="w-4 h-4" />

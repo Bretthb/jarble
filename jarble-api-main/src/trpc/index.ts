@@ -8,8 +8,6 @@ import { platformCredentialsRouter } from "./routers/platformCredentials.js";
 import { deploymentSecretsRouter } from "./routers/deploymentSecrets.js";
 import { billingRouter } from "./routers/billing.js";
 import { skillsRouter } from "./routers/skills.js";
-import { marketplaceRouter } from "./routers/marketplace.js";
-import { servicesRouter } from "./routers/services.js";
 import { apiKeysRouter } from "./routers/apiKeys.js";
 import { adminRouter } from "./routers/admin.js";
 import { flowsRouter } from "./routers/flows.js";
@@ -26,8 +24,6 @@ export const appRouter = router({
   deploymentSecrets: deploymentSecretsRouter,
   billing: billingRouter,
   skills: skillsRouter,
-  marketplace: marketplaceRouter,
-  services: servicesRouter,
   apiKeys: apiKeysRouter,
   admin: adminRouter,
   flows: flowsRouter,

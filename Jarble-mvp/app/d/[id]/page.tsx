@@ -20,8 +20,6 @@ import SimpleCanvasGrid from "@/components/workspace/SimpleCanvasGrid";
 import DashboardCanvas from "@/components/workspace/DashboardCanvas";
 import EssentialControls from "@/components/workspace/EssentialControls";
 import ConfigPanel from "@/components/workspace/ConfigPanel";
-import MarketplacePanel from "@/components/workspace/MarketplacePanel";
-// HostedServicesPanel removed — feature deferred to a later release
 import FilePanel from "@/components/workspace/FilePanel";
 import KnowledgePanel from "@/components/workspace/KnowledgePanel";
 import CanvasRenderer from "@/components/canvas/CanvasRenderer";
@@ -342,7 +340,6 @@ function WorkspacePage({
 }) {
   const router = useRouter();
   const [configOpen, setConfigOpen] = useState(false);
-  const [marketplaceOpen, setMarketplaceOpen] = useState(false);
   // hostedServicesOpen removed — feature deferred
   const [filesOpen, setFilesOpen] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
@@ -486,15 +483,6 @@ function WorkspacePage({
               }}
             />
             <Button
-              variant={marketplaceOpen ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => setMarketplaceOpen((v) => !v)}
-              className="h-8 w-8 p-0 shrink-0 hidden sm:flex"
-              title="Marketplace"
-            >
-              <Store className="w-4 h-4" />
-            </Button>
-            <Button
               variant={debugOpen ? "secondary" : "ghost"}
               size="sm"
               onClick={() => {
@@ -575,12 +563,6 @@ function WorkspacePage({
           onRefetchDeployment={onRefetchDeployment}
           memoryScope={memoryScope}
         />
-        {marketplaceOpen && (
-          <MarketplacePanel
-            deploymentId={deploymentId}
-            onClose={() => setMarketplaceOpen(false)}
-          />
-        )}
       </div>
     </div>
     </SandboxThemeProvider>

@@ -20,7 +20,6 @@
 import { EventEmitter } from "events";
 import { db, tables, dbDate } from "../db/index.js";
 import { eq, and, or } from "drizzle-orm";
-import { executeAgentCall } from "./marketplaceHub.js";
 import {
   buildDelegationTools,
   executeDelegation,
@@ -910,38 +909,13 @@ export class FlowExecutionEngine extends EventEmitter {
       }
     }
 
-    // ── Team delegation path ────────────────────────────────────────────
-    // Any node with a deploymentId uses the delegation system, which gives
-    // it full team awareness (role, goal, delegation tools for connected
-    // bots, system prompt augmentation). Role is optional — nodes without
-    // a role still benefit from delegation context and timeout handling.
-    if (node.deploymentId) {
-      return this.executeDeploymentViaDelegation(node, resolvedArgs);
-    }
-
-    // ── Legacy marketplace-hub path ─────────────────────────────────────
-    // Nodes without a deploymentId use the existing executeAgentCall via serviceId.
-    const serviceId = node.serviceId;
-    const skillName = node.skillName || "default";
-
-    if (!serviceId) {
+    if (!node.deploymentId) {
       throw new Error(
-        `Deployment node "${node.id}" has no serviceId and no deploymentId for delegation`
+        `Deployment node "${node.id}" has no deploymentId for delegation`
       );
     }
 
-    const callResult = await executeAgentCall({
-      callerDeploymentId: this.callerDeploymentId || `flow_${this.state.flowId}`,
-      calleeServiceId: serviceId,
-      skillName,
-      args: resolvedArgs,
-      callerUserId: this.userId,
-    });
-
-    return {
-      result: callResult.result,
-      creditsCharged: callResult.creditsCharged,
-    };
+    return this.executeDeploymentViaDelegation(node, resolvedArgs);
   }
 
   /**
