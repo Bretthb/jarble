@@ -175,6 +175,15 @@ export interface RuntimeHandler {
   /** What this runtime supports */
   readonly capabilities: RuntimeCapabilities;
 
+  /**
+   * Whether this runtime supports native subagent execution.
+   * When true, subagent config is rendered as runtime-native agent definitions
+   * (e.g., OpenClaw agents.list + sessions_spawn). The API skips the legacy
+   * collectLlmCompletion interception path for subagent delegations.
+   * When false/undefined, subagents use the legacy API-side LLM call path.
+   */
+  readonly supportsNativeSubagents?: boolean;
+
   /** Config file specs (for discovery / reading back from PVC) */
   readonly configFiles: ConfigFileSpec[];
 

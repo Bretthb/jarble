@@ -550,6 +550,17 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<ConfigSyncRe
     // PHASE 2: Tiered execution
     // ══════════════════════════════════════════════════════════════════════
 
+    // Check if openclaw.json contains agents.list — OpenClaw reads this at
+    // gateway startup, so changes to the agent roster need a process restart
+    // (Tier 2) even when secrets haven't changed.
+    const openclawJsonFile = configFiles.find((f) => f.path === "openclaw.json");
+    const hasAgentsList = openclawJsonFile?.content?.includes('"list"');
+    if (hasAgentsList && !comparison.changed) {
+      // Escalate: agents.list requires gateway restart to take effect
+      comparison.changed = true;
+      log.info({ deploymentId }, "ConfigSync: agents.list detected in openclaw.json, escalating to Tier 2");
+    }
+
     if (!comparison.changed) {
       // ── Tier 1: File-only change (zero downtime) ──────────────────────
       // Secrets are unchanged - update the ConfigMap (source of truth for

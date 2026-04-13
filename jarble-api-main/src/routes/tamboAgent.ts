@@ -1690,14 +1690,17 @@ tamboAgentRouter.post("/", async (req, res) => {
       }
     }
 
-    // ── Subagent delegation round-trips ─────────────────────────────────────
-    // If the bot emitted jarble_delegate blocks targeting custom subagents
-    // (not team members), intercept and route to the agent LLM endpoint.
-    // This bridges the gap: OpenClaw can't call MCP tools at agent-turn time,
-    // so subagent calls go through the same fenced-block pattern as Bot Teams.
-    // Runs regardless of team membership — subagent calls that didn't match
-    // a team member tool are handled here as a fallback.
-    {
+    // ── Subagent delegation round-trips (legacy path) ─────────────────────
+    // With native OpenClaw subagents (agents.list + sessions_spawn), the bot
+    // handles subagent orchestration internally — no API interception needed.
+    // This legacy path only runs when native subagents are NOT available
+    // (e.g., non-OpenClaw runtimes or deployments without custom subagents).
+    // OpenClaw deployments use native sessions_spawn for subagent orchestration.
+    // The agents.list config is written by renderConfigs in openclaw.ts — the bot
+    // handles delegation internally via sessions_spawn, no API interception needed.
+    const hasNativeSubagents = deployment.runtime === "openclaw";
+
+    if (!hasNativeSubagents) {
       try {
         const subagentCalls = parseDelegationCalls(gatewayResult.rawText);
         // Filter out calls already handled by team delegation
