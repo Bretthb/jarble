@@ -94,6 +94,25 @@ async function verifyOwnership(deploymentId: string, userId: string) {
 export const adminProxyRouter = Router();
 
 /**
+ * GET /:id/admin-token — return the pod's gateway token so the frontend
+ * can build the iframe URL with #token= for auto-connect.
+ */
+adminProxyRouter.get("/:id/admin-token", async (req: Request, res: Response) => {
+  const user = await resolveUser(req);
+  if (!user) { res.status(401).json({ error: "Unauthorized" }); return; }
+
+  const deploymentId = req.params.id;
+  const deployment = await verifyOwnership(deploymentId, user.id);
+  if (!deployment) { res.status(404).json({ error: "Not found" }); return; }
+
+  const managedBy: ManagedBy = (deployment as any).managedBy ?? "legacy";
+  const podAddr = await getPodAddress(deploymentId, managedBy);
+  if (!podAddr) { res.status(503).json({ error: "Pod not reachable" }); return; }
+
+  res.json({ gatewayToken: podAddr.gatewayToken });
+});
+
+/**
  * POST /:id/inject — send a whisper message into a running deployment's
  * gateway via the chat.inject method.
  */
