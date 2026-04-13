@@ -47,6 +47,7 @@ import { attachOrchestrationWs } from "./routes/orchestration.js";
 import { flowExecutionRouter } from "./routes/flowExecution.js";
 import { flowChatRouter } from "./routes/flowChat.js";
 import { promoRouter } from "./routes/promo.js";
+import { adminProxyRouter, attachAdminWsProxy } from "./routes/adminProxy.js";
 
 const app = express();
 
@@ -126,6 +127,7 @@ app.use("/api/beta-signup", betaRouter);
 app.use("/api/promo", promoRouter);
 app.use("/api/flows", authLimiter, flowExecutionRouter);
 app.use("/api/flows", authLimiter, flowChatRouter);
+app.use("/api/deployments", authLimiter, adminProxyRouter);
 
 // Debug endpoints - gated by ADMIN role (not just NODE_ENV).
 // Even on a deployed "development" API, /debug is accessible to the public
@@ -260,6 +262,10 @@ async function start() {
   // Attach orchestration WebSocket (always active)
   attachOrchestrationWs(server);
   logger.info(`   Orch WS:  ws://localhost:${PORT}/ws/orchestration`);
+
+  // Attach admin proxy WebSocket (Control UI iframe)
+  attachAdminWsProxy(server);
+  logger.info(`   Admin WS: ws://localhost:${PORT}/ws/admin`);
 }
 
 start().catch((err) => {
