@@ -347,6 +347,8 @@ function WorkspacePage({
   const [teamsOpen, setTeamsOpen] = useState(false);
   const [teamSessionsOpen, setTeamSessionsOpen] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
+  const [chatMode, setChatMode] = useState<"workspace" | "webui">("workspace");
+  // chatMode is declared here in WorkspacePage and passed to CanvasWorkspace
   const [liveThemeConfig, setLiveThemeConfig] = useState(themeConfig);
   // Track whether theme was set by SSE (takes priority over prop sync for 5s)
   const themeSetBySse = useRef(false);
@@ -417,6 +419,26 @@ function WorkspacePage({
 
           <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto scrollbar-none">
             <EssentialControls deploymentId={deploymentId} status={liveStatus} />
+            <div className="w-px h-5 bg-border/60 hidden sm:block" />
+            {/* Chat mode toggle: Workspace (Jarble canvas) vs Open WebUI */}
+            <div className="flex items-center bg-muted rounded-md p-0.5 gap-0.5">
+              <Button
+                variant={chatMode === "workspace" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setChatMode("workspace")}
+              >
+                Workspace
+              </Button>
+              <Button
+                variant={chatMode === "webui" ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setChatMode("webui")}
+              >
+                Open WebUI
+              </Button>
+            </div>
             <div className="w-px h-5 bg-border/60 hidden sm:block" />
             <Button
               variant={historyOpen ? "secondary" : "ghost"}
@@ -557,6 +579,7 @@ function WorkspacePage({
               onHistoryClose={() => setHistoryOpen(false)}
               onRefetchDeployment={onRefetchDeployment}
               memoryScope={memoryScope}
+              chatMode={chatMode}
             />
           </>
         )}
@@ -678,6 +701,7 @@ function CanvasWorkspace({
   onHistoryClose,
   onRefetchDeployment,
   memoryScope,
+  chatMode,
 }: {
   deploymentId: string;
   liveStatus: string;
@@ -687,6 +711,7 @@ function CanvasWorkspace({
   /** JAR memory-scoping foundation: drives the disclosure banner above
    *  the chat. Read from the deployment record on the parent. */
   memoryScope?: string | null;
+  chatMode: "workspace" | "webui";
 }) {
   const router = useRouter();
   const { getAccessTokenSilently } = useAuth0();
@@ -900,6 +925,11 @@ function CanvasWorkspace({
 
   return (
     <div className="flex-1 flex overflow-hidden relative">
+      {/* Open WebUI mode: full-screen iframe pointing at the sidecar proxy */}
+      {chatMode === "webui" ? (
+        <OpenWebUIFrame deploymentId={deploymentId} />
+      ) : (
+      <>
       {/* Conversation history panel */}
       {historyOpen && (
         <ConversationHistoryPanel
@@ -1136,7 +1166,46 @@ function CanvasWorkspace({
           {hasCanvasCards ? `Show Dashboard (${state.cards.length})` : "Show Dashboard"}
         </Button>
       )}
+      </>
+      )}
     </div>
+  );
+}
+
+// ── Open WebUI iframe with JWT auth ──────────────────────────────────────────
+
+function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
+  const { getAccessTokenSilently } = useAuth0();
+  const [iframeSrc, setIframeSrc] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAccessTokenSilently().then((token) => {
+      if (!cancelled) {
+        setIframeSrc(
+          `${process.env.NEXT_PUBLIC_API_URL}/api/deployments/${deploymentId}/webui/?token=${encodeURIComponent(token)}`
+        );
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [deploymentId, getAccessTokenSilently]);
+
+  if (!iframeSrc) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-muted-foreground">
+        <Loader2 className="w-5 h-5 animate-spin mr-2" />
+        Loading Open WebUI...
+      </div>
+    );
+  }
+
+  return (
+    <iframe
+      src={iframeSrc}
+      className="w-full flex-1 border-0"
+      allow="clipboard-write"
+      title="Open WebUI"
+    />
   );
 }
 

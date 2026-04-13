@@ -58,8 +58,8 @@ export const LONGHORN_DISK_OVERHEAD_GB = 11;
 // Exported so test code (and Layer A's deployment-router validation) can import
 // the canonical tier table. Do NOT mutate at runtime — treat as readonly data.
 export const SERVER_TYPES = [
-  { name: "cpx11", cores: 2,  memGb: 2,  diskGb: 40,  usableLonghornGb: 40  - LONGHORN_DISK_OVERHEAD_GB, monthlyCents: 499 },
-  { name: "cpx21", cores: 3,  memGb: 4,  diskGb: 80,  usableLonghornGb: 80  - LONGHORN_DISK_OVERHEAD_GB, monthlyCents: 999 },
+  // cpx11 (2 vCPU / 2 GB) and cpx21 (3 vCPU / 4 GB) removed — minimum is now
+  // cpx31 to accommodate the Open WebUI sidecar (~500MB RAM) alongside OpenClaw.
   { name: "cpx31", cores: 4,  memGb: 8,  diskGb: 160, usableLonghornGb: 160 - LONGHORN_DISK_OVERHEAD_GB, monthlyCents: 1799 },
   { name: "cpx41", cores: 8,  memGb: 16, diskGb: 240, usableLonghornGb: 240 - LONGHORN_DISK_OVERHEAD_GB, monthlyCents: 3349 },
   { name: "cpx51", cores: 16, memGb: 32, diskGb: 360, usableLonghornGb: 360 - LONGHORN_DISK_OVERHEAD_GB, monthlyCents: 6699 },

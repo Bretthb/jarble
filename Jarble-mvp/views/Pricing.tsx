@@ -22,13 +22,14 @@ import MarketingFooter from "@/components/marketing/MarketingFooter";
 /* ── Beta default tier ────────────────────────────────────────────────── */
 
 const BETA_TIER = {
-  price: 13.99,
-  specs: { cpu: "3 shared vCPU", ram: "4 GB", storage: "80 GB" },
-  server: "cpx21",
+  price: 17.99,
+  specs: { cpu: "4 shared vCPU", ram: "8 GB", storage: "160 GB" },
+  server: "cpx31",
 };
 
 const FEATURES = [
   "Isolated pod with dedicated resources",
+  "Open WebUI chat interface",
   "Web chat interface with full canvas",
   "30+ built-in components (charts, tables, code, 3D)",
   "Connect WhatsApp, Discord, Slack, Telegram",

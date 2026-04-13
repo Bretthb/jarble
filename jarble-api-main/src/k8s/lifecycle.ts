@@ -4,7 +4,7 @@ import { createModuleLogger } from "../utils/logger.js";
 
 const log = createModuleLogger("k8s:lifecycle");
 import { coreApi, appsApi } from "./client.js";
-import { NAMESPACE, DEFAULT_IMAGE, RUNTIME_PORTS, RUNTIME_CLASS_MAP, RUNTIME_OVERHEAD, RUNTIME_NODE_SELECTOR } from "./constants.js";
+import { NAMESPACE, DEFAULT_IMAGE, RUNTIME_PORTS, RUNTIME_CLASS_MAP, RUNTIME_OVERHEAD, RUNTIME_NODE_SELECTOR, OPEN_WEBUI_IMAGE, OPEN_WEBUI_PORT, OPEN_WEBUI_CONTAINER_NAME } from "./constants.js";
 import type { DeploymentConfig, ManagedBy, IsolationLevel, DeploymentType } from "./constants.js";
 import { getDeploymentPodStatus } from "./status.js";
 import { createDeploymentConfigMap, deleteDeploymentConfigMap } from "./configmap.js";
@@ -382,8 +382,8 @@ async function createDeploymentLegacy(
   //    Directories are created in a single mkdir call and config copying is
   //    done in one shell invocation to minimize init container runtime.
   const configInitScript = [
-    "mkdir -p /data/config /data/logs /data/.openclaw /data/components /data/files /data/skills /data/marketplace",
-    "chmod -R 755 /data/config /data/logs /data/.openclaw /data/components /data/files /data/skills /data/marketplace",
+    "mkdir -p /data/config /data/logs /data/.openclaw /data/components /data/files /data/skills /data/marketplace /data/open-webui",
+    "chmod -R 755 /data/config /data/logs /data/.openclaw /data/components /data/files /data/skills /data/marketplace /data/open-webui",
     "if [ -d /config-source ]; then " +
       "for f in /config-source/*; do " +
         "key=$(basename \"$f\"); " +
@@ -535,10 +535,46 @@ async function createDeploymentLegacy(
               timeoutSeconds: 3,
               failureThreshold: 3,
             },
+          },
+          // ── Open WebUI sidecar ────────────────────────────────────────
+          // Runs alongside the OpenClaw runtime, talks to it over
+          // localhost:18789. Provides a polished chat UI at port 8080.
+          {
+            name: OPEN_WEBUI_CONTAINER_NAME,
+            image: OPEN_WEBUI_IMAGE,
+            ports: [{ containerPort: OPEN_WEBUI_PORT, name: "webui" }],
+            env: [
+              { name: "OPENAI_API_BASE_URL", value: `http://localhost:${gatewayPort}/v1` },
+              { name: "OPENAI_API_KEY", value: gatewayToken },
+              { name: "WEBUI_AUTH", value: "false" },
+              { name: "DATA_DIR", value: "/data/open-webui" },
+              { name: "DO_NOT_TRACK", value: "true" },
+              { name: "SCARF_NO_ANALYTICS", value: "true" },
+            ],
+            resources: {
+              requests: { cpu: "100m", memory: "256Mi" },
+              limits:   { cpu: "500m", memory: "512Mi" },
+            },
+            securityContext: secCtx.container,
+            volumeMounts: [
+              { name: "data", mountPath: "/data" },
+              { name: "tmp-webui", mountPath: "/tmp" },
+            ],
+            readinessProbe: {
+              httpGet: { path: "/health", port: OPEN_WEBUI_PORT },
+              initialDelaySeconds: 15,
+              periodSeconds: 10,
+            },
+            livenessProbe: {
+              httpGet: { path: "/health", port: OPEN_WEBUI_PORT },
+              initialDelaySeconds: 30,
+              periodSeconds: 30,
+            },
           }],
           volumes: [
             { name: "data", persistentVolumeClaim: { claimName: `pvc-${deploymentId}` } },
             { name: "tmp", emptyDir: { sizeLimit: "1Gi" } },
+            { name: "tmp-webui", emptyDir: { sizeLimit: "512Mi" } },
             ...(hasConfigMap ? [{
               name: "config-source",
               configMap: { name: `config-${deploymentId}` },

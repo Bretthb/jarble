@@ -57,14 +57,19 @@ export const RUNTIME_PORTS: Record<string, number> = {
   zeroclaw: 3000,
 };
 
-/** Named resource presets for platform-hosted agents */
+/** Named resource presets for platform-hosted agents (cpx31 minimum) */
 export const RESOURCE_TIERS = {
-  small:  { cpuLimit: "0.5", memoryMb: 1024, storageMb: 5 },
-  medium: { cpuLimit: "1.0", memoryMb: 2048, storageMb: 10 },
-  large:  { cpuLimit: "2.0", memoryMb: 3072, storageMb: 20 },
+  small:  { cpuLimit: "2.0", memoryMb: 3072, storageMb: 20 },
+  medium: { cpuLimit: "3.0", memoryMb: 4096, storageMb: 30 },
+  large:  { cpuLimit: "4.0", memoryMb: 6144, storageMb: 40 },
 } as const;
 
 export type ResourceTier = keyof typeof RESOURCE_TIERS;
+
+// ── Open WebUI sidecar constants ─────────────────────────────────────────
+export const OPEN_WEBUI_IMAGE = process.env.OPEN_WEBUI_IMAGE || "ghcr.io/open-webui/open-webui:main";
+export const OPEN_WEBUI_PORT = 8080;
+export const OPEN_WEBUI_CONTAINER_NAME = "open-webui";
 
 // ── Operator CRD constants ────────────────────────────────────────────────
 export const CRD_GROUP = "openclaw.rocks";
