@@ -16,6 +16,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockCoreApi.replaceNamespacedSecret.mockResolvedValue({} as any);
   delete process.env.JARBLE_API_URL;
+  delete process.env.JARBLE_INTERNAL_API_URL;
   delete process.env.CONFIG_WEBHOOK_SECRET;
 });
 
@@ -81,8 +82,10 @@ describe("updateDeploymentSecret", () => {
     expect(data.LLM_PROVIDER).toBe("openrouter");
   });
 
-  it("includes JARBLE_API_URL when set in env", async () => {
-    process.env.JARBLE_API_URL = "https://api.jarble.ai";
+  it("includes JARBLE_API_URL when JARBLE_INTERNAL_API_URL is set in env", async () => {
+    // The implementation uses JARBLE_INTERNAL_API_URL (internal K8s svc URL) and
+    // writes it to the secret as JARBLE_API_URL. JARBLE_API_URL env is no longer read.
+    process.env.JARBLE_INTERNAL_API_URL = "https://api.jarble.ai";
     mockCoreApi.readNamespacedSecret.mockResolvedValue({
       body: { data: {} },
     } as any);

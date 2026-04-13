@@ -1,7 +1,10 @@
 /**
  * Flow Engine Phase 2 tests - cycles, human-in-the-loop, nested subflows.
  *
- * Mocks: executeAgentCall, db, logger.
+ * Mocks: executeDelegation (from flowDelegation.js), db, logger.
+ *
+ * NOTE: flowEngine.ts was migrated from executeAgentCall (marketplaceHub.js)
+ * to executeDelegation (flowDelegation.js). These mocks reflect the current API.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { FlowNode, FlowEdge, FlowDefinition, StepResult } from "./flowEngine.js";
@@ -18,9 +21,17 @@ vi.mock("../utils/logger.js", () => ({
   }),
 }));
 
-const mockExecuteAgentCall = vi.fn();
-vi.mock("./marketplaceHub.js", () => ({
-  executeAgentCall: (...args: any[]) => mockExecuteAgentCall(...args),
+const mockExecuteDelegation = vi.fn();
+vi.mock("./flowDelegation.js", () => ({
+  executeDelegation: (...args: any[]) => mockExecuteDelegation(...args),
+  buildDelegationTools: () => [],
+  buildFlowSystemPrompt: (_node: any, _tools: any, basePrompt: string) => basePrompt,
+  DelegationDepthExceededError: class DelegationDepthExceededError extends Error {},
+  DelegationCycleError: class DelegationCycleError extends Error {},
+  wouldExceedDepth: () => false,
+  wouldCreateCycle: () => false,
+  sanitizeDelegationError: (e: unknown) => String(e),
+  stripDelegationBlocks: (s: string) => s,
 }));
 
 vi.mock("../db/index.js", () => {
@@ -72,7 +83,7 @@ function makeNode(
     type,
     label: `Node ${id}`,
     position: { x: 0, y: 0 },
-    serviceId: type === "deployment" ? `svc_${id}` : undefined,
+    deploymentId: type === "deployment" ? `dep_${id}` : undefined,
     config,
     maxIterations,
   };
@@ -96,9 +107,12 @@ function createEngine(def: FlowDefinition, nestingDepth?: number): FlowExecution
 describe("FlowExecutionEngine Phase 2", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockExecuteAgentCall.mockResolvedValue({
-      result: { message: "ok" },
-      creditsCharged: 5,
+    mockExecuteDelegation.mockResolvedValue({
+      response: "ok",
+      creditsUsed: 5,
+      durationMs: 10,
+      targetNodeId: "n",
+      targetDeploymentId: "dep",
     });
   });
 
@@ -107,9 +121,9 @@ describe("FlowExecutionEngine Phase 2", () => {
   describe("Cycle/Loop Support", () => {
     it("executes A->B->A cycle with maxIterations=3, stopping after 3 iterations", async () => {
       let callCount = 0;
-      mockExecuteAgentCall.mockImplementation(async () => {
+      mockExecuteDelegation.mockImplementation(async () => {
         callCount++;
-        return { result: { count: callCount }, creditsCharged: 1 };
+        return { response: String(callCount), creditsUsed: 1, durationMs: 0, targetNodeId: "x", targetDeploymentId: "dep" };
       });
 
       const nodes = [
@@ -154,9 +168,9 @@ describe("FlowExecutionEngine Phase 2", () => {
 
     it("prevents infinite loops with default maxIterations=10", async () => {
       let callCount = 0;
-      mockExecuteAgentCall.mockImplementation(async () => {
+      mockExecuteDelegation.mockImplementation(async () => {
         callCount++;
-        return { result: { n: callCount }, creditsCharged: 0 };
+        return { response: String(callCount), creditsUsed: 0, durationMs: 0, targetNodeId: "x", targetDeploymentId: "dep" };
       });
 
       // Single node self-loop
@@ -173,14 +187,16 @@ describe("FlowExecutionEngine Phase 2", () => {
 
     it("handles cycle with condition that eventually stops", async () => {
       let counter = 0;
-      mockExecuteAgentCall.mockImplementation(async () => {
+      mockExecuteDelegation.mockImplementation(async () => {
         counter++;
-        return { result: { done: counter >= 3 }, creditsCharged: 1 };
+        // Return "true" when counter < 3 (not done), "false" when done
+        return { response: counter >= 3 ? "false" : "true", creditsUsed: 1, durationMs: 0, targetNodeId: "x", targetDeploymentId: "dep" };
       });
 
       const nodes = [
         makeNode("A", "deployment", undefined, 10),
-        makeNode("B", "condition", { condition: "{{A.done}} == false" }, 10),
+        // {{A.response}} is "true" (not done) or "false" (done)
+        makeNode("B", "condition", { condition: "{{A.response}} == true" }, 10),
       ];
       const edges = [
         makeEdge("A", "B"),
@@ -207,7 +223,7 @@ describe("FlowExecutionEngine Phase 2", () => {
       expect(state.stepResults.get("A")?.status).toBe("completed");
       expect(state.stepResults.get("B")?.status).toBe("completed");
       expect(state.stepResults.get("C")?.status).toBe("completed");
-      expect(mockExecuteAgentCall).toHaveBeenCalledTimes(3);
+      expect(mockExecuteDelegation).toHaveBeenCalledTimes(3);
     });
 
     it("handles parallel branches correctly in state machine model", async () => {
@@ -446,9 +462,12 @@ describe("FlowExecutionEngine Phase 2", () => {
         edges: [],
       };
 
-      mockExecuteAgentCall.mockResolvedValue({
-        result: { message: "ok" },
-        creditsCharged: 15,
+      mockExecuteDelegation.mockResolvedValue({
+        response: "ok",
+        creditsUsed: 15,
+        durationMs: 0,
+        targetNodeId: "childA",
+        targetDeploymentId: "dep_childA",
       });
 
       const { db: mockDb } = await import("../db/index.js");
@@ -507,9 +526,9 @@ describe("FlowExecutionEngine Phase 2", () => {
     });
 
     it("cancellation still works", async () => {
-      mockExecuteAgentCall.mockImplementation(async () => {
+      mockExecuteDelegation.mockImplementation(async () => {
         await new Promise((r) => setTimeout(r, 100));
-        return { result: "ok", creditsCharged: 0 };
+        return { response: "ok", creditsUsed: 0, durationMs: 100, targetNodeId: "x", targetDeploymentId: "dep" };
       });
 
       const nodes = [makeNode("A"), makeNode("B")];
