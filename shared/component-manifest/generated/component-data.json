@@ -1,5 +1,5 @@
 {
-  "_generated": "2026-03-18T22:02:38.269Z",
+  "_generated": "2026-04-14T20:12:30.457Z",
   "_description": "Auto-generated from @jarble/component-manifest. Do not edit manually.",
   "componentNames": [
     "card",
@@ -25,7 +25,6 @@
     "code_editor",
     "spreadsheet",
     "sandbox",
-    "marketplace_sandbox",
     "sandpack_sandbox",
     "video",
     "embed",
@@ -72,7 +71,6 @@
     "code_editor": "Monaco code editor with syntax highlighting",
     "spreadsheet": "Editable Excel-like spreadsheet grid",
     "sandbox": "Sandboxed iframe for custom HTML/CSS/JS mini-apps — render anything. Use for charts, 3D, animations, gauges, maps, or any visualization not covered by built-in components.",
-    "marketplace_sandbox": "Double-iframe sandboxed container for marketplace (user-submitted) components. Provides an extra layer of isolation beyond the standard sandbox — inner iframe runs with opaque origin inside an outer about:blank iframe.",
     "sandpack_sandbox": "Full npm sandbox for complex multi-file components (React, Three.js, etc.). Use for React apps with state, multi-file projects, or packages with complex dependency trees.",
     "video": "Video/livestream player — supports YouTube, Twitch, Vimeo, SoundCloud, Dailymotion, direct URLs. Use for livestreams (NASA ISS, Twitch channels, YouTube Live).",
     "embed": "Third-party widget embed — renders Google Maps, TradingView, Spotify, CodePen, Figma, social posts, and more as interactive iframes",
@@ -998,52 +996,6 @@
         "configSchema": {
           "type": "object",
           "additionalProperties": {}
-        }
-      },
-      "required": [
-        "html"
-      ],
-      "additionalProperties": true
-    },
-    "marketplace_sandbox": {
-      "type": "object",
-      "properties": {
-        "html": {
-          "type": "string"
-        },
-        "css": {
-          "type": "string"
-        },
-        "js": {
-          "type": "string"
-        },
-        "moduleJs": {
-          "type": "string"
-        },
-        "importMap": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string"
-          }
-        },
-        "props": {
-          "type": "object",
-          "additionalProperties": {}
-        },
-        "height": {
-          "type": "number"
-        },
-        "title": {
-          "type": "string"
-        },
-        "libraries": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "marketplaceId": {
-          "type": "string"
         }
       },
       "required": [
@@ -2899,56 +2851,6 @@
           "configSchema": {
             "type": "object",
             "additionalProperties": {}
-          }
-        },
-        "required": [
-          "html"
-        ],
-        "additionalProperties": true
-      }
-    },
-    {
-      "name": "show_marketplace_sandbox",
-      "description": "Double-iframe sandboxed container for marketplace (user-submitted) components. Provides an extra layer of isolation beyond the standard sandbox — inner iframe runs with opaque origin inside an outer about:blank iframe.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "html": {
-            "type": "string"
-          },
-          "css": {
-            "type": "string"
-          },
-          "js": {
-            "type": "string"
-          },
-          "moduleJs": {
-            "type": "string"
-          },
-          "importMap": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "string"
-            }
-          },
-          "props": {
-            "type": "object",
-            "additionalProperties": {}
-          },
-          "height": {
-            "type": "number"
-          },
-          "title": {
-            "type": "string"
-          },
-          "libraries": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "marketplaceId": {
-            "type": "string"
           }
         },
         "required": [

@@ -39,21 +39,13 @@ const SKIP_MANIFEST_TO_FILE = new Set(["canvas"]);
  * Components whose file doesn't follow the Canvas{PascalName}.tsx convention.
  * Key: manifest name, Value: path relative to ROOT.
  */
-const SPECIAL_FILE_MAP: Record<string, string> = {
-  marketplace_sandbox: join(
-    "Jarble-mvp",
-    "components",
-    "canvas",
-    "components",
-    "MarketplaceSandbox.tsx"
-  ),
-};
+const SPECIAL_FILE_MAP: Record<string, string> = {};
 
 /**
  * Files in the Canvas*.tsx directory that are NOT standard Canvas components
  * and should be excluded from the orphan check.
  */
-const SKIP_ORPHAN_FILES = new Set(["MarketplaceSandbox.tsx"]);
+const SKIP_ORPHAN_FILES = new Set<string>();
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 

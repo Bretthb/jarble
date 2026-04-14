@@ -1,6 +1,9 @@
-// TODO: All tests in this file hang due to rAF typewriter animation creating
-// infinite loops with synchronous mock. Needs async rAF mock architecture.
-// The actual useCanvasChat hook works correctly in production.
+// The useCanvasChat hook uses a requestAnimationFrame-based typewriter that
+// reveals CHARS_PER_FRAME chars per frame. Previously these tests hung because
+// the rAF mock executed callbacks synchronously, creating an infinite recursion
+// (each tick synchronously scheduled another tick). The fix: queue rAF callbacks
+// on microtasks via Promise.resolve().then, so the loop yields to the event
+// loop between frames and React's act() can flush state updates.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 
@@ -24,6 +27,7 @@ vi.mock("@/lib/trpc", () => ({
     deployment: {
       syncChatSession: { useMutation: () => ({ mutateAsync: vi.fn(), isPending: false }) },
       listChatSessions: { useQuery: () => ({ data: undefined, isLoading: false }) },
+      getChatMessages: { useQuery: () => ({ data: undefined, isLoading: false, refetch: vi.fn() }) },
     },
     useUtils: () => ({}),
   },
@@ -95,8 +99,10 @@ function makeState(cards: any[] = []): CanvasState {
 
 // ── Tests ───────────────────────────────────────────────────────────────────
 
-describe.skip("useCanvasChat", () => {
+describe("useCanvasChat", () => {
   let dispatch: ReturnType<typeof vi.fn>;
+  let rafHandles: Map<number, boolean>;
+  let nextRafId: number;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -105,12 +111,27 @@ describe.skip("useCanvasChat", () => {
     localStorage.clear();
     // Reset fetch to avoid leaking between tests
     (global as any).fetch = undefined;
-    // Mock requestAnimationFrame for rAF-based text throttle
+    // Queue rAF callbacks on microtasks. This allows the typewriter loop to
+    // progress without stack overflow and lets React's act() flush between
+    // ticks. Each microtask-deferred call is still effectively synchronous
+    // inside an `await act(...)` so the test sees the fully-revealed text by
+    // the time the awaited promise settles.
+    rafHandles = new Map();
+    nextRafId = 1;
     vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
-      cb(0);
-      return 0;
+      const id = nextRafId++;
+      rafHandles.set(id, true);
+      Promise.resolve().then(() => {
+        if (rafHandles.get(id)) {
+          rafHandles.delete(id);
+          cb(0);
+        }
+      });
+      return id;
     });
-    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id: number) => {
+      rafHandles.delete(id);
+    });
   });
 
   afterEach(() => {

@@ -31,7 +31,7 @@ const CANONICAL_COMPONENTS = [
   "alert", "progress", "image", "layout", "chart",
   "tabs", "accordion", "badge", "list", "timeline",
   "divider", "metric_card", "header", "button_group", "form",
-  "code_editor", "spreadsheet", "sandbox", "marketplace_sandbox", "sandpack_sandbox",
+  "code_editor", "spreadsheet", "sandbox", "sandpack_sandbox",
   "video", "embed", "audio", "avatar", "blockquote",
   "text_message", "image_gallery", "map", "descriptions", "steps",
   "result", "carousel", "statistic", "tag_cloud", "tree",

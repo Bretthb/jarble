@@ -351,22 +351,6 @@ export const sandboxSchema = z.object({
   configSchema: z.record(z.string(), z.unknown()).optional(),
 });
 
-export const marketplaceSandboxSchema = z.object({
-  html: z.string(),
-  css: z.string().optional(),
-  js: z.string().optional(),
-  /** ES module JavaScript — rendered as <script type="module">. */
-  moduleJs: z.string().optional(),
-  /** Import map — maps bare specifiers to CDN URLs (e.g. {"react": "https://esm.sh/react@18"}). */
-  importMap: z.record(z.string(), z.string()).optional(),
-  props: z.record(z.string(), z.unknown()).optional(),
-  height: z.number().optional(),
-  title: z.string().optional(),
-  libraries: z.array(z.string()).optional(),
-  /** Marketplace component ID — triggers double-iframe isolation */
-  marketplaceId: z.string().optional(),
-});
-
 export const mapSchema = z.object({
   center: z.tuple([z.number(), z.number()]).optional(),
   location: z.tuple([z.number(), z.number()]).optional(), // alias for center
@@ -552,7 +536,6 @@ export const COMPONENT_SCHEMAS: Record<string, ZodType> = {
   code_editor: codeEditorSchema,
   spreadsheet: spreadsheetSchema,
   sandbox: sandboxSchema,
-  marketplace_sandbox: marketplaceSandboxSchema,
   sandpack_sandbox: sandpackSandboxSchema,
   video: videoSchema,
   embed: embedSchema,

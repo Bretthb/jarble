@@ -35,7 +35,6 @@ import { formEntry } from "./components/form.js";
 import { codeEditorEntry } from "./components/code_editor.js";
 import { spreadsheetEntry } from "./components/spreadsheet.js";
 import { sandboxEntry, SANDBOX_SDK_VERSION } from "./components/sandbox.js";
-import { marketplaceSandboxEntry } from "./components/marketplace_sandbox.js";
 import { sandpackSandboxEntry } from "./components/sandpack_sandbox.js";
 import { videoEntry } from "./components/video.js";
 import { embedEntry } from "./components/embed.js";
@@ -90,7 +89,6 @@ export const COMPONENT_MANIFEST: Record<string, ComponentManifestEntry> = {
   code_editor: codeEditorEntry,
   spreadsheet: spreadsheetEntry,
   sandbox: sandboxEntry,
-  marketplace_sandbox: marketplaceSandboxEntry,
   sandpack_sandbox: sandpackSandboxEntry,
   video: videoEntry,
   embed: embedEntry,
@@ -187,7 +185,6 @@ export {
   codeEditorSchema,
   spreadsheetSchema,
   sandboxSchema,
-  marketplaceSandboxSchema,
   videoSchema,
   embedSchema,
   audioSchema,

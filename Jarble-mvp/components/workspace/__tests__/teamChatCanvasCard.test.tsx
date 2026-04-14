@@ -24,13 +24,9 @@ vi.mock("@/components/canvas/CanvasRenderer", () => ({
   ),
 }));
 
-// Mock lucide-react's X icon so we can locate it without loading all icons.
-vi.mock("lucide-react", () => ({
-  X: ({ className }: { className?: string }) => (
-    <span className={className} data-testid="icon-x" />
-  ),
-}));
-
+// Use the real lucide-react package. The component imports multiple icons
+// (X, BarChart3, Table2, etc.) and mocking only a subset caused module
+// evaluation to throw, producing 0 passing tests in the file.
 import TeamChatCanvasCard, {
   type TeamCanvasCardData,
 } from "../TeamChatCanvasCard";

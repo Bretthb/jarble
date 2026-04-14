@@ -19,8 +19,8 @@ import {
 // ── Manifest Structure ───────────────────────────────────────────────────────
 
 describe("COMPONENT_MANIFEST", () => {
-  it("has 46 entries (45 components + canvas alias)", () => {
-    expect(Object.keys(COMPONENT_MANIFEST).length).toBe(46);
+  it("has 45 entries (44 components + canvas alias)", () => {
+    expect(Object.keys(COMPONENT_MANIFEST).length).toBe(45);
   });
 
   it("each entry has required fields", () => {
@@ -51,7 +51,7 @@ describe("COMPONENT_MANIFEST", () => {
       "alert", "progress", "image", "layout", "chart",
       "tabs", "accordion", "badge", "list", "timeline",
       "divider", "metric_card", "header", "button_group", "form",
-      "code_editor", "spreadsheet", "sandbox", "marketplace_sandbox",
+      "code_editor", "spreadsheet", "sandbox",
       "sandpack_sandbox", "video", "embed", "canvas",
       "audio", "avatar", "blockquote", "text_message", "image_gallery",
       "map", "descriptions", "steps", "result", "carousel",
@@ -67,8 +67,8 @@ describe("COMPONENT_MANIFEST", () => {
 // ── Derived Exports ──────────────────────────────────────────────────────────
 
 describe("COMPONENT_NAMES", () => {
-  it("has 46 names", () => {
-    expect(COMPONENT_NAMES.length).toBe(46);
+  it("has 45 names", () => {
+    expect(COMPONENT_NAMES.length).toBe(45);
   });
 
   it("matches manifest keys", () => {
@@ -78,8 +78,8 @@ describe("COMPONENT_NAMES", () => {
 });
 
 describe("COMPONENT_NAME_SET", () => {
-  it("is a Set with 46 entries", () => {
-    expect(COMPONENT_NAME_SET.size).toBe(46);
+  it("is a Set with 45 entries", () => {
+    expect(COMPONENT_NAME_SET.size).toBe(45);
   });
 
   it("has O(1) lookup for known components", () => {
@@ -98,8 +98,8 @@ describe("COMPONENT_NAME_SET", () => {
 // ── COMPONENT_SCHEMAS ────────────────────────────────────────────────────────
 
 describe("COMPONENT_SCHEMAS", () => {
-  it("has 46 schemas", () => {
-    expect(Object.keys(COMPONENT_SCHEMAS).length).toBe(46);
+  it("has 45 schemas", () => {
+    expect(Object.keys(COMPONENT_SCHEMAS).length).toBe(45);
   });
 
   it("every schema has parse and safeParse", () => {
