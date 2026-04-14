@@ -536,14 +536,8 @@ export const openclawHandler: RuntimeHandler = {
         dangerouslyDisableDeviceAuth: true,
       },
     };
-    // Auth mode: "none" allows canvas documents to render in sub-iframes
-    // without requiring per-request auth tokens. Access is gated by knowing
-    // the deployment's random subdomain URL ({id}.agents.jarble.ai).
-    // The gateway token is still set for WS connections and API calls that
-    // explicitly pass Authorization headers.
-    gatewayConfig.auth = { mode: "none" };
     if (deployment.gatewayToken) {
-      gatewayConfig.auth.token = deployment.gatewayToken;
+      gatewayConfig.auth = { token: deployment.gatewayToken };
     }
     openclawConfig.gateway = gatewayConfig;
 
