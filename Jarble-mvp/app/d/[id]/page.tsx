@@ -1198,10 +1198,23 @@ function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
           }
         }
 
-        // Whether session succeeded or not, try loading the iframe
-        // (cookie might already exist from a previous session)
+        // Get gateway token for WS auto-connect (HTTP auth is via cookie,
+        // but the SPA's WebSocket needs the token in the URL hash)
+        let gatewayToken = "";
+        try {
+          const tokenRes = await fetch(
+            `${process.env.NEXT_PUBLIC_API_URL}/api/deployments/${deploymentId}/admin-token`,
+            { headers: { Authorization: `Bearer ${jwt}` } },
+          );
+          if (tokenRes.ok) {
+            const tokenData = await tokenRes.json();
+            gatewayToken = tokenData.gatewayToken || "";
+          }
+        } catch { /* non-fatal — SPA will show connect dialog */ }
+
         if (!cancelled) {
-          setIframeSrc(`https://${deploymentId}.agents.jarble.ai`);
+          const hash = gatewayToken ? `#token=${gatewayToken}` : "";
+          setIframeSrc(`https://${deploymentId}.agents.jarble.ai${hash}`);
         }
       } catch {
         if (!cancelled) setError("Could not load Control Panel");
