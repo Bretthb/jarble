@@ -114,8 +114,9 @@ export default function ControlPanel({ deploymentId, liveStatus }: ControlPanelP
     (action: CanvasAction) => {
       if (!iframeRef.current?.contentWindow) return;
 
-      if (action.type === "content_edit") {
-        const message = `[EDITING ${action.cardId}]\n${action.content}\n\nPlease update this component with the changes above.`;
+      if (action.action === "content_edit") {
+        const content = typeof action.payload?.content === "string" ? action.payload.content : JSON.stringify(action.payload);
+        const message = `[EDITING ${action.blockId}]\n${content}\n\nPlease update this component with the changes above.`;
         iframeRef.current.contentWindow.postMessage(
           { type: "jarble:chat_send", message },
           "*",
@@ -150,7 +151,6 @@ export default function ControlPanel({ deploymentId, liveStatus }: ControlPanelP
             ref={iframeRef}
             src={iframeSrc}
             className="flex-1 w-full border-0"
-            sandbox="allow-same-origin allow-scripts allow-forms allow-popups"
             title="OpenClaw Control UI"
             onLoad={() => setLoading(false)}
           />
