@@ -202,9 +202,29 @@ export async function getDeploymentStorageUsage(
 
 // ── Pod Address Lookup (for chat proxy) ──────────────────────────────
 
+// In-memory TTL cache for pod address lookups. Avoids hammering the K8s
+// API on every Control UI sub-resource request (CSS, JS, images). Each
+// entry caches the pod IP + gateway token for POD_ADDR_CACHE_TTL_MS.
+const POD_ADDR_CACHE_TTL_MS = 60_000; // 60 seconds
+
+interface PodAddrCacheEntry {
+  value: { ip: string; port: number; gatewayToken: string } | null;
+  expiresAt: number;
+}
+
+const podAddrCache = new Map<string, PodAddrCacheEntry>();
+
+/** Invalidate a cached pod address (e.g. after restart or scale-down). */
+export function invalidatePodAddrCache(deploymentId: string): void {
+  podAddrCache.delete(deploymentId);
+}
+
 /**
  * Get the pod's cluster IP, gateway port, and auth token for proxying
  * dashboard chat requests through the running OpenClaw pod.
+ *
+ * Results are cached for 60s to avoid repeated K8s API calls during
+ * Control UI asset loads (which can trigger 20+ requests in quick succession).
  *
  * Returns null if mock mode, no pod is running, or the secret is missing.
  *
@@ -219,6 +239,12 @@ export async function getPodAddress(
   port: number;
   gatewayToken: string;
 } | null> {
+  // Check cache first
+  const cached = podAddrCache.get(deploymentId);
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.value;
+  }
+
   try {
     const labelSelector = podLabelSelector(deploymentId, managedBy);
     const targetContainer = getContainerName(managedBy);
@@ -233,7 +259,10 @@ export async function getPodAddress(
       labelSelector
     );
 
-    if (pods.body.items.length === 0) return null;
+    if (pods.body.items.length === 0) {
+      podAddrCache.set(deploymentId, { value: null, expiresAt: Date.now() + POD_ADDR_CACHE_TTL_MS });
+      return null;
+    }
 
     const pod = pods.body.items[0];
     const podIp = pod.status?.podIP;
@@ -242,7 +271,10 @@ export async function getPodAddress(
     ) ?? pod.status?.containerStatuses?.[0];
     const isRunning = pod.status?.phase === "Running" && containerStatus?.ready;
 
-    if (!podIp || !isRunning) return null;
+    if (!podIp || !isRunning) {
+      podAddrCache.set(deploymentId, { value: null, expiresAt: Date.now() + POD_ADDR_CACHE_TTL_MS });
+      return null;
+    }
 
     // Read gateway token from K8s Secret
     const secret = await coreApi.readNamespacedSecret(`secret-${deploymentId}`, NAMESPACE);
@@ -255,11 +287,13 @@ export async function getPodAddress(
     if (proxyUrl) {
       try {
         const u = new URL(proxyUrl);
-        return {
+        const result = {
           ip: u.hostname,
           port: parseInt(u.port, 10) || 18789,
           gatewayToken,
         };
+        podAddrCache.set(deploymentId, { value: result, expiresAt: Date.now() + POD_ADDR_CACHE_TTL_MS });
+        return result;
       } catch {
         log.warn({ proxyUrl }, "getPodAddress: invalid POD_PROXY_URL, using pod IP");
       }
@@ -271,7 +305,9 @@ export async function getPodAddress(
     const containerPort = containerSpec?.ports?.[0]?.containerPort
       ?? RUNTIME_PORTS["openclaw"];
 
-    return { ip: podIp, port: containerPort, gatewayToken };
+    const result = { ip: podIp, port: containerPort, gatewayToken };
+    podAddrCache.set(deploymentId, { value: result, expiresAt: Date.now() + POD_ADDR_CACHE_TTL_MS });
+    return result;
   } catch (err) {
     log.error({ deploymentId, err }, "getPodAddress failed");
     return null;

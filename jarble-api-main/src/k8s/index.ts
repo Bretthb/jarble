@@ -15,7 +15,7 @@ export { execInPod, execInPodWithStdin, execInPodStreaming, streamExecInPod, fin
 
 export { createDeployment, stopDeployment, startDeployment, restartDeployment, deleteDeployment } from "./lifecycle.js";
 
-export { getDeploymentPodStatus, getDeploymentStorageUsage, getPodAddress } from "./status.js";
+export { getDeploymentPodStatus, getDeploymentStorageUsage, getPodAddress, invalidatePodAddrCache } from "./status.js";
 export type { DeploymentPodStatus, StorageUsage } from "./status.js";
 
 export { writeConfigsToPvc, readConfigsFromPvc, exportDeploymentConfigs, signalProcessRestart } from "./config.js";
