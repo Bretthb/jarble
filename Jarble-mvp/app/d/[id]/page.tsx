@@ -436,7 +436,7 @@ function WorkspacePage({
                 className="h-7 px-2 text-xs"
                 onClick={() => setChatMode("webui")}
               >
-                Open WebUI
+                Control Panel
               </Button>
             </div>
             <div className="w-px h-5 bg-border/60 hidden sm:block" />
@@ -927,7 +927,7 @@ function CanvasWorkspace({
     <div className="flex-1 flex overflow-hidden relative">
       {/* Open WebUI mode: full-screen iframe pointing at the sidecar proxy */}
       {chatMode === "webui" ? (
-        <OpenWebUIFrame deploymentId={deploymentId} />
+        <ControlPanel deploymentId={deploymentId} liveStatus={liveStatus} />
       ) : (
       <>
       {/* Conversation history panel */}
@@ -1169,43 +1169,6 @@ function CanvasWorkspace({
       </>
       )}
     </div>
-  );
-}
-
-// ── Open WebUI iframe with JWT auth ──────────────────────────────────────────
-
-function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
-  const { getAccessTokenSilently } = useAuth0();
-  const [iframeSrc, setIframeSrc] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    getAccessTokenSilently().then((token) => {
-      if (!cancelled) {
-        setIframeSrc(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/deployments/${deploymentId}/webui/?token=${encodeURIComponent(token)}`
-        );
-      }
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [deploymentId, getAccessTokenSilently]);
-
-  if (!iframeSrc) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-muted-foreground">
-        <Loader2 className="w-5 h-5 animate-spin mr-2" />
-        Loading Open WebUI...
-      </div>
-    );
-  }
-
-  return (
-    <iframe
-      src={iframeSrc}
-      className="w-full flex-1 border-0"
-      allow="clipboard-write"
-      title="Open WebUI"
-    />
   );
 }
 
