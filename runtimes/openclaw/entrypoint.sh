@@ -1,5 +1,5 @@
-#!/bin/sh
-set -e
+#!/bin/bash
+set -euo pipefail
 
 # ═══════════════════════════════════════════════════════════════════════
 # OpenClaw Entrypoint — Jarble AI Platform
@@ -130,7 +130,7 @@ if [ ! -f "$INIT_MARKER" ]; then
     "port": 18789,
     "controlUi": { "dangerouslyAllowHostHeaderOriginFallback": true },
     "auth": {
-      "token": "${OPENCLAW_GATEWAY_TOKEN}"
+      "token": "${OPENCLAW_GATEWAY_TOKEN:-}"
     },
     "http": {
       "endpoints": {

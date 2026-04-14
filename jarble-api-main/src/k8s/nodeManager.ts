@@ -1,6 +1,14 @@
 /**
  * Auto-scaling Node Manager for Hetzner K3s Workers
  *
+ * FIXME (audit 2026-04-14): A stale in-cluster `cluster-autoscaler` Deployment
+ * may still exist in `kube-system` from before this module became authoritative.
+ * Running both causes race conditions on Pending pods. Verify and remove:
+ *   kubectl -n kube-system get deploy cluster-autoscaler
+ *   kubectl -n kube-system delete deploy cluster-autoscaler
+ *   kubectl -n kube-system delete secret hcloud-autoscaler
+ * The superseded YAML is at `jarble-api-main/k8s/cluster-autoscaler.yaml.REVOKED`.
+ *
  * Synchronous capacity API (used by deploy/start mutations):
  * - ensureCapacityForDeployment: Blocks until a node is available or at limit.
  *   Serialized via mutex to prevent thundering-herd VPS creation.
