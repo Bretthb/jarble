@@ -155,7 +155,7 @@ adminProxyRouter.post("/:id/inject", async (req: Request, res: Response) => {
  * GET /:id/admin/* — reverse-proxy HTTP requests to the pod's Control UI
  * running on the same port as the gateway (18789).
  */
-adminProxyRouter.get("/:id/admin/*", async (req: Request, res: Response) => {
+adminProxyRouter.all("/:id/admin/*", async (req: Request, res: Response) => {
   const deploymentId = req.params.id;
 
   // Auth: try JWT first (initial page load), then fall back to session cookie (sub-resources)
@@ -257,6 +257,26 @@ adminProxyRouter.get("/:id/admin/*", async (req: Request, res: Response) => {
       window.location.hash = 'token=${escapedToken}';
     }
   } catch(e) {}
+
+  // ── 1b. Fetch interceptor — rewrite pod-internal URLs through proxy ──
+  // The SPA makes REST/fetch requests to the pod's internal cluster IP
+  // (e.g. http://10.42.x.x:18789/...) which the browser can't reach.
+  // Monkey-patch fetch to rewrite those URLs through the admin proxy.
+  var _fetch = window.fetch;
+  var podOrigin = 'http://${podAddr.ip}:${podAddr.port}';
+  var proxyBase = window.location.origin + '/api/deployments/${deploymentId}/admin/';
+  window.fetch = function(input, init) {
+    var url = typeof input === 'string' ? input : (input instanceof Request ? input.url : String(input));
+    if (url.indexOf(podOrigin) === 0) {
+      var rewritten = proxyBase + url.slice(podOrigin.length + 1);
+      if (typeof input === 'string') {
+        input = rewritten;
+      } else if (input instanceof Request) {
+        input = new Request(rewritten, input);
+      }
+    }
+    return _fetch.call(this, input, init);
+  };
 
   // ── 2. Auto-confirm gateway URL dialog ────────────────────────────
   function clickConfirmButton() {
