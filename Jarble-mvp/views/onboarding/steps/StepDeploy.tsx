@@ -32,7 +32,7 @@ const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
 /* ── Fixed beta pricing ──────────────────────────────────────────────── */
 
 const BASE_PRICE_CENTS = 2500; // $25.00/mo without promo
-const PROMO_PRICE_CENTS = 1399; // $13.99/mo with valid promo
+const PROMO_PRICE_CENTS = 1799; // $17.99/mo with valid promo (cpx31 minimum)
 
 interface StepDeployProps {
   isDeploying: boolean;

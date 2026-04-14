@@ -295,7 +295,7 @@ export default function Home() {
               <DollarSign className="w-8 h-8 text-primary mb-4" />
               <h3 className="text-lg font-semibold mb-2">Transparent pricing</h3>
               <p className="text-muted-foreground text-sm">
-                Beta pricing: $13.99/mo per agent. AI model costs go straight to your provider with zero margin from us. No hidden fees, no usage surprises.
+                Beta pricing: $17.99/mo per agent. AI model costs go straight to your provider with zero margin from us. No hidden fees, no usage surprises.
               </p>
             </div>
             <div className="p-6 rounded-xl bg-card/80 backdrop-blur-md border border-border shadow-sm animate-fade-in-up-fast">
