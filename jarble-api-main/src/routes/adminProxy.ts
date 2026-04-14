@@ -161,29 +161,41 @@ adminProxyRouter.all("/:id/admin/*", async (req: Request, res: Response) => {
   // Auth: try JWT first (initial page load), then fall back to session cookie (sub-resources)
   let userId: string | null = null;
   let setSessionCookie = false;
+  let skipOwnershipCheck = false;
 
   const user = await resolveUser(req);
   if (user) {
     userId = user.id;
     setSessionCookie = true; // First authenticated request — set cookie for asset loads
   } else {
-    // Check session cookie for sub-resource requests (CSS, JS, images)
+    // Check session cookie for sub-resource requests (CSS, JS, images).
+    // The cookie is HMAC-signed and encodes deploymentId + userId — it was
+    // only issued after verifyOwnership() passed on the initial page load.
+    // Skip the DB query for cookie-authed sub-resources to avoid hammering
+    // the DB on every CSS/JS/image/font load (~20+ per SPA page).
     const cookies = parseCookies(req);
     const cookieVal = cookies[COOKIE_NAME];
     if (cookieVal) {
       const session = verifyCookie(decodeURIComponent(cookieVal));
       if (session && session.deploymentId === deploymentId) {
         userId = session.userId;
+        skipOwnershipCheck = true;
       }
     }
   }
 
   if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  const deployment = await verifyOwnership(deploymentId, userId);
-  if (!deployment) { res.status(404).json({ error: "Not found" }); return; }
+  // Only hit the DB for the initial JWT-authenticated request.
+  // Cookie-authenticated sub-resources already proved ownership when the cookie was issued.
+  let managedBy: ManagedBy = "legacy";
+  if (!skipOwnershipCheck) {
+    const deployment = await verifyOwnership(deploymentId, userId);
+    if (!deployment) { res.status(404).json({ error: "Not found" }); return; }
+    managedBy = (deployment as any).managedBy ?? "legacy";
+  }
 
-  const managedBy: ManagedBy = (deployment as any).managedBy ?? "legacy";
+  // getPodAddress() is cached (60s TTL) — safe to call on every request
   const podAddr = await getPodAddress(deploymentId, managedBy);
   if (!podAddr) { res.status(503).json({ error: "Pod not reachable" }); return; }
 
@@ -217,6 +229,13 @@ adminProxyRouter.all("/:id/admin/*", async (req: Request, res: Response) => {
     // Forward content-type
     const ct = proxyRes.headers.get("content-type");
     if (ct) res.setHeader("Content-Type", ct);
+
+    // Cache static assets in the browser so subsequent navigations within
+    // the Control UI SPA don't re-fetch through the proxy at all.
+    const isStaticAsset = /\.(js|css|woff2?|ttf|eot|svg|png|jpg|ico|gif|webp)$/i.test(suffix);
+    if (isStaticAsset && proxyRes.status === 200) {
+      res.setHeader("Cache-Control", "public, max-age=3600, immutable");
+    }
 
     const body = Buffer.from(await proxyRes.arrayBuffer());
 
