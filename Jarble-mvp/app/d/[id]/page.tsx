@@ -1153,25 +1153,43 @@ function CanvasWorkspace({
   );
 }
 
-// ── OpenClaw Control Panel iframe (admin proxy at port 18789) ────────────────
+// ── OpenClaw Control Panel — direct subdomain access ─────────────────────────
+// Each deployment gets https://{id}.agents.jarble.ai via Traefik ingress.
+// No proxy — the iframe loads the Control Panel natively from the pod.
 
 function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
   const { getAccessTokenSilently } = useAuth0();
-  const [iframeSrc, setIframeSrc] = useState<string | null>(null);
+  const [gatewayToken, setGatewayToken] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    getAccessTokenSilently().then((token) => {
-      if (!cancelled) {
-        setIframeSrc(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/deployments/${deploymentId}/admin/?token=${encodeURIComponent(token)}`
+    (async () => {
+      try {
+        const jwt = await getAccessTokenSilently();
+        const res = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/api/deployments/${deploymentId}/admin-token`,
+          { headers: { Authorization: `Bearer ${jwt}` } },
         );
+        if (!res.ok) throw new Error("Failed to get gateway token");
+        const data = await res.json();
+        if (!cancelled) setGatewayToken(data.gatewayToken);
+      } catch (err) {
+        if (!cancelled) setError("Could not load Control Panel");
       }
-    }).catch(() => {});
+    })();
     return () => { cancelled = true; };
   }, [deploymentId, getAccessTokenSilently]);
 
-  if (!iframeSrc) {
+  if (error) {
+    return (
+      <div className="flex-1 flex items-center justify-center text-muted-foreground">
+        {error}
+      </div>
+    );
+  }
+
+  if (!gatewayToken) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />
@@ -1182,7 +1200,7 @@ function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
 
   return (
     <iframe
-      src={iframeSrc}
+      src={`https://${deploymentId}.agents.jarble.ai#token=${gatewayToken}`}
       className="w-full flex-1 border-0"
       allow="clipboard-write"
       title="OpenClaw Control Panel"

@@ -12,6 +12,7 @@ if (process.env.KUBERNETES_SERVICE_HOST) {
 
 export const coreApi = kc.makeApiClient(k8s.CoreV1Api);
 export const appsApi = kc.makeApiClient(k8s.AppsV1Api);
+export const networkingApi = kc.makeApiClient(k8s.NetworkingV1Api);
 export const customApi = kc.makeApiClient(k8s.CustomObjectsApi);
 export const execClient = new k8s.Exec(kc);
 export { kc };

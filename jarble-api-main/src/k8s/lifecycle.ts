@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { createModuleLogger } from "../utils/logger.js";
 
 const log = createModuleLogger("k8s:lifecycle");
-import { coreApi, appsApi } from "./client.js";
+import { coreApi, appsApi, networkingApi } from "./client.js";
 import { NAMESPACE, DEFAULT_IMAGE, RUNTIME_PORTS, RUNTIME_CLASS_MAP, RUNTIME_OVERHEAD, RUNTIME_NODE_SELECTOR, OPEN_WEBUI_IMAGE, OPEN_WEBUI_PORT, OPEN_WEBUI_CONTAINER_NAME } from "./constants.js";
 import type { DeploymentConfig, ManagedBy, IsolationLevel, DeploymentType } from "./constants.js";
 import { getDeploymentPodStatus } from "./status.js";
@@ -586,6 +586,65 @@ async function createDeploymentLegacy(
     },
   });
 
+  // ── Create Service + Ingress for direct subdomain access ────────────
+  // Each deployment gets https://{id}.agents.jarble.ai via Traefik.
+  // The Control Panel and all OpenClaw features work natively — no proxy.
+  const agentsDomain = process.env.AGENTS_DOMAIN || "agents.jarble.ai";
+  const deploymentHost = `${deploymentId}.${agentsDomain}`;
+
+  try {
+    await coreApi.createNamespacedService(NAMESPACE, {
+      metadata: {
+        name: `svc-${deploymentId}`,
+        namespace: NAMESPACE,
+        labels: { app: `dep-${deploymentId}` },
+      },
+      spec: {
+        selector: { app: `dep-${deploymentId}` },
+        ports: [{ port: 18789, targetPort: 18789, name: "gateway" }],
+        type: "ClusterIP",
+      },
+    });
+    log.info({ deploymentId, host: deploymentHost }, "K8s: created Service");
+  } catch (svcErr: any) {
+    if (svcErr?.response?.statusCode !== 409) throw svcErr; // 409 = already exists
+  }
+
+  try {
+    await networkingApi.createNamespacedIngress(NAMESPACE, {
+      metadata: {
+        name: `ing-${deploymentId}`,
+        namespace: NAMESPACE,
+        annotations: {
+          "cert-manager.io/cluster-issuer": "letsencrypt-prod",
+          "traefik.ingress.kubernetes.io/router.tls": "true",
+        },
+      },
+      spec: {
+        ingressClassName: "traefik",
+        tls: [{
+          hosts: [deploymentHost],
+          secretName: `tls-${deploymentId}`,
+        }],
+        rules: [{
+          host: deploymentHost,
+          http: {
+            paths: [{
+              path: "/",
+              pathType: "Prefix",
+              backend: {
+                service: { name: `svc-${deploymentId}`, port: { number: 18789 } },
+              },
+            }],
+          },
+        }],
+      },
+    });
+    log.info({ deploymentId, host: deploymentHost }, "K8s: created Ingress");
+  } catch (ingErr: any) {
+    if (ingErr?.response?.statusCode !== 409) throw ingErr;
+  }
+
   // Status: K8s Deployment created. Pod is now being scheduled and the
   // init container (config-init) will copy ConfigMap files into the PVC
   // before the runtime container starts. The readiness poll loop in the
@@ -862,6 +921,33 @@ async function deleteDeploymentLegacy(deploymentId: string): Promise<void> {
       log.error({ deploymentId, err }, "deleteDeployment: failed to delete K8s PVC");
       throw err;
     }
+  }
+
+  // Step 7: Delete Service (per-deployment ingress)
+  try {
+    await coreApi.deleteNamespacedService(`svc-${deploymentId}`, NAMESPACE);
+    log.debug({ deploymentId }, "deleteDeployment: Service deleted");
+  } catch (err: unknown) {
+    const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
+    if (statusCode !== 404) log.warn({ deploymentId, err }, "deleteDeployment: failed to delete Service");
+  }
+
+  // Step 8: Delete Ingress (per-deployment subdomain)
+  try {
+    await networkingApi.deleteNamespacedIngress(`ing-${deploymentId}`, NAMESPACE);
+    log.debug({ deploymentId }, "deleteDeployment: Ingress deleted");
+  } catch (err: unknown) {
+    const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
+    if (statusCode !== 404) log.warn({ deploymentId, err }, "deleteDeployment: failed to delete Ingress");
+  }
+
+  // Step 9: Delete TLS cert secret (per-deployment cert)
+  try {
+    await coreApi.deleteNamespacedSecret(`tls-${deploymentId}`, NAMESPACE);
+    log.debug({ deploymentId }, "deleteDeployment: TLS secret deleted");
+  } catch (err: unknown) {
+    const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
+    if (statusCode !== 404) log.warn({ deploymentId, err }, "deleteDeployment: failed to delete TLS secret");
   }
 
   const deleteDurationMs = Date.now() - deleteStartMs;
