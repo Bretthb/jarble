@@ -610,33 +610,9 @@ async function createDeploymentLegacy(
     if (svcErr?.response?.statusCode !== 409) throw svcErr; // 409 = already exists
   }
 
-  // Create per-deployment Traefik middleware that injects the gateway auth
-  // header on every request. This allows canvas document iframes to load
-  // without the browser needing to pass auth tokens.
-  try {
-    await customApi.createNamespacedCustomObject(
-      "traefik.io", "v1alpha1", NAMESPACE, "middlewares",
-      {
-        apiVersion: "traefik.io/v1alpha1",
-        kind: "Middleware",
-        metadata: {
-          name: `inject-auth-${deploymentId}`,
-          namespace: NAMESPACE,
-        },
-        spec: {
-          headers: {
-            customRequestHeaders: {
-              Authorization: `Bearer ${gatewayToken}`,
-            },
-          },
-        },
-      },
-    );
-    log.info({ deploymentId }, "K8s: created auth injection middleware");
-  } catch (mwErr: any) {
-    if (mwErr?.response?.statusCode !== 409) log.warn({ deploymentId, err: mwErr }, "K8s: failed to create auth middleware (non-fatal)");
-  }
-
+  // Ingress uses shared Traefik middlewares:
+  //   - agent-forward-auth: verifies signed cookie + injects gateway token
+  //   - strip-frame-deny: removes X-Frame-Options + adds upgrade-insecure-requests
   try {
     await networkingApi.createNamespacedIngress(NAMESPACE, {
       metadata: {
@@ -645,9 +621,9 @@ async function createDeploymentLegacy(
         annotations: {
           "cert-manager.io/cluster-issuer": "letsencrypt-prod",
           "traefik.ingress.kubernetes.io/router.tls": "true",
+          // agent-forward-auth: verifies signed cookie + injects gateway Authorization header
           // strip-frame-deny: removes X-Frame-Options + adds upgrade-insecure-requests
-          // inject-auth: adds Authorization header so canvas iframes don't need auth
-          "traefik.ingress.kubernetes.io/router.middlewares": `jarble-strip-frame-deny@kubernetescrd,jarble-inject-auth-${deploymentId}@kubernetescrd`,
+          "traefik.ingress.kubernetes.io/router.middlewares": "jarble-agent-forward-auth@kubernetescrd,jarble-strip-frame-deny@kubernetescrd",
         },
       },
       spec: {
@@ -971,18 +947,7 @@ async function deleteDeploymentLegacy(deploymentId: string): Promise<void> {
     if (statusCode !== 404) log.warn({ deploymentId, err }, "deleteDeployment: failed to delete Ingress");
   }
 
-  // Step 9: Delete Traefik auth injection middleware
-  try {
-    await customApi.deleteNamespacedCustomObject(
-      "traefik.io", "v1alpha1", NAMESPACE, "middlewares", `inject-auth-${deploymentId}`,
-    );
-    log.debug({ deploymentId }, "deleteDeployment: auth middleware deleted");
-  } catch (err: unknown) {
-    const statusCode = err instanceof Object && "statusCode" in err ? (err as { statusCode: number }).statusCode : null;
-    if (statusCode !== 404) log.warn({ deploymentId, err }, "deleteDeployment: failed to delete auth middleware");
-  }
-
-  // Step 10: Delete TLS cert secret (per-deployment cert)
+  // Step 9: Delete TLS cert secret (per-deployment cert)
   try {
     await coreApi.deleteNamespacedSecret(`tls-${deploymentId}`, NAMESPACE);
     log.debug({ deploymentId }, "deleteDeployment: TLS secret deleted");

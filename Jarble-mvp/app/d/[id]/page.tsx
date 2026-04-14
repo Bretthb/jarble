@@ -1155,7 +1155,8 @@ function CanvasWorkspace({
 
 // ── OpenClaw Control Panel — iframe via direct subdomain ─────────────────────
 // Each deployment gets https://{id}.agents.jarble.ai via Traefik ingress.
-// Traefik middleware strips X-Frame-Options and CSP so embedding works.
+// Auth: signed cookie acquired via /api/auth/agent-session before iframe loads.
+// Traefik forward auth verifies cookie + injects gateway token on every request.
 
 function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
   const { getAccessTokenSilently } = useAuth0();
@@ -1167,14 +1168,34 @@ function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
     (async () => {
       try {
         const jwt = await getAccessTokenSilently();
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/deployments/${deploymentId}/admin-token`,
-          { headers: { Authorization: `Bearer ${jwt}` } },
+
+        // Acquire signed cookie for *.agents.jarble.ai
+        const sessionRes = await fetch(
+          `${process.env.NEXT_PUBLIC_API_URL}/api/auth/agent-session`,
+          {
+            method: "POST",
+            credentials: "include",
+            headers: {
+              Authorization: `Bearer ${jwt}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ deploymentId }),
+          },
         );
-        if (!res.ok) throw new Error("Failed to get gateway token");
-        const data = await res.json();
+
+        if (sessionRes.status === 403) {
+          const body = await sessionRes.json();
+          if (body.error === "mfa_required") {
+            if (!cancelled) setError("MFA verification required for agent access");
+            return;
+          }
+        }
+
+        if (!sessionRes.ok) throw new Error("Failed to acquire agent session");
+
+        // Cookie is now set — load the iframe (cookie flows automatically)
         if (!cancelled) {
-          setIframeSrc(`https://${deploymentId}.agents.jarble.ai#token=${data.gatewayToken}`);
+          setIframeSrc(`https://${deploymentId}.agents.jarble.ai`);
         }
       } catch {
         if (!cancelled) setError("Could not load Control Panel");

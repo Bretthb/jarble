@@ -49,6 +49,7 @@ import { flowChatRouter } from "./routes/flowChat.js";
 import { promoRouter } from "./routes/promo.js";
 import { adminProxyRouter, attachAdminWsProxy } from "./routes/adminProxy.js";
 import { openWebUiProxyRouter } from "./routes/openWebUiProxy.js";
+import { agentAuthRouter } from "./routes/agentAuth.js";
 
 const app = express();
 
@@ -67,6 +68,9 @@ app.use(cors({
     if (!origin) return callback(null, true);
 
     if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else if (/^https:\/\/[a-zA-Z0-9_-]+\.agents\.jarble\.ai$/.test(origin)) {
+      // Allow per-deployment agent subdomains (for cookie-based auth)
       callback(null, true);
     } else if (env.NODE_ENV === "development" && (origin.startsWith("http://localhost:") || origin.startsWith("http://127.0.0.1:"))) {
       // In development, allow any localhost origin
@@ -138,6 +142,7 @@ app.use("/api/flows", authLimiter, flowExecutionRouter);
 app.use("/api/flows", authLimiter, flowChatRouter);
 app.use("/api/deployments", authLimiter, adminProxyRouter);
 app.use("/api/deployments", authLimiter, openWebUiProxyRouter);
+app.use("/api/auth", agentAuthRouter);
 
 // Debug endpoints - gated by ADMIN role (not just NODE_ENV).
 // Even on a deployed "development" API, /debug is accessible to the public
