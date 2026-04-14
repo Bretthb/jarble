@@ -4,6 +4,7 @@ import {
   GetObjectCommand,
   ListObjectsV2Command,
   DeleteObjectsCommand,
+  DeleteObjectCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { logger } from "../utils/logger.js";
@@ -189,6 +190,17 @@ export async function listTeamFiles(
   } while (continuationToken);
 
   return results;
+}
+
+/** Delete a single team file by its full S3 key. */
+export async function deleteTeamFileByKey(key: string): Promise<void> {
+  await getClient().send(
+    new DeleteObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+    })
+  );
+  logger.info("Deleted team file", { key });
 }
 
 export async function deleteSessionFiles(flowId: string, sessionId: string): Promise<number> {

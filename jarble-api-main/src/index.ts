@@ -48,6 +48,7 @@ import { flowExecutionRouter } from "./routes/flowExecution.js";
 import { flowChatRouter } from "./routes/flowChat.js";
 import { promoRouter } from "./routes/promo.js";
 import { adminProxyRouter, attachAdminWsProxy } from "./routes/adminProxy.js";
+import { createMcpProxyRouter } from "./mcp/proxy/router.js";
 
 const app = express();
 
@@ -119,6 +120,9 @@ app.use("/api/stripe", stripeRouter);
 app.use("/api", webhooksRouter);
 app.use("/api/deployments", sseRouter);
 app.use("/api/tambo-agent", tamboAgentRouter);
+// Unified MCP proxy — routes `{server,tool,args}` invocations to local/platform/web.
+// Must precede canvasFilesRouter so legacy `{tool,args}` bodies fall through to it.
+app.use("/api/deployments", createMcpProxyRouter());
 app.use("/api/deployments", canvasFilesRouter);
 app.use("/api/deployments", artifactRouter);
 app.use("/api/mcp", mcpRouter);
