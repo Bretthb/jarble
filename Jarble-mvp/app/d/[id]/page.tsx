@@ -338,7 +338,7 @@ function WorkspacePage({
   onRefetchDeployment?: () => void;
 }) {
   const router = useRouter();
-  // controlMode removed — replaced by chatMode "webui" toggle (Open WebUI)
+  // controlMode removed — replaced by chatMode "webui" toggle (Control Panel)
   const [filesOpen, setFilesOpen] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -419,7 +419,7 @@ function WorkspacePage({
           <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto scrollbar-none">
             <EssentialControls deploymentId={deploymentId} status={liveStatus} />
             <div className="w-px h-5 bg-border/60 hidden sm:block" />
-            {/* Chat mode toggle: Workspace (Jarble canvas) vs Open WebUI */}
+            {/* Chat mode toggle: Workspace (Jarble canvas) vs Control Panel */}
             <div className="flex items-center bg-muted rounded-md p-0.5 gap-0.5">
               <Button
                 variant={chatMode === "workspace" ? "secondary" : "ghost"}
@@ -435,7 +435,7 @@ function WorkspacePage({
                 className="h-7 px-2 text-xs"
                 onClick={() => setChatMode("webui")}
               >
-                Open WebUI
+                Control Panel
               </Button>
             </div>
             <div className="w-px h-5 bg-border/60 hidden sm:block" />
@@ -906,7 +906,7 @@ function CanvasWorkspace({
 
   return (
     <div className="flex-1 flex overflow-hidden relative">
-      {/* Open WebUI mode: full-screen iframe to the Open WebUI sidecar */}
+      {/* Control Panel mode: full-screen iframe to the Control Panel sidecar */}
       {chatMode === "webui" ? (
         <OpenWebUIFrame deploymentId={deploymentId} />
       ) : (
@@ -1153,7 +1153,7 @@ function CanvasWorkspace({
   );
 }
 
-// ── Open WebUI iframe (sidecar at port 8080, proxied through API) ────────────
+// ── OpenClaw Control Panel iframe (admin proxy at port 18789) ────────────────
 
 function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
   const { getAccessTokenSilently } = useAuth0();
@@ -1164,7 +1164,7 @@ function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
     getAccessTokenSilently().then((token) => {
       if (!cancelled) {
         setIframeSrc(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/deployments/${deploymentId}/webui/?token=${encodeURIComponent(token)}`
+          `${process.env.NEXT_PUBLIC_API_URL}/api/deployments/${deploymentId}/admin/?token=${encodeURIComponent(token)}`
         );
       }
     }).catch(() => {});
@@ -1175,7 +1175,7 @@ function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />
-        Loading Open WebUI...
+        Loading Control Panel...
       </div>
     );
   }
@@ -1185,7 +1185,7 @@ function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
       src={iframeSrc}
       className="w-full flex-1 border-0"
       allow="clipboard-write"
-      title="Open WebUI"
+      title="OpenClaw Control Panel"
     />
   );
 }
