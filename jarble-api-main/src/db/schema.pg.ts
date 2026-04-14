@@ -1,6 +1,22 @@
-import { pgTable, varchar, text, integer, timestamp, boolean, serial, uniqueIndex, index, bigint, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, varchar, text, integer, timestamp, boolean, serial, uniqueIndex, index, bigint, jsonb, customType } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { customAlphabet } from "nanoid";
+
+// pgvector column type. Drizzle core doesn't ship a first-party vector type,
+// so define one via customType. Stored as `vector(N)` in Postgres; values are
+// shipped to the driver as the canonical `[f1,f2,...]` string literal and
+// parsed back to number[] on read.
+const vector = customType<{ data: number[]; driverData: string; config: { dimensions: number } }>({
+  dataType(config) {
+    return `vector(${config?.dimensions ?? 512})`;
+  },
+  toDriver(value: number[]): string {
+    return `[${value.join(",")}]`;
+  },
+  fromDriver(value: string): number[] {
+    return JSON.parse(value);
+  },
+});
 
 // Prefixed ID generator for marketplace tables
 const alphanumeric = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 12);
@@ -243,6 +259,11 @@ export const chatMessages = pgTable("chat_messages", {
   role: varchar("role", { length: 20 }).notNull(),
   content: text("content").notNull(),
   thinkingText: text("thinking_text"),
+  // 512-dim pgvector embedding for semantic recall search. Added in
+  // 0011_chat_messages_embedding.sql. Indexed via IVFFlat/cosine in the
+  // migration (Drizzle doesn't emit the pgvector opclass so we skip the
+  // index declaration here — it lives only in the .sql file).
+  embedding: vector("embedding", { dimensions: 512 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

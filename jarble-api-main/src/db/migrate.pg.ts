@@ -102,6 +102,31 @@ async function main() {
       }
     }
 
+    // 4b. Renamed-file backfill.
+    //
+    // Two .sql files were originally committed with colliding numeric prefixes
+    // (0011_deployment_max_budget.sql and 0014_team_files.sql), and later
+    // renumbered to 0017_/0018_ so lexicographic sort order matches authoring
+    // order. Production DBs that already applied them under the old filename
+    // have rows in _jarble_applied_migrations for the OLD names. Without this
+    // backfill, the migrator would see the new filenames as pending and try
+    // to re-apply them. Copying the applied-marker to the new name is
+    // idempotent (ON CONFLICT DO NOTHING) and makes the rename transparent.
+    const RENAMED_FILES: Array<{ old: string; new: string }> = [
+      { old: "0011_deployment_max_budget.sql", new: "0017_deployment_max_budget.sql" },
+      { old: "0014_team_files.sql", new: "0018_team_files.sql" },
+    ];
+    for (const { old: oldName, new: newName } of RENAMED_FILES) {
+      if (appliedSet.has(oldName) && !appliedSet.has(newName)) {
+        await client.query(
+          `INSERT INTO ${TRACKING_TABLE} (filename) VALUES ($1) ON CONFLICT (filename) DO NOTHING`,
+          [newName],
+        );
+        appliedSet.add(newName);
+        console.log(`[migrate] Renamed-file backfill: marked ${newName} as applied (was ${oldName}).`);
+      }
+    }
+
     // 5. Apply any unapplied migrations in order
     const pending = allFiles.filter((f) => !appliedSet.has(f));
     if (pending.length === 0) {
