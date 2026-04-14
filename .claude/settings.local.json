@@ -1,4 +1,12 @@
 {
+  "env": {
+    "PORT": "3001",
+    "NODE_ENV": "development",
+    "FRONTEND_URL": "http://localhost:3000",
+    "USE_SQLITE": "true",
+    "NEXT_PUBLIC_API_URL": "http://localhost:3001",
+    "NEXT_PUBLIC_APP_URL": "http://localhost:3000"
+  },
   "permissions": {
     "allow": [
       "Bash(pnpm install:*)",
