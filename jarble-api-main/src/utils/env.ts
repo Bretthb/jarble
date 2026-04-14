@@ -73,6 +73,10 @@ const envSchema = z.object({
   // Stripe - all optional, Stripe features disabled if not set
   STRIPE_SECRET_KEY: z.string().optional(),
   STRIPE_WEBHOOK_SECRET: z.string().optional(),
+
+  // Admin Control UI session cookie secret. Shared across API replicas so that
+  // cookies signed by one pod can be verified by another. Required in production.
+  ADMIN_COOKIE_SECRET: z.string().optional(),
 });
 
 export const env = envSchema.parse(process.env);
@@ -83,6 +87,7 @@ if (env.NODE_ENV === "production") {
   if (!env.API_KEY_ENCRYPTION_KEY) missing.push("API_KEY_ENCRYPTION_KEY");
   if (!env.STRIPE_WEBHOOK_SECRET) missing.push("STRIPE_WEBHOOK_SECRET");
   if (!env.AUTH0_M2M_SECRET) missing.push("AUTH0_M2M_SECRET");
+  if (!env.ADMIN_COOKIE_SECRET) missing.push("ADMIN_COOKIE_SECRET");
   if (missing.length > 0) {
     throw new Error(`Missing required production env vars: ${missing.join(", ")}`);
   }

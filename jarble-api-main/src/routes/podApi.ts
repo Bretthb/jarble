@@ -9,6 +9,7 @@ import { safeFireAndForget } from "../utils/safeAsync.js";
 import { validateThemeConfig } from "@jarble/component-manifest";
 import { encryptApiKey, decryptApiKey } from "../utils/encryption.js";
 import { RESERVED_ENV_VARS } from "../trpc/routers/deploymentSecrets.js";
+import { env } from "../utils/env.js";
 
 const logger = createModuleLogger("podApi");
 
@@ -75,8 +76,13 @@ export async function authenticatePod(req: Request, res: Response, next: NextFun
       res.status(500).json({ error: "Failed to verify gateway token" });
       return;
     }
+  } else if (env.NODE_ENV === "production") {
+    // Production must have K8s available. Never accept an unverified token.
+    logger.error({ deploymentId }, "Pod API: K8s client unavailable in production; rejecting request");
+    res.status(503).json({ error: "K8s client unavailable; cannot verify gateway token" });
+    return;
   }
-  // In dev mode (SQLite), deployment existence check above is sufficient
+  // In non-production dev mode, deployment existence check above is sufficient
 
   // Attach deployment info for downstream handlers
   (req as any).podDeployment = deployment;

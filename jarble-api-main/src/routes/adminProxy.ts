@@ -21,6 +21,7 @@ import { getPodAddress } from "../k8s/index.js";
 import type { ManagedBy } from "../k8s/index.js";
 import { injectViaGateway } from "../services/openclawGateway.js";
 import { createModuleLogger } from "../utils/logger.js";
+import { env } from "../utils/env.js";
 
 const log = createModuleLogger("admin-proxy");
 
@@ -30,8 +31,20 @@ const log = createModuleLogger("admin-proxy");
 // the first authenticated request so subsequent asset loads are authorized.
 
 const COOKIE_NAME = "jarble_admin_session";
-const COOKIE_SECRET = crypto.randomBytes(32).toString("hex"); // per-process secret
+// Prefer a shared secret so cookies remain valid across API replicas. If unset
+// (non-production), fall back to a per-process secret and log a warning — this
+// will cause intermittent auth failures when multiple replicas are running.
+const COOKIE_SECRET = (() => {
+  if (env.ADMIN_COOKIE_SECRET) return env.ADMIN_COOKIE_SECRET;
+  log.warn("ADMIN_COOKIE_SECRET not set; generating per-process secret (auth may fail across replicas)");
+  return crypto.randomBytes(32).toString("hex");
+})();
 const COOKIE_MAX_AGE = 3600; // 1 hour
+
+// Ownership-check cache: avoids re-running the DB query for every sub-resource
+// request within a 60s window. Keyed by `${deploymentId}:${userId}`.
+const ownershipCache = new Map<string, { value: boolean; expiresAt: number }>();
+const OWNERSHIP_CACHE_TTL_MS = 60_000;
 
 function signCookie(deploymentId: string, userId: string): string {
   const data = `${deploymentId}:${userId}:${Math.floor(Date.now() / 1000)}`;
@@ -161,7 +174,6 @@ adminProxyRouter.get("/:id/admin/*", async (req: Request, res: Response) => {
   // Auth: try JWT first (initial page load), then fall back to session cookie (sub-resources)
   let userId: string | null = null;
   let setSessionCookie = false;
-  let skipOwnershipCheck = false;
 
   const user = await resolveUser(req);
   if (user) {
@@ -169,28 +181,32 @@ adminProxyRouter.get("/:id/admin/*", async (req: Request, res: Response) => {
     setSessionCookie = true; // First authenticated request — set cookie for asset loads
   } else {
     // Check session cookie for sub-resource requests (CSS, JS, images).
-    // The cookie is HMAC-signed and encodes deploymentId + userId — it was
-    // only issued after verifyOwnership() passed on the initial page load.
-    // Skip the DB query for cookie-authed sub-resources to avoid hammering
-    // the DB on every CSS/JS/image/font load (~20+ per SPA page).
+    // The cookie is HMAC-signed and encodes deploymentId + userId, but ownership
+    // is still re-checked (cached for 60s) so a revoked deployment stops serving.
     const cookies = parseCookies(req);
     const cookieVal = cookies[COOKIE_NAME];
     if (cookieVal) {
       const session = verifyCookie(decodeURIComponent(cookieVal));
       if (session && session.deploymentId === deploymentId) {
         userId = session.userId;
-        skipOwnershipCheck = true;
       }
     }
   }
 
   if (!userId) { res.status(401).json({ error: "Unauthorized" }); return; }
 
-  // Only hit the DB for the initial JWT-authenticated request.
-  // Cookie-authenticated sub-resources already proved ownership when the cookie was issued.
+  // Ownership check with a 60s TTL cache to avoid hammering the DB on every
+  // CSS/JS/image/font load (~20+ per SPA page).
+  const cacheKey = `${deploymentId}:${userId}`;
+  const cached = ownershipCache.get(cacheKey);
+  const now = Date.now();
   let managedBy: ManagedBy = "legacy";
-  if (!skipOwnershipCheck) {
+  if (cached && cached.expiresAt > now) {
+    if (!cached.value) { res.status(404).json({ error: "Not found" }); return; }
+    // Cached positive result — skip DB query.
+  } else {
     const deployment = await verifyOwnership(deploymentId, userId);
+    ownershipCache.set(cacheKey, { value: !!deployment, expiresAt: now + OWNERSHIP_CACHE_TTL_MS });
     if (!deployment) { res.status(404).json({ error: "Not found" }); return; }
     managedBy = (deployment as any).managedBy ?? "legacy";
   }

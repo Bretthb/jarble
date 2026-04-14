@@ -6,6 +6,10 @@ import type { ManagedBy } from "./constants.js";
 
 const log = createModuleLogger("k8s:exec");
 
+// Cap stdout accumulation to prevent unbounded memory growth from a pod that
+// spews large amounts of data to stdout.
+const MAX_STDOUT_BYTES = 10 * 1024 * 1024; // 10MB
+
 /**
  * Execute a command in a pod (no stdin, capture stdout/stderr).
  * Defaults to a 15s timeout to prevent indefinite hangs when the
@@ -23,8 +27,7 @@ export async function execInPod(
 
   let stdoutData = "";
   let stderrData = "";
-  stdout.on("data", (chunk) => { stdoutData += chunk.toString(); });
-  stderr.on("data", (chunk) => { stderrData += chunk.toString(); });
+  let stdoutOverflowed = false;
 
   try {
     await new Promise<void>((resolve, reject) => {
@@ -35,6 +38,21 @@ export async function execInPod(
         stderr.destroy();
         reject(new Error(`execInPod timed out after ${timeoutMs}ms`));
       }, timeoutMs);
+
+      stdout.on("data", (chunk: Buffer) => {
+        if (stdoutOverflowed) return;
+        if (stdoutData.length + chunk.length > MAX_STDOUT_BYTES) {
+          stdoutOverflowed = true;
+          log.error({ podName, command: command.join(" "), max: MAX_STDOUT_BYTES }, "execInPod stdout cap exceeded");
+          clearTimeout(timer);
+          stdout.destroy();
+          stderr.destroy();
+          reject(new Error(`Pod stdout exceeded ${MAX_STDOUT_BYTES} bytes`));
+          return;
+        }
+        stdoutData += chunk.toString();
+      });
+      stderr.on("data", (chunk) => { stderrData += chunk.toString(); });
 
       execClient.exec(
         NAMESPACE,
@@ -47,6 +65,7 @@ export async function execInPod(
         false,
         (status) => {
           clearTimeout(timer);
+          if (stdoutOverflowed) return;
           if (status.status === "Success") {
             resolve();
           } else {
@@ -55,6 +74,7 @@ export async function execInPod(
         }
       ).catch((err) => {
         clearTimeout(timer);
+        if (stdoutOverflowed) return;
         reject(err);
       });
     });
