@@ -1159,7 +1159,6 @@ function CanvasWorkspace({
 // Traefik forward auth verifies cookie + injects gateway token on every request.
 
 function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
-  const { getAccessTokenSilently } = useAuth0();
   const [iframeSrc, setIframeSrc] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -1167,12 +1166,12 @@ function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
     let cancelled = false;
     (async () => {
       try {
-        let jwt: string | null = null;
-        try {
-          jwt = await getAccessTokenSilently();
-        } catch (tokenErr) {
-          console.warn("[Control Panel] Token refresh failed, trying with existing cookie:", tokenErr);
-          // Token refresh failed — try loading iframe anyway (cookie might exist from previous session)
+        // Use the shared token getter (same one tRPC uses — handles refresh gracefully)
+        const { getToken } = await import("@/lib/trpc-vanilla");
+        const jwt = await getToken();
+
+        if (!jwt) {
+          // No token available — try loading iframe with existing cookie
           if (!cancelled) setIframeSrc(`https://${deploymentId}.agents.jarble.ai`);
           return;
         }
@@ -1199,14 +1198,8 @@ function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
           }
         }
 
-        if (!sessionRes.ok) {
-          console.warn("[Control Panel] Session acquisition failed, trying with existing cookie");
-          // Fall back to loading iframe with existing cookie
-          if (!cancelled) setIframeSrc(`https://${deploymentId}.agents.jarble.ai`);
-          return;
-        }
-
-        // Cookie is now set — load the iframe (cookie flows automatically)
+        // Whether session succeeded or not, try loading the iframe
+        // (cookie might already exist from a previous session)
         if (!cancelled) {
           setIframeSrc(`https://${deploymentId}.agents.jarble.ai`);
         }
@@ -1215,7 +1208,7 @@ function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [deploymentId, getAccessTokenSilently]);
+  }, [deploymentId]);
 
   if (error) {
     return (
