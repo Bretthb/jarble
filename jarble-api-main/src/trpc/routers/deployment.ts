@@ -455,7 +455,7 @@ export const deploymentRouter = router({
       }
 
       // Platform mode is admin-only
-      if (input.llmMode === "platform" && !isAdmin(ctx.user.id)) {
+      if (input.llmMode === "platform" && !isAdmin(ctx.user.auth0Id)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Platform LLM mode is restricted to administrators" });
       }
 
@@ -1269,7 +1269,7 @@ export const deploymentRouter = router({
       const { id, ...rawUpdates } = input;
 
       // Platform mode is admin-only
-      if (rawUpdates.llmMode === "platform" && !isAdmin(ctx.user.id)) {
+      if (rawUpdates.llmMode === "platform" && !isAdmin(ctx.user.auth0Id)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Platform LLM mode is restricted to administrators" });
       }
 
@@ -1932,7 +1932,7 @@ export const deploymentRouter = router({
   updateOpenClawVersion: protectedProcedure
     .input(z.object({
       id: z.string(),
-      version: z.string().default("latest"),
+      version: z.string().regex(/^[0-9a-z.\-]+$/i, "Invalid version format").max(64).default("latest"),
     }))
     .mutation(async ({ ctx, input }) => {
       const deployment = await ctx.db.query.deployments.findFirst({
@@ -2281,27 +2281,39 @@ export const deploymentRouter = router({
       // Explicitly clean up child rows before deleting the deployment.
       // Most FKs have ON DELETE CASCADE, but agent_calls and promo_redemptions
       // do NOT — they block the delete with a constraint violation if not cleaned first.
-      const credResult = await ctx.db.delete(platformCredentials)
-        .where(eq(platformCredentials.deploymentId, input.id));
-      logger.debug({ deploymentId: input.id, rows: (credResult as any)?.changes ?? (credResult as any)?.rowsAffected ?? "?" }, "delete: platform_credentials removed");
+      // Wrapped in a transaction so a mid-cascade failure leaves no orphans.
+      const runCascade = async (tx: any) => {
+        const credResult = await tx.delete(platformCredentials)
+          .where(eq(platformCredentials.deploymentId, input.id));
+        logger.debug({ deploymentId: input.id, rows: (credResult as any)?.changes ?? (credResult as any)?.rowsAffected ?? "?" }, "delete: platform_credentials removed");
 
-      const skillsResult = await ctx.db.delete(deploymentSkills)
-        .where(eq(deploymentSkills.deploymentId, input.id));
-      logger.debug({ deploymentId: input.id, rows: (skillsResult as any)?.changes ?? (skillsResult as any)?.rowsAffected ?? "?" }, "delete: deployment_skills removed");
+        const skillsResult = await tx.delete(deploymentSkills)
+          .where(eq(deploymentSkills.deploymentId, input.id));
+        logger.debug({ deploymentId: input.id, rows: (skillsResult as any)?.changes ?? (skillsResult as any)?.rowsAffected ?? "?" }, "delete: deployment_skills removed");
 
-      // Clean up agent_calls (no ON DELETE CASCADE on caller/callee FKs)
-      await ctx.db.delete(agentCalls)
-        .where(or(eq(agentCalls.callerDeploymentId, input.id), eq(agentCalls.calleeDeploymentId, input.id)));
-      logger.debug({ deploymentId: input.id }, "delete: agent_calls removed");
+        await tx.delete(agentCalls)
+          .where(or(eq(agentCalls.callerDeploymentId, input.id), eq(agentCalls.calleeDeploymentId, input.id)));
+        logger.debug({ deploymentId: input.id }, "delete: agent_calls removed");
 
-      // Clean up promo_redemptions (no ON DELETE CASCADE on deployment FK)
-      await ctx.db.delete(promoRedemptions)
-        .where(eq(promoRedemptions.deploymentId, input.id));
-      logger.debug({ deploymentId: input.id }, "delete: promo_redemptions removed");
+        // SQLite test mirror doesn't include promoRedemptions — guard the reference
+        if (promoRedemptions) {
+          await tx.delete(promoRedemptions)
+            .where(eq(promoRedemptions.deploymentId, input.id));
+          logger.debug({ deploymentId: input.id }, "delete: promo_redemptions removed");
+        }
 
-      await ctx.db.delete(deployments)
-        .where(and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)));
-      logger.debug({ deploymentId: input.id }, "delete: deployments row removed");
+        await tx.delete(deployments)
+          .where(and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)));
+        logger.debug({ deploymentId: input.id }, "delete: deployments row removed");
+      };
+
+      // better-sqlite3 (test environment) rejects async transaction callbacks.
+      // Fall back to sequential writes there; production Postgres gets real atomicity.
+      if (process.env.NODE_ENV === "test") {
+        await runCascade(ctx.db);
+      } else {
+        await ctx.db.transaction(runCascade);
+      }
 
       logger.info({ deploymentId: input.id, userId: ctx.user.id }, "delete: deployment fully deleted");
 
@@ -2420,7 +2432,7 @@ export const deploymentRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       // 1. Admin check
-      if (!isAdmin(ctx.user.id)) {
+      if (!isAdmin(ctx.user.auth0Id)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Platform fork is restricted to administrators" });
       }
 

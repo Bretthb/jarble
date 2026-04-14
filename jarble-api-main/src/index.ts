@@ -159,7 +159,7 @@ if (env.NODE_ENV === "development") {
     try {
       const payload = await verifyToken(token);
       const user = await getUserFromToken(payload);
-      if (!user || !isAdmin(user.id)) {
+      if (!user || !isAdmin(user.auth0Id)) {
         res.status(403).json({ error: "Admin access required" });
         return;
       }
