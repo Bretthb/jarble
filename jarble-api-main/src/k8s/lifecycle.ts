@@ -618,6 +618,8 @@ async function createDeploymentLegacy(
         annotations: {
           "cert-manager.io/cluster-issuer": "letsencrypt-prod",
           "traefik.ingress.kubernetes.io/router.tls": "true",
+          // Strip X-Frame-Options and CSP so canvas documents render properly
+          "traefik.ingress.kubernetes.io/router.middlewares": "jarble-strip-frame-deny@kubernetescrd",
         },
       },
       spec: {
