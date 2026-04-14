@@ -1153,58 +1153,59 @@ function CanvasWorkspace({
   );
 }
 
-// ── OpenClaw Control Panel — direct subdomain access ─────────────────────────
+// ── OpenClaw Control Panel — opens in new tab via direct subdomain ───────────
 // Each deployment gets https://{id}.agents.jarble.ai via Traefik ingress.
-// No proxy — the iframe loads the Control Panel natively from the pod.
+// Opens in a new tab because OpenClaw sets X-Frame-Options: DENY.
 
 function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
   const { getAccessTokenSilently } = useAuth0();
-  const [gatewayToken, setGatewayToken] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [launching, setLaunching] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const jwt = await getAccessTokenSilently();
-        const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/deployments/${deploymentId}/admin-token`,
-          { headers: { Authorization: `Bearer ${jwt}` } },
-        );
-        if (!res.ok) throw new Error("Failed to get gateway token");
-        const data = await res.json();
-        if (!cancelled) setGatewayToken(data.gatewayToken);
-      } catch (err) {
-        if (!cancelled) setError("Could not load Control Panel");
-      }
-    })();
-    return () => { cancelled = true; };
+  const launchControlPanel = useCallback(async () => {
+    setLaunching(true);
+    try {
+      const jwt = await getAccessTokenSilently();
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/deployments/${deploymentId}/admin-token`,
+        { headers: { Authorization: `Bearer ${jwt}` } },
+      );
+      if (!res.ok) throw new Error("Failed to get gateway token");
+      const data = await res.json();
+      window.open(
+        `https://${deploymentId}.agents.jarble.ai#token=${data.gatewayToken}`,
+        `control-panel-${deploymentId}`,
+      );
+    } catch {
+      // Fallback: open without auto-auth
+      window.open(`https://${deploymentId}.agents.jarble.ai`, `control-panel-${deploymentId}`);
+    } finally {
+      setLaunching(false);
+    }
   }, [deploymentId, getAccessTokenSilently]);
 
-  if (error) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-muted-foreground">
-        {error}
-      </div>
-    );
-  }
-
-  if (!gatewayToken) {
-    return (
-      <div className="flex-1 flex items-center justify-center text-muted-foreground">
-        <Loader2 className="w-5 h-5 animate-spin mr-2" />
-        Loading Control Panel...
-      </div>
-    );
-  }
+  // Auto-launch on mount
+  useEffect(() => {
+    launchControlPanel();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <iframe
-      src={`https://${deploymentId}.agents.jarble.ai#token=${gatewayToken}`}
-      className="w-full flex-1 border-0"
-      allow="clipboard-write"
-      title="OpenClaw Control Panel"
-    />
+    <div className="flex-1 flex flex-col items-center justify-center gap-4 text-muted-foreground">
+      <div className="text-center">
+        <p className="text-sm mb-2">Control Panel opens in a new tab</p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={launchControlPanel}
+          disabled={launching}
+        >
+          {launching ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <ArrowUpRight className="w-4 h-4 mr-2" />}
+          Open Control Panel
+        </Button>
+      </div>
+      <p className="text-xs text-muted-foreground/60">
+        https://{deploymentId}.agents.jarble.ai
+      </p>
+    </div>
   );
 }
 
