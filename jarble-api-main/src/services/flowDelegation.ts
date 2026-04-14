@@ -876,9 +876,8 @@ export async function executeDelegation(params: {
   }
 
   // Inject dashboard context so delegated bots know they're on the
-  // Jarble web dashboard and CAN render jarble_ui components. Without
-  // this signal JARBLE_UI_PROMPT tells the bot "assume NOT on dashboard"
-  // and the bot refuses to render any canvas components.
+  // Jarble web dashboard. With OpenClaw-native rendering the bot uses
+  // canvas directly, but this context tag is still checked by some paths.
   //
   // The `[CANVAS_STATE]` tag is kept as-is because it's a FUNCTIONAL
   // marker the bot's system prompt looks for (same signal the web
@@ -918,8 +917,7 @@ export async function executeDelegation(params: {
   // Delegation rules as plain prose. Order of precedence and rendering
   // constraints are expressed conversationally so chatty models don't
   // flag the surrounding text as a prompt-injection frame. Keep the
-  // `[CANVAS_STATE]` tag at the top since that's the functional
-  // dashboard-detection signal JARBLE_UI_PROMPT looks for.
+  // `[CANVAS_STATE]` tag at the top for legacy compatibility.
   const delegationGuidance =
     `You are operating as a specialist within a multi-agent team and have received a ` +
     `delegated task from a coordinator bot. You are on the Jarble web dashboard with ` +

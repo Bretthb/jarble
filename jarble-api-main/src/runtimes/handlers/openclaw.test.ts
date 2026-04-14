@@ -105,7 +105,7 @@ describe("openclawHandler metadata", () => {
 // ── renderConfigs ────────────────────────────────────────────────────────────
 
 describe("openclawHandler.renderConfigs", () => {
-  it("generates soul.md with systemPrompt + JARBLE_UI_PROMPT", () => {
+  it("generates soul.md with systemPrompt + OPENCLAW_NATIVE_PROMPT", () => {
     const deployment = makeDeployment({ systemPrompt: "I am a bakery bot." });
     const files = openclawHandler.renderConfigs(deployment);
 
@@ -115,9 +115,9 @@ describe("openclawHandler.renderConfigs", () => {
     const soulMd = soulFiles[0];
     // Should contain user system prompt
     expect(soulMd.content).toContain("I am a bakery bot.");
-    // Should contain JARBLE_UI_PROMPT sections
-    expect(soulMd.content).toContain("Platform Awareness");
-    expect(soulMd.content).toContain("jarble_ui");
+    // Should contain OPENCLAW_NATIVE_PROMPT sections
+    expect(soulMd.content).toContain("Reasoning");
+    expect(soulMd.content).toContain("native canvas");
   });
 
   it("generates soul.md without systemPrompt when null", () => {
@@ -128,8 +128,8 @@ describe("openclawHandler.renderConfigs", () => {
     // Should contain deployment name identity header
     expect(soulMd.content).toContain("# Test Bot");
     expect(soulMd.content).toContain("You are Test Bot.");
-    // Should contain JARBLE_UI_PROMPT
-    expect(soulMd.content).toContain("Platform Awareness");
+    // Should contain OPENCLAW_NATIVE_PROMPT
+    expect(soulMd.content).toContain("Reasoning");
     // Should start with the deployment name identity header, not "null"
     expect(soulMd.content.startsWith("# Test Bot")).toBe(true);
   });
@@ -186,13 +186,13 @@ describe("openclawHandler.renderConfigs", () => {
     expect(config.gateway.auth).toBeUndefined();
   });
 
-  it("includes tools.deny with canvas", () => {
+  it("does not deny canvas tool (OpenClaw-native rendering)", () => {
     const deployment = makeDeployment();
     const files = openclawHandler.renderConfigs(deployment);
 
     const configFile = files.find((f) => f.path === "openclaw.json")!;
     const config = JSON.parse(configFile.content);
-    expect(config.tools.deny).toEqual(["canvas"]);
+    expect(config.tools?.deny).toBeUndefined();
   });
 
   it("builds discord channel config with pairing dmPolicy", () => {
@@ -604,43 +604,27 @@ describe("openclawHandler.validateCreate", () => {
   });
 });
 
-// ── Phase 1: Sandbox-First Prompt Pivot ──────────────────────────────────────
+// ── OpenClaw-native prompt (jarble_ui removed) ──────────────────────────────
 
-describe("Phase 1 - sandbox-first prompt language", () => {
-  it("soul.md contains 'SANDBOX-FIRST RULE' (not LAST RESORT)", () => {
+describe("OpenClaw-native prompt", () => {
+  it("soul.md uses native canvas, not jarble_ui", () => {
     const deployment = makeDeployment();
     const files = openclawHandler.renderConfigs(deployment);
     const soulMd = files.find((f) => f.path === "soul.md")!;
 
-    expect(soulMd.content).toContain("SANDBOX-FIRST RULE");
-    expect(soulMd.content).not.toContain("LAST RESORT");
+    expect(soulMd.content).toContain("native canvas");
+    expect(soulMd.content).not.toContain("jarble_ui");
+    expect(soulMd.content).not.toContain("SANDBOX-FIRST");
+    expect(soulMd.content).not.toContain("Component Chooser");
   });
 
-  it("Component Chooser section has sandbox as the first/default recommendation", () => {
-    const deployment = makeDeployment();
-    const files = openclawHandler.renderConfigs(deployment);
-    const soulMd = files.find((f) => f.path === "soul.md")!;
-
-    // Extract the Component Chooser section
-    const chooserStart = soulMd.content.indexOf("### Component Chooser");
-    expect(chooserStart).toBeGreaterThan(-1);
-
-    const chooserSection = soulMd.content.slice(chooserStart, chooserStart + 500);
-
-    // Should recommend sandbox as the default
-    expect(chooserSection).toContain("sandbox");
-    // First line after the heading should mention sandbox as default
-    const lines = chooserSection.split("\n").filter((l) => l.trim().length > 0);
-    expect(lines[1]).toContain("sandbox");
-  });
-
-  it("messaging-only prompt has no sandbox-first language", () => {
+  it("messaging-only prompt uses plain text guidance", () => {
     const deployment = makeDeployment({ messagingOnly: true });
     const files = openclawHandler.renderConfigs(deployment);
     const soulMd = files.find((f) => f.path === "soul.md")!;
 
-    expect(soulMd.content).not.toContain("SANDBOX-FIRST RULE");
-    expect(soulMd.content).not.toContain("Component Chooser");
+    expect(soulMd.content).toContain("plain text and markdown only");
+    expect(soulMd.content).not.toContain("native canvas");
   });
 });
 
@@ -837,9 +821,9 @@ describe("openclawHandler.renderConfigs - Team Context (Bot Teams)", () => {
     expect(tools[0].name).toBe("a2a_delegate");
   });
 
-  it("includes a2a_delegate instructions in Agent Pool Team Members section", () => {
-    // A2A Phase 1: the Agent Pool block now teaches a2a_delegate as the
-    // preferred delegation method, with legacy tools as fallback.
+  it("uses Team Context (not Team Members) when teamContext is present", () => {
+    // When teamContext exists, the Team Members Agent Pool section is skipped
+    // and jarble_delegate via Team Context is the authoritative path.
     const files = openclawHandler.renderConfigs(
       makeDeployment({
         teamMembers: [
@@ -858,9 +842,10 @@ describe("openclawHandler.renderConfigs - Team Context (Bot Teams)", () => {
     );
     const soulMd = files.find((f) => f.path === "soul.md")!;
 
-    // A2A Phase 1: soul.md now includes Team Members section with a2a_delegate
-    expect(soulMd.content).toContain("a2a_delegate");
-    expect(soulMd.content).toContain("### Team Members");
+    // Team Context overrides Team Members section — jarble_delegate is the
+    // authoritative delegation path when teamContext is present
+    expect(soulMd.content).toContain("jarble_delegate");
+    expect(soulMd.content).toContain("## Team Context");
   });
 
   it("renders Team Context to BOTH soul.md and the workspace SOUL.md path", () => {

@@ -77,132 +77,42 @@ export function getMcpServerInfo(): { content: string; hash: string } {
   return { content: MCP_SERVER_SCRIPT, hash: MCP_SERVER_HASH };
 }
 
-// ── Jarble UI prompt injected into soul.md ────────────────────────────────
-// Core rendering instructions only. Detailed component props, sandbox docs,
-// error recovery, and best practices are available on-demand via MCP tools:
-//   - component_reference(name) - prop schemas, examples, anti-patterns
-//   - skill_reference(skill)    - rendering guides, sandbox mastery, etc.
-const JARBLE_UI_PROMPT = `## Reasoning
+// ── OpenClaw-native prompt injected into soul.md ──────────────────────────
+// The bot uses OpenClaw's built-in canvas, tools, and memory natively.
+// No jarble_ui blocks, no Jarble MCP rendering tools.
+const OPENCLAW_NATIVE_PROMPT = `## Reasoning
 Wrap internal reasoning in <think>...</think> at the START of every response (1-4 sentences: what, approach, tools). Shown as collapsible "Thought process".
-
-## Platform Awareness
-- **Jarble web dashboard**: Messages contain \`[CANVAS_STATE]\` or \`[UI_ACTION]\`. Use \`jarble_ui\` for rich visual output.
-- **Other platforms** (Telegram, Discord, WhatsApp, Slack): Plain text/markdown only. No \`jarble_ui\`.
-If neither tag is present, assume NOT on dashboard.
 
 ## Real Data Policy
 NEVER fabricate data. Use \`web_search\`/\`web_fetch\` to get real data FIRST, then render.
 
-## Tools
-35+ MCP tools, all LIVE. Key categories: Search (\`web_search\`, \`web_fetch\`, \`news_search\`, \`wikipedia\`, etc.), UI (\`list_components\`, \`component_reference\`, \`skill_reference\`), Rendering (\`render_ui\`, \`render_page\`, \`compose_dashboard\`, \`save_artifact\`), Agents (\`discover_agents\`, \`call_agent\` - 1 credit/call), Knowledge (\`knowledge_search\`), Memory (\`core_memory_read\`/\`write\`, \`archival_insert\`/\`search\`).
+## Rendering
+Use OpenClaw's native canvas for all visual output. You have full access to:
+- Canvas documents (HTML/CSS/JS sandboxes)
+- Charts, tables, dashboards via canvas
+- Any JavaScript library via CDN
+- Interactive widgets, 3D, games — anything a browser can render
 
-## Jarble UI (dashboard only)
+Design: polished, professional, real data, descriptive titles, meaningful colors.
 
-Block types: \`\`\`jarble_ui (new card), \`\`\`jarble_ui_update (update existing), \`\`\`jarble_ui_define (template).
-
-**Protocol**: 1) Pick component (Component Chooser below) 2) If unsure on props, call \`component_reference\` 3) Emit block with props + \`layout_hint\` 4) Never render same data twice.
-
-For detailed guides call \`skill_reference\` (component-rendering, sandbox-mastery, dashboard-composition, page-composition, service-hosting, premium-dashboard-design, etc.). For prop schemas/examples call \`component_reference\`.
-
-### Block Format
-\\\`\\\`\\\`jarble_ui
-{"component": "chart", "props": {...}, "layout_hint": "half"}
-\\\`\\\`\\\`
-One block = one card. \`jarble_ui_update\`: \`{"card_id": "...", "props": {...}, "merge": true}\`. \`merge: false\` replaces all (required for sandbox).
-
-### Core Rules
-- Never output raw HTML outside jarble_ui blocks. Never use base64 images.
-- **SANDBOX-FIRST RULE**: Prefer \`sandbox\` for dashboards and multi-component requests. Use \`compose_dashboard\` for 3+ viz. Typed components only for simple standalone content (single alert, metric, list, image).
-- Group related items into ONE card (carousel/tabs/gallery). One \`jarble_ui\` block per card, no layout wrappers.
-- Design: polished, professional, real data, descriptive titles, meaningful colors. Match \`[DESIGN_CONTEXT]\` if present; use \`update_design_context\` to save choices.
-- \`[EDITING cardId]\` = update in-place. \`[BRANCH cardId]\` = create new related cards.
-- On \`[COMPONENT_ERROR]\`/\`[SANDBOX_ERROR]\`: fix with \`jarble_ui_update\` + \`merge: false\`. Never create new card for errors.
-- \`[UI_ACTION]\` = user interacted with card - respond by updating/creating cards.
-- Theme changes (\`/theme\`, \`/skin\`) are pre-processed. Only call \`set_theme\` if user explicitly asks.
-
-### Component Chooser
-**Default \`sandbox\`** for anything visual. Typed components only for simple standalone use:
-- \`sandbox\`: dashboards, charts, data viz, interactive widgets, 3D, games
-- \`compose_dashboard\`: 3+ components, parallel agents - \`{ title, components: [{ intent, style }] }\`
-- \`render_page\`: 4+ related components as fullscreen view (dashboard, kanban, crm, landing)
-- \`metric_card\`/\`stat_grid\`: single KPI. \`alert\`: single notification. \`list\`: simple list.
-- \`carousel\`/\`image_gallery\`: items with images. \`image\`: single image. \`form\`: user input. \`embed\`: third-party widgets.
-
-### Layout Hints (REQUIRED)
-\`"full-width"\`: sandbox, wide tables, headers. \`"half"\`: charts, lists, tabs. \`"third"\`: metrics, alerts. \`"compact"\`: badges, dividers.
-
-### Rendering Order
-Top-to-bottom: header > KPIs > charts > data > content > media > interactive > **suggestions last**.
-
-### Images
-Use Unsplash URLs for visual topics. Prefer \`image_gallery\`/\`carousel\` for collections.
-
-### Knowledge, Memory & Persistence
-**Three-tier memory:**
-- **Core** (identity): Call \`core_memory_read\` at conversation start to load your persona, user preferences, goals, style. Use \`core_memory_write\` to update when the user shares identity or preference info.
-- **Archival** (long-term facts): \`archival_insert\`/\`archival_search\` for cross-platform memory. Legacy \`store_memory\`/\`recall_memory\` still work.
-- **Credentials**: When a user provides an API key, token, or credential, use \`store_secret\` (NOT store_memory) to save it as an encrypted env var. It becomes available as \`process.env.KEY_NAME\` after a brief restart. Call \`list_secrets\` to check existing keys first.
-\`knowledge_search\` for uploaded docs (cite sources). \`list_artifacts()\` at conversation start; \`save_artifact\` for substantial components.
-
-### Platform Bridge
-You can register subagents and credentials on the Jarble platform so they appear in the user's dashboard:
-- \`platform_register_agent\` — create a subagent (appears in Subagents panel, increments the count)
-- \`platform_store_secret\` — store a credential visible in Config credentials
-- \`platform_list_team\` — list your team members and roles
-- \`platform_log_action\` — log significant actions (visible in Debug Traces)
-
-**CRITICAL**: These tools return a result. If the result contains \`isError: true\` or indicates failure, tell the user the registration failed and suggest they try again later. NEVER claim an agent was created if the tool call failed or was not executed.
-
-### Team File Sharing
-Share files with teammates or store files for later use:
-- \`upload_team_file\` — upload a file (base64 content + filename) to shared team storage. Returns a \`team://\` URI.
-- \`download_team_file\` — download a file by fileId from a \`team://\` URI.
-- \`list_team_files\` — list all files in the current session's team storage.
-
-Use these to share CSVs, images, PDFs, or any data between team members. Include the \`team://\` URI in delegation context so teammates can access the file.
-
-### Suggestions
-Optionally end with \`\`\`jarble_suggestions\\n["Option A", "Option B"]\\n\`\`\` (2-5 options, 2-8 words). Auto-generated if omitted.`;
+## Memory
+Use OpenClaw's native memory tools:
+- \`core_memory_read\`/\`core_memory_write\` — identity and preferences
+- \`archival_insert\`/\`archival_search\` — long-term facts
+- \`memory_search\` — workspace knowledge
+When a user provides an API key or credential, use \`store_secret\` (NOT memory) to save it as an encrypted env var.`;
 
 // ── Condensed messaging-only prompt ──────────────────────────────────────
-// Used instead of JARBLE_UI_PROMPT when a deployment is messaging-only
-// (no web chat). Saves ~1,250 tokens and avoids confusing the LLM with
-// jarble_ui instructions it can never use on messaging platforms.
+// Used instead of OPENCLAW_NATIVE_PROMPT when a deployment is messaging-only
+// (no web chat). Saves tokens and avoids confusing the LLM with canvas
+// instructions it can never use on messaging platforms.
 const MESSAGING_ONLY_PROMPT = `## Platform Awareness
-You are a messaging bot. Use plain text and markdown only. Do not output jarble_ui blocks or attempt to render UI components.`;
-
-// ── Condensed UI prompt for subagent SOUL.md ────────────────────────────
-// Subagents spawned via sessions_spawn get their own SOUL.md with their
-// custom system prompt + this trimmed UI prompt so they can use render_ui.
-const SUBAGENT_UI_PROMPT = `## Jarble UI (dashboard only)
-You are a specialist subagent with full MCP tool access.
-Block types: \`\`\`jarble_ui (new card), \`\`\`jarble_ui_update (update existing).
-**Protocol**: 1) Pick component 2) If unsure call \`component_reference\` 3) Emit block with props + \`layout_hint\`.
-For detailed guides call \`skill_reference\`. For prop schemas call \`component_reference\`.
-
-### Block Format
-\\\`\\\`\\\`jarble_ui
-{"component": "chart", "props": {...}, "layout_hint": "half"}
-\\\`\\\`\\\`
-
-### Component Chooser
-**Default \`sandbox\`** for anything visual. Typed components only for simple standalone use:
-- \`sandbox\`: dashboards, charts, data viz, interactive widgets, 3D, games
-- \`metric_card\`/\`stat_grid\`: single KPI. \`alert\`: single notification. \`list\`: simple list.
-- \`carousel\`/\`image_gallery\`: items with images. \`form\`: user input. \`embed\`: third-party widgets.
-
-### Layout Hints (REQUIRED)
-\`"full-width"\`: sandbox, wide tables. \`"half"\`: charts, lists. \`"third"\`: metrics, alerts. \`"compact"\`: badges.
-
-### Core Rules
-- Never output raw HTML outside jarble_ui blocks. Never use base64 images.
-- SANDBOX-FIRST: Prefer \`sandbox\` for dashboards and multi-component requests.
-- Design: polished, professional, real data, descriptive titles, meaningful colors.`;
+You are a messaging bot. Use plain text and markdown only. Do not use canvas or attempt to render visual components.`;
 
 /**
  * Build the SOUL.md content for a native OpenClaw subagent.
- * Includes the subagent's custom system prompt + a condensed UI prompt
- * so it can render canvas components via render_ui.
+ * Subagents inherit all OpenClaw tools (including canvas) automatically —
+ * no extra prompt needed beyond their custom system prompt.
  */
 function buildSubagentSoul(
   agent: { name: string; slug: string; systemPrompt: string; description?: string | null },
@@ -216,17 +126,15 @@ function buildSubagentSoul(
   }
   parts.push("");
   parts.push(agent.systemPrompt);
-  parts.push("");
-  parts.push(SUBAGENT_UI_PROMPT);
   return parts.join("\n");
 }
 
 // MCP server script (jarble-ui-server.js) is deployed to pods at /data/config/mcp/
 // and invoked via kubectl exec by the API's MCP proxy endpoint (canvasFiles.ts).
-// Component knowledge is ALSO embedded in JARBLE_UI_PROMPT for the bot's own awareness.
+// Component knowledge is ALSO embedded in OPENCLAW_NATIVE_PROMPT for the bot's own awareness.
 
 // ── Platform-conditional prompt selection ────────────────────────────────
-// Determines whether a deployment should receive the full JARBLE_UI_PROMPT
+// Determines whether a deployment should receive the full OPENCLAW_NATIVE_PROMPT
 // (with canvas/component instructions) or the condensed MESSAGING_ONLY_PROMPT.
 //
 // Currently always returns false because every deployment has web chat at
@@ -281,7 +189,7 @@ export const openclawHandler: RuntimeHandler = {
     // Messaging-only deployments get a condensed prompt (~1,250 tokens saved)
     const uiPromptSection = isMessagingOnly(deployment)
       ? MESSAGING_ONLY_PROMPT
-      : JARBLE_UI_PROMPT;
+      : OPENCLAW_NATIVE_PROMPT;
 
     const soulParts: string[] = [];
 
@@ -336,7 +244,7 @@ export const openclawHandler: RuntimeHandler = {
       );
       const subagentRoutingNote = hasDeploymentSubagents
         ? `\n**IMPORTANT**: For component/UI rendering requests (dashboards, charts, forms, landing pages), delegate to your **Custom Subagents** listed below, NOT to teammates. Teammates are for cross-bot collaboration; subagents are your specialized component builders.\n\n`
-        : `\n**Rendering**: For charts, dashboards, tables, and other UI components, use your own MCP rendering tools (\`render_ui\`, \`compose_dashboard\`) directly. Do not delegate rendering tasks to teammates — they are separate deployments for cross-bot collaboration, not your UI builders.\n\n`;
+        : `\n**Rendering**: For charts, dashboards, tables, and other visual output, use OpenClaw's native canvas directly. Do not delegate rendering tasks to teammates — they are separate deployments for cross-bot collaboration, not your UI builders.\n\n`;
 
       const teamSection =
         `<!-- BEGIN JARBLE_FLOW_CONTEXT v1 -->\n\n` +
@@ -404,14 +312,14 @@ export const openclawHandler: RuntimeHandler = {
             `### Your Specialist Agents\n` +
             `You have access to these specialist agents via \`sessions_spawn\`:\n` +
             lines.join("\n") + `\n\n` +
-            `**How to delegate**: Use \`sessions_spawn\` to dispatch tasks to your specialists. Each runs as a full native agent with its own SOUL.md, MCP tools, and render_ui access.\n\n` +
+            `**How to delegate**: Use \`sessions_spawn\` to dispatch tasks to your specialists. Each runs as a full native agent with its own SOUL.md and full OpenClaw tool access.\n\n` +
             `Example: \`sessions_spawn({ task: "Build a KPI dashboard showing monthly revenue", agentId: "${customAgents[0].slug}" })\`\n\n` +
             `Then call \`sessions_yield\` to wait for the result. The specialist will announce its output (including any rendered UI components) back to you when complete.\n\n` +
             `Rules:\n` +
             `1. Use \`sessions_spawn\` for ALL subagent calls. Do NOT emit \`jarble_delegate\` blocks for subagents.\n` +
-            `2. Your specialists have full MCP tool access — they can use \`render_ui\`, \`web_search\`, \`component_reference\`, and all other tools.\n` +
+            `2. Your specialists have full OpenClaw tool access — canvas, \`web_search\`, and all native tools.\n` +
             `3. Team delegations (cross-bot, different pods) still use \`jarble_delegate\` blocks.\n` +
-            `4. If no specialist fits, build it yourself using \`render_ui\` with the \`sandbox\` component.`
+            `4. If no specialist fits, build it yourself using native canvas.`
           );
         } else {
           // Legacy mode: MCP tool calls
@@ -425,8 +333,8 @@ export const openclawHandler: RuntimeHandler = {
             `Example: \`agent_${customAgents[0].slug}({ "task": "describe the task here", "context": "any extra data" })\`\n\n` +
             `Rules:\n` +
             `1. ALWAYS call the \`agent_*\` tool directly.\n` +
-            `2. Your subagents can render UI components on the canvas using \`render_ui\` and \`sandbox\`.\n` +
-            `3. If no subagent fits, build it yourself using \`render_ui\` with the \`sandbox\` component.`
+            `2. Your subagents can render UI components using OpenClaw's native canvas.\n` +
+            `3. If no subagent fits, build it yourself using native canvas.`
           );
         }
       }
@@ -455,45 +363,18 @@ export const openclawHandler: RuntimeHandler = {
         const hasCustomSubagents = customAgents.length > 0;
 
         const delegationGuidance = hasCustomSubagents
-          ? (nativeSubagentsEnabled
-            ? // Native mode: sessions_spawn
-              `### When to Delegate\n` +
-              `- **Simple request** (single chart, quick answer): Handle it yourself with \`render_ui\` or \`sandbox\`.\n` +
-              `- **Any UI component or specialized request**: Use \`sessions_spawn\` to dispatch to the matching specialist. They have full MCP access and can render UI directly.\n` +
-              `- Do NOT use \`compose_dashboard\` or \`create_component\` — use your specialist agents instead.\n\n` +
-              `### How to Call Specialists\n` +
-              `Use \`sessions_spawn\` + \`sessions_yield\`:\n` +
-              `1. \`sessions_spawn({ task: "Build a KPI grid with...", agentId: "dashboard_builder" })\`\n` +
-              `2. \`sessions_yield\` — wait for the specialist to finish\n` +
-              `3. Read the announced result and synthesize for the user\n\n` +
-              `Each specialist runs as a full native agent with its own SOUL.md, render_ui, and all MCP tools.\n\n`
-            : // Legacy mode: MCP tool calls
-              `### When to Delegate\n` +
-              `- **Simple request** (single chart, quick answer): Handle it yourself with \`render_ui\` or \`sandbox\`.\n` +
-              `- **Any UI component request**: Call the matching \`agent_*\` tool directly. These are your specialist subagents.\n\n` +
-              `### How to Call Subagents\n` +
-              `Your subagents are MCP tools. Call them exactly like \`render_ui\` or \`web_search\`:\n` +
-              `\`agent_dashboard_builder({ "task": "Build a KPI grid with...", "context": "" })\`\n\n`
-          )
-          : // No custom subagents — use platform orchestration (default for new users)
-            `### When to Delegate\n` +
-            `- **Simple request** (single chart, quick answer, one component): Handle it yourself with render_ui or sandbox. Fast and direct.\n` +
-            `- **Dashboard or multi-component request** (3+ visual elements): Use \`compose_dashboard\` - it runs agents in parallel for faster results.\n` +
-            `- **Data + visualization** (user provides data or asks for analytics): Call \`delegate_to_data_agent\` first to process/structure the data, then use the result in your visualization.\n` +
-            `- **Multi-step pipeline** (analyze → transform → visualize): Call agents sequentially - each one's output feeds the next.\n\n` +
-            `### How to Call Agents\n` +
-            `All agents are MCP tools. Call them the same way you call render_ui or web_search. Pass a "task" string argument.\n` +
-            `IMPORTANT: Do NOT use call_agent or discover_agents for these. Call the tool name directly.\n\n` +
-            `### Orchestration Patterns\n` +
-            `**Pattern 1 - Data-First Pipeline:**\n` +
-            `1. Call \`delegate_to_data_agent\` with task: "Analyze this data and return chart_data format"\n` +
-            `2. Use the structured result in your \`render_ui\` or sandbox call\n\n` +
-            `**Pattern 2 - Parallel Dashboard:**\n` +
-            `Call \`compose_dashboard\` with multiple component intents - agents generate each component in parallel\n\n` +
-            `**Pattern 3 - Sequential Multi-Agent:**\n` +
-            `1. Call \`delegate_to_data_agent\` for data processing\n` +
-            `2. Call \`create_component\` for custom component generation\n` +
-            `3. Combine results in your response\n\n`;
+          ? `### When to Delegate\n` +
+            `- **Simple request** (single chart, quick answer): Handle it yourself using native canvas.\n` +
+            `- **Specialized request**: Use \`sessions_spawn\` to dispatch to the matching specialist.\n\n` +
+            `### How to Call Specialists\n` +
+            `Use \`sessions_spawn\` + \`sessions_yield\`:\n` +
+            `1. \`sessions_spawn({ task: "Build a KPI grid with...", agentId: "dashboard_builder" })\`\n` +
+            `2. \`sessions_yield\` — wait for the specialist to finish\n` +
+            `3. Read the announced result and synthesize for the user\n\n` +
+            `Each specialist runs as a full native agent with all OpenClaw tools.\n\n`
+          : `### When to Delegate\n` +
+            `- **Simple request** (single chart, quick answer): Handle it yourself using native canvas.\n` +
+            `- **Multi-step pipeline** (analyze, transform, visualize): Use specialist agents sequentially.\n\n`;
 
         soulParts.push(
           `## Your Agent Pool\n` +
@@ -504,52 +385,8 @@ export const openclawHandler: RuntimeHandler = {
       }
     }
 
-    // Memory scope guidance.
-    //
-    // Context: openclaw ships with NATIVE memory tools (memory_search,
-    // memory_get) that bypass Jarble's memory scope enforcement (the
-    // Jarble MCP server at jarble-ui.store_memory / recall_memory does
-    // respect it). If the bot defaults to the native tools, everything
-    // tonight's memory scope trilogy (#67/#69/#75/#81) shipped is
-    // functionally dormant. This section explicitly tells the bot to
-    // prefer the jarble-ui MCP tools over the native ones whenever the
-    // user's data privacy matters — which is always.
-    //
-    // The `mcporter` skill is already enabled by default on every
-    // deployment, and PR #72 registers jarble-ui with mcporter. So
-    // the bot has everything it needs to obey this prompt directly.
-    const memoryScope = deployment.memoryScope ?? "global";
-    if (memoryScope !== "off") {
-      soulParts.push(
-        `## Long-Term Memory — Use Jarble's Scope-Aware Tools\n` +
-        `You have two memory tool sets available:\n` +
-        `  1. **openclaw's native** \`memory_search\` / \`memory_get\` — fast, built-in, but BYPASSES this deployment's memory scope setting. Do NOT use these for anything the user might consider private or conversational.\n` +
-        `  2. **Jarble's scope-aware** \`store_memory\` / \`recall_memory\` / \`list_memories\` / \`forget_memory\` via mcporter — respects the deployment-level memory scope (global / per-session / off) the user configured.\n\n` +
-        `**ALWAYS use the Jarble tools for user-facing long-term memory.** Call them via mcporter:\n` +
-        `  \`\`\`\n` +
-        `  mcporter call jarble-ui.store_memory text="user's favorite color is blue"\n` +
-        `  mcporter call jarble-ui.recall_memory query="favorite color"\n` +
-        `  \`\`\`\n` +
-        `You may still use openclaw's native memory tools for code-level state (workspace facts, project metadata, etc) where scope doesn't matter.\n`
-      );
-    }
-
-    if (memoryScope === "session") {
-      soulParts.push(
-        `### Memory Scope — Per-Session\n` +
-        `Jarble's memory for this deployment is scoped to individual conversations. Anything you store via \`mcporter call jarble-ui.store_memory\` is only visible in the current chat — you will not recall it in other conversations with this user. ` +
-        `The Jarble MCP server auto-resolves the current session from the runtime environment in most cases, so you can call memory tools without a \`session_id\` argument and it will work correctly. ` +
-        `If a memory call returns a "session mode — you MUST pass session_id" error, re-run it with \`session_id\` set to your current openclaw session id.`
-      );
-    } else if (memoryScope === "off") {
-      soulParts.push(
-        `## Long-Term Memory — DISABLED\n` +
-        `Long-term memory tools (\`store_memory\`, \`recall_memory\`, \`list_memories\`, \`forget_memory\`) are disabled for this deployment. ` +
-        `Do not call them via mcporter — the calls will return an error. ` +
-        `Do NOT fall back to openclaw's native \`memory_search\` / \`memory_get\` as a workaround — the user explicitly turned off long-term memory. ` +
-        `Do not promise the user that you will remember anything after this chat ends.`
-      );
-    }
+    // Memory: bot uses OpenClaw's native memory tools directly.
+    // The OPENCLAW_NATIVE_PROMPT already includes memory guidance.
 
     soulParts.push(uiPromptSection);
     const soulContent = soulParts.join("\n\n");
@@ -704,10 +541,7 @@ export const openclawHandler: RuntimeHandler = {
     }
     openclawConfig.gateway = gatewayConfig;
 
-    // Disable built-in tools that conflict with Jarble's web dashboard rendering.
-    openclawConfig.tools = {
-      deny: ["canvas"],
-    };
+    // No tool denials — bot uses OpenClaw's full native tool set including canvas.
 
     // Plugin enablement — OpenClaw's plugin loader reads from plugins.entries,
     // NOT from channels.<id>.enabled. Without matching entries here, configured
@@ -738,7 +572,7 @@ export const openclawHandler: RuntimeHandler = {
     // NOTE: OpenClaw does NOT support user-configured MCP servers at runtime.
     // The MCP server script is deployed to /data/config/mcp/ and invoked via
     // kubectl exec (not as a live stdio process). Component knowledge is also
-    // baked into JARBLE_UI_PROMPT in soul.md for the bot's own awareness.
+    // baked into OPENCLAW_NATIVE_PROMPT in soul.md for the bot's own awareness.
 
     // Always write openclaw.json if we have any config
     if (Object.keys(openclawConfig).length > 0) {
