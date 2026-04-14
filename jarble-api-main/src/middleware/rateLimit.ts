@@ -80,7 +80,10 @@ export const globalLimiter = rateLimit({
       req.path.endsWith("/stream") ||
       req.path.endsWith("/logs/stream") ||
       req.path.endsWith("/whatsapp/qr") ||
-      req.path === "/api/tambo-agent"
+      req.path === "/api/tambo-agent" ||
+      // WebSocket upgrade requests are long-lived connections, not repeated API calls.
+      // Rate limiting them causes 429 on the HTTP handshake, breaking the WS entirely.
+      req.path.startsWith("/ws/")
     );
   },
   message: { error: "Too many requests, please try again later." },
