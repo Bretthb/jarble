@@ -19,7 +19,6 @@ import { canvasReducer, INITIAL_CANVAS_STATE } from "@/components/workspace/canv
 import SimpleCanvasGrid from "@/components/workspace/SimpleCanvasGrid";
 import DashboardCanvas from "@/components/workspace/DashboardCanvas";
 import EssentialControls from "@/components/workspace/EssentialControls";
-import ControlPanel from "@/components/workspace/ControlPanel";
 import FilePanel from "@/components/workspace/FilePanel";
 import KnowledgePanel from "@/components/workspace/KnowledgePanel";
 import CanvasRenderer from "@/components/canvas/CanvasRenderer";
@@ -33,7 +32,7 @@ import TeamSessionsPanel from "@/components/workspace/TeamSessionsPanel";
 import DebugTracePanel from "@/components/workspace/DebugTracePanel";
 import { MemoryDisclosureBanner, type MemoryScope } from "@/components/chat/MemoryDisclosureBanner";
 import { CreditStatusBanner } from "@/components/chat/CreditStatusBanner";
-import { ArrowLeft, Loader2, SendHorizontal, Square, Monitor, Store, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Bot, Users, Activity, ArrowUpRight } from "lucide-react";
+import { ArrowLeft, Loader2, SendHorizontal, Square, Store, FolderOpen, MessageSquare, MessageSquareText, Layout, X, Brain, Bot, Users, Activity, ArrowUpRight } from "lucide-react";
 import { useReducer, useRef, useState, useCallback, useEffect, useMemo, memo } from "react";
 import { cn } from "@/lib/utils";
 import { THEME_PRESETS, resolveThemeVars } from "@jarble/component-manifest";
@@ -339,7 +338,7 @@ function WorkspacePage({
   onRefetchDeployment?: () => void;
 }) {
   const router = useRouter();
-  const [controlMode, setControlMode] = useState(false);
+  // controlMode removed — replaced by chatMode "webui" toggle (Open WebUI)
   const [filesOpen, setFilesOpen] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -445,7 +444,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setHistoryOpen((v) => {
-                  if (!v) { setControlMode(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
+                  if (!v) { setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
                   return !v;
                 });
               }}
@@ -460,7 +459,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setFilesOpen((v) => {
-                  if (!v) { setControlMode(false); setHistoryOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
+                  if (!v) { setHistoryOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
                   return !v;
                 });
               }}
@@ -474,7 +473,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setKnowledgeOpen((v) => {
-                  if (!v) { setControlMode(false); setFilesOpen(false); setHistoryOpen(false); setSubagentsOpen(false); }
+                  if (!v) { setFilesOpen(false); setHistoryOpen(false); setSubagentsOpen(false); }
                   return !v;
                 });
               }}
@@ -488,7 +487,7 @@ function WorkspacePage({
               isOpen={subagentsOpen}
               onClick={() => {
                 setSubagentsOpen((v) => {
-                  if (!v) { setControlMode(false); setFilesOpen(false); setKnowledgeOpen(false); setHistoryOpen(false); setTeamsOpen(false); }
+                  if (!v) { setFilesOpen(false); setKnowledgeOpen(false); setHistoryOpen(false); setTeamsOpen(false); }
                   return !v;
                 });
               }}
@@ -498,7 +497,7 @@ function WorkspacePage({
               isOpen={teamsOpen}
               onClick={() => {
                 setTeamsOpen((v) => {
-                  if (!v) { setControlMode(false); setFilesOpen(false); setKnowledgeOpen(false); setHistoryOpen(false); setSubagentsOpen(false); }
+                  if (!v) { setFilesOpen(false); setKnowledgeOpen(false); setHistoryOpen(false); setSubagentsOpen(false); }
                   return !v;
                 });
               }}
@@ -508,7 +507,7 @@ function WorkspacePage({
               size="sm"
               onClick={() => {
                 setDebugOpen((v) => {
-                  if (!v) { setControlMode(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); setTeamsOpen(false); }
+                  if (!v) { setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); setTeamsOpen(false); }
                   return !v;
                 });
               }}
@@ -517,30 +516,13 @@ function WorkspacePage({
             >
               <Activity className="w-4 h-4" />
             </Button>
-            <Button
-              variant={controlMode ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => {
-                setControlMode((v) => {
-                  if (!v) { setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); setDebugOpen(false); }
-                  return !v;
-                });
-              }}
-              className="h-8 w-8 p-0 shrink-0"
-              title="Control Panel"
-            >
-              <Monitor className="w-4 h-4" />
-            </Button>
             <ProfileDropdown />
           </div>
         </div>
       </header>
 
-      {/* Main area: Control Panel (full-pane) OR workspace panels + canvas */}
+      {/* Main area: workspace panels + canvas */}
       <div className="flex-1 flex overflow-hidden">
-        {controlMode ? (
-          <ControlPanel deploymentId={deploymentId} liveStatus={liveStatus} />
-        ) : (
           <>
             {filesOpen && (
               <FilePanel
@@ -582,7 +564,6 @@ function WorkspacePage({
               chatMode={chatMode}
             />
           </>
-        )}
       </div>
     </div>
     </SandboxThemeProvider>
