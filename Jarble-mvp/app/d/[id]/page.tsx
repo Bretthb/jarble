@@ -308,6 +308,7 @@ export default function DeploymentChatPage() {
         <WorkspacePage
           deploymentId={id}
           deploymentName={deployment.name}
+          runtime={(deployment as any).runtime ?? "openclaw"}
           liveStatus={liveStatus}
           themeConfig={(deployment as any).themeConfig}
           memoryScope={(deployment as any).memoryScope ?? "global"}
@@ -320,9 +321,15 @@ export default function DeploymentChatPage() {
 
 // ── Full Workspace Page ───────────────────────────────────────────────────────
 
+// Runtimes with a native Control UI — these show the ControlPanel by default
+// and hide the Jarble chat/canvas. Future runtimes without native UI will
+// fall through to the Jarble chat + canvas workspace.
+const RUNTIMES_WITH_NATIVE_UI = new Set(["openclaw"]);
+
 function WorkspacePage({
   deploymentId,
   deploymentName,
+  runtime,
   liveStatus,
   themeConfig,
   memoryScope,
@@ -330,6 +337,7 @@ function WorkspacePage({
 }: {
   deploymentId: string;
   deploymentName: string;
+  runtime: string;
   liveStatus: string;
   themeConfig?: string | null;
   /** JAR memory-scoping foundation: passed straight through to
@@ -339,7 +347,8 @@ function WorkspacePage({
   onRefetchDeployment?: () => void;
 }) {
   const router = useRouter();
-  const [controlMode, setControlMode] = useState(false);
+  const hasNativeUI = RUNTIMES_WITH_NATIVE_UI.has(runtime);
+  const [controlMode, setControlMode] = useState(hasNativeUI);
   const [filesOpen, setFilesOpen] = useState(false);
   const [knowledgeOpen, setKnowledgeOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -418,20 +427,24 @@ function WorkspacePage({
           <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto scrollbar-none">
             <EssentialControls deploymentId={deploymentId} status={liveStatus} />
             <div className="w-px h-5 bg-border/60 hidden sm:block" />
-            <Button
-              variant={historyOpen ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => {
-                setHistoryOpen((v) => {
-                  if (!v) { setControlMode(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
-                  return !v;
-                });
-              }}
-              className="h-8 w-8 p-0 shrink-0"
-              title="Conversation history"
-            >
-              <MessageSquareText className="w-4 h-4" />
-            </Button>
+            {/* Conversation history is tied to the Jarble chat — hide for native UI runtimes
+                where conversations live in the Control UI's Sessions page */}
+            {!hasNativeUI && (
+              <Button
+                variant={historyOpen ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => {
+                  setHistoryOpen((v) => {
+                    if (!v) { setControlMode(false); setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
+                    return !v;
+                  });
+                }}
+                className="h-8 w-8 p-0 shrink-0"
+                title="Conversation history"
+              >
+                <MessageSquareText className="w-4 h-4" />
+              </Button>
+            )}
             {/* Team Sessions removed — now integrated into Conversation History panel */}
             <Button
               variant={filesOpen ? "secondary" : "ghost"}
@@ -495,20 +508,24 @@ function WorkspacePage({
             >
               <Activity className="w-4 h-4" />
             </Button>
-            <Button
-              variant={controlMode ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => {
-                setControlMode((v) => {
-                  if (!v) { setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); setDebugOpen(false); }
-                  return !v;
-                });
-              }}
-              className="h-8 w-8 p-0 shrink-0"
-              title="Control Panel"
-            >
-              <Monitor className="w-4 h-4" />
-            </Button>
+            {/* Only show Monitor toggle for runtimes without native UI —
+                runtimes with native UI (OpenClaw) are always in control mode */}
+            {!hasNativeUI && (
+              <Button
+                variant={controlMode ? "secondary" : "ghost"}
+                size="sm"
+                onClick={() => {
+                  setControlMode((v) => {
+                    if (!v) { setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); setDebugOpen(false); }
+                    return !v;
+                  });
+                }}
+                className="h-8 w-8 p-0 shrink-0"
+                title="Control Panel"
+              >
+                <Monitor className="w-4 h-4" />
+              </Button>
+            )}
             <ProfileDropdown />
           </div>
         </div>
