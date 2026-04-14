@@ -1167,7 +1167,15 @@ function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
     let cancelled = false;
     (async () => {
       try {
-        const jwt = await getAccessTokenSilently();
+        let jwt: string | null = null;
+        try {
+          jwt = await getAccessTokenSilently();
+        } catch (tokenErr) {
+          console.warn("[Control Panel] Token refresh failed, trying with existing cookie:", tokenErr);
+          // Token refresh failed — try loading iframe anyway (cookie might exist from previous session)
+          if (!cancelled) setIframeSrc(`https://${deploymentId}.agents.jarble.ai`);
+          return;
+        }
 
         // Acquire signed cookie for *.agents.jarble.ai
         const sessionRes = await fetch(
@@ -1191,7 +1199,12 @@ function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
           }
         }
 
-        if (!sessionRes.ok) throw new Error("Failed to acquire agent session");
+        if (!sessionRes.ok) {
+          console.warn("[Control Panel] Session acquisition failed, trying with existing cookie");
+          // Fall back to loading iframe with existing cookie
+          if (!cancelled) setIframeSrc(`https://${deploymentId}.agents.jarble.ai`);
+          return;
+        }
 
         // Cookie is now set — load the iframe (cookie flows automatically)
         if (!cancelled) {
