@@ -10,6 +10,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback, useReducer } from "react";
+import { notFound } from "next/navigation";
 import CanvasRenderer, { type UIBlock } from "@/components/canvas/CanvasRenderer";
 import { CANVAS_COMPONENTS } from "@/components/canvas/registry";
 import { type CanvasAction } from "@/components/canvas/CanvasActionContext";
@@ -584,6 +585,12 @@ function useLogPanel() {
 // ---------------------------------------------------------------------------
 
 export default function StressTestPage() {
+  // Dev-only route: block in production so this 1,200+ line stress harness
+  // is never reachable at jarble.ai/d/stress-test.
+  if (process.env.NODE_ENV !== "development") {
+    notFound();
+  }
+
   const [activeTab, setActiveTab] = useState<TestCategory>("basic");
   const [results, setResults] = useState<TestResult[]>([]);
   const [isRunning, setIsRunning] = useState(false);

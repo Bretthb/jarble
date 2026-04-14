@@ -2780,7 +2780,7 @@ function FlowView({ deployments }: { deployments: DeploymentData[] }) {
         utils.flows.list.setData(undefined, (old: any) =>
           old ? old.filter((f: any) => f.id !== input.id) : old
         );
-        toast.info("Flow was already removed on the server — cleaned up locally");
+        toast.info("Flow was already removed on the server, cleaned up locally");
       } else {
         toast.error(`Failed to delete flow: ${err.message}`);
       }
