@@ -4,7 +4,7 @@ import { createModuleLogger } from "../utils/logger.js";
 
 const log = createModuleLogger("k8s:lifecycle");
 import { coreApi, appsApi } from "./client.js";
-import { NAMESPACE, DEFAULT_IMAGE, RUNTIME_PORTS, RUNTIME_CLASS_MAP, RUNTIME_OVERHEAD, RUNTIME_NODE_SELECTOR } from "./constants.js";
+import { NAMESPACE, DEFAULT_IMAGE, RUNTIME_PORTS, RUNTIME_CLASS_MAP, RUNTIME_OVERHEAD, RUNTIME_NODE_SELECTOR, OPEN_WEBUI_IMAGE, OPEN_WEBUI_PORT, OPEN_WEBUI_CONTAINER_NAME } from "./constants.js";
 import type { DeploymentConfig, ManagedBy, IsolationLevel, DeploymentType } from "./constants.js";
 import { getDeploymentPodStatus } from "./status.js";
 import { createDeploymentConfigMap, deleteDeploymentConfigMap } from "./configmap.js";
@@ -535,10 +535,46 @@ async function createDeploymentLegacy(
               timeoutSeconds: 3,
               failureThreshold: 3,
             },
+          },
+          // ── Open WebUI sidecar ────────────────────────────────────────
+          // Talks to OpenClaw over localhost — no proxy/mixed content issues.
+          {
+            name: OPEN_WEBUI_CONTAINER_NAME,
+            image: OPEN_WEBUI_IMAGE,
+            imagePullPolicy: "Always" as const,
+            ports: [{ containerPort: OPEN_WEBUI_PORT, name: "webui" }],
+            env: [
+              { name: "OPENAI_API_BASE_URL", value: `http://localhost:${gatewayPort}/v1` },
+              { name: "OPENAI_API_KEY", value: gatewayToken },
+              { name: "WEBUI_AUTH", value: "false" },
+              { name: "DATA_DIR", value: "/data/open-webui" },
+              { name: "DO_NOT_TRACK", value: "true" },
+              { name: "SCARF_NO_ANALYTICS", value: "true" },
+            ],
+            resources: {
+              requests: { cpu: "100m", memory: "512Mi" },
+              limits:   { cpu: "500m", memory: "1Gi" },
+            },
+            securityContext: secCtx.container,
+            volumeMounts: [
+              { name: "data", mountPath: "/data" },
+              { name: "tmp-webui", mountPath: "/tmp" },
+            ],
+            readinessProbe: {
+              httpGet: { path: "/health", port: OPEN_WEBUI_PORT },
+              initialDelaySeconds: 60,
+              periodSeconds: 10,
+            },
+            livenessProbe: {
+              httpGet: { path: "/health", port: OPEN_WEBUI_PORT },
+              initialDelaySeconds: 90,
+              periodSeconds: 60,
+            },
           }],
           volumes: [
             { name: "data", persistentVolumeClaim: { claimName: `pvc-${deploymentId}` } },
             { name: "tmp", emptyDir: { sizeLimit: "1Gi" } },
+            { name: "tmp-webui", emptyDir: { sizeLimit: "512Mi" } },
             ...(hasConfigMap ? [{
               name: "config-source",
               configMap: { name: `config-${deploymentId}` },

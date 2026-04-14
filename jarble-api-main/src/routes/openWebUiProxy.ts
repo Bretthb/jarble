@@ -158,11 +158,24 @@ openWebUiProxyRouter.all("/:id/webui/*", async (req: Request, res: Response) => 
     // Forward response headers
     const ct = proxyRes.headers.get("content-type");
     if (ct) res.setHeader("Content-Type", ct);
-    const cl = proxyRes.headers.get("content-length");
-    if (cl) res.setHeader("Content-Length", cl);
 
     const body = Buffer.from(await proxyRes.arrayBuffer());
-    res.end(body);
+
+    // For the root HTML page, inject a <base> tag so the SPA's absolute
+    // asset paths (/static/..., /manifest.json, etc.) resolve through
+    // the proxy instead of the API server's root.
+    const isHtml = ct?.includes("text/html") && (suffix === "" || suffix === "/");
+    if (isHtml) {
+      let html = body.toString("utf-8");
+      const baseHref = `/api/deployments/${deploymentId}/webui/`;
+      html = html.replace("<head>", `<head><base href="${baseHref}">`);
+      res.setHeader("Content-Length", Buffer.byteLength(html));
+      res.end(html);
+    } else {
+      const cl = proxyRes.headers.get("content-length");
+      if (cl) res.setHeader("Content-Length", cl);
+      res.end(body);
+    }
   } catch (err) {
     log.error({ err, deploymentId, suffix }, "Open WebUI proxy failed");
     if (!res.headersSent) {
