@@ -258,7 +258,12 @@ describe("flows end-to-end integration", () => {
       expect(parsed.edges.length).toBe(49);
     });
 
-    it("handles a definition with a very long node label (10KB)", async () => {
+    it("rejects a definition with a node label longer than the 255-char cap", async () => {
+      // The flows router caps node labels at 255 chars (Zod v3 enum on
+      // definition.nodes[].label in routers/flows.ts). Attempting to store a
+      // 10KB label used to be the behavior; now the router rejects it with a
+      // BAD_REQUEST before reaching the DB, protecting the definition column
+      // from pathological payloads.
       const longLabel = "A".repeat(10_000);
       const def = {
         nodes: [
@@ -268,11 +273,26 @@ describe("flows end-to-end integration", () => {
       };
 
       const caller = makeCaller();
-      const { id } = await caller.flows.create({ name: "Long Label", definition: def });
+      await expect(
+        caller.flows.create({ name: "Long Label", definition: def }),
+      ).rejects.toThrow(/at most 255 character/);
+    });
+
+    it("accepts a definition with a label at the 255-char cap", async () => {
+      const atCap = "A".repeat(255);
+      const def = {
+        nodes: [
+          { id: "n1", type: "output" as const, label: atCap, position: { x: 0, y: 0 } },
+        ],
+        edges: [],
+      };
+
+      const caller = makeCaller();
+      const { id } = await caller.flows.create({ name: "At Cap", definition: def });
 
       const flow = await caller.flows.getById({ id });
       const parsed = JSON.parse(flow.definition as string);
-      expect(parsed.nodes[0].label.length).toBe(10_000);
+      expect(parsed.nodes[0].label.length).toBe(255);
     });
   });
 

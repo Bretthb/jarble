@@ -25,11 +25,23 @@ vi.mock("./client.js", () => ({
     createNamespacedSecret: vi.fn(),
     deleteNamespacedSecret: vi.fn(),
     deleteNamespacedPersistentVolumeClaim: vi.fn(),
+    createNamespacedService: vi.fn(),
+    deleteNamespacedService: vi.fn(),
   },
   appsApi: {
     createNamespacedDeployment: vi.fn(),
     patchNamespacedDeployment: vi.fn(),
     deleteNamespacedDeployment: vi.fn(),
+  },
+  networkingApi: {
+    createNamespacedIngress: vi.fn(),
+    deleteNamespacedIngress: vi.fn(),
+  },
+  customApi: {
+    createNamespacedCustomObject: vi.fn(),
+    deleteNamespacedCustomObject: vi.fn(),
+    patchNamespacedCustomObject: vi.fn(),
+    getNamespacedCustomObject: vi.fn(),
   },
 }));
 
@@ -47,7 +59,7 @@ vi.mock("./operator.js", () => ({
   deleteOpenClawInstance: vi.fn(),
 }));
 
-import { coreApi, appsApi } from "./client.js";
+import { coreApi, appsApi, networkingApi, customApi } from "./client.js";
 import { getDeploymentPodStatus } from "./status.js";
 import { createDeploymentConfigMap, deleteDeploymentConfigMap } from "./configmap.js";
 import { createOpenClawInstance, deleteOpenClawInstance } from "./operator.js";
@@ -81,6 +93,14 @@ beforeEach(() => {
   mockCoreApi.createNamespacedSecret.mockResolvedValue({} as any);
   mockCoreApi.deleteNamespacedSecret.mockResolvedValue({} as any);
   mockCoreApi.deleteNamespacedPersistentVolumeClaim.mockResolvedValue({} as any);
+  mockCoreApi.createNamespacedService.mockResolvedValue({} as any);
+  mockCoreApi.deleteNamespacedService.mockResolvedValue({} as any);
+  vi.mocked(networkingApi).createNamespacedIngress.mockResolvedValue({} as any);
+  vi.mocked(networkingApi).deleteNamespacedIngress.mockResolvedValue({} as any);
+  vi.mocked(customApi).createNamespacedCustomObject.mockResolvedValue({} as any);
+  vi.mocked(customApi).deleteNamespacedCustomObject.mockResolvedValue({} as any);
+  vi.mocked(customApi).patchNamespacedCustomObject.mockResolvedValue({} as any);
+  vi.mocked(customApi).getNamespacedCustomObject.mockResolvedValue({} as any);
   mockAppsApi.createNamespacedDeployment.mockResolvedValue({} as any);
   mockAppsApi.patchNamespacedDeployment.mockResolvedValue({} as any);
   mockAppsApi.deleteNamespacedDeployment.mockResolvedValue({} as any);

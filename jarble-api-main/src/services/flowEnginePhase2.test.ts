@@ -18,9 +18,29 @@ vi.mock("../utils/logger.js", () => ({
   }),
 }));
 
+// Engine now uses executeDelegation (from ./flowDelegation.js), not
+// executeAgentCall (from ./marketplaceHub.js). Adapter maps legacy mock
+// returns { result, creditsCharged } onto the delegationResult shape.
 const mockExecuteAgentCall = vi.fn();
-vi.mock("./marketplaceHub.js", () => ({
-  executeAgentCall: (...args: any[]) => mockExecuteAgentCall(...args),
+function toDelegationResult(agentCallReturn: any) {
+  const r = agentCallReturn ?? {};
+  const inner = r.result;
+  const innerObj = inner && typeof inner === "object" ? inner : {};
+  return {
+    response: typeof inner === "string" ? inner : innerObj,
+    uiBlocks: [],
+    componentDefs: [],
+    suggestions: [],
+    children: [],
+    callId: "call_test",
+    depth: 0,
+    creditsUsed: r.creditsCharged ?? 0,
+  };
+}
+vi.mock("./flowDelegation.js", () => ({
+  buildDelegationTools: () => [],
+  executeDelegation: (...args: any[]) =>
+    Promise.resolve(mockExecuteAgentCall(...args)).then(toDelegationResult),
 }));
 
 vi.mock("../db/index.js", () => {
@@ -72,7 +92,7 @@ function makeNode(
     type,
     label: `Node ${id}`,
     position: { x: 0, y: 0 },
-    serviceId: type === "deployment" ? `svc_${id}` : undefined,
+    deploymentId: type === "deployment" ? `dep_${id}` : undefined,
     config,
     maxIterations,
   };

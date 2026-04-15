@@ -146,7 +146,9 @@ describe("deployment.create — PVC size pre-flight validation", () => {
 
   it("REJECTS storageMb above the largest-tier usable limit with BAD_REQUEST", async () => {
     const caller = authedCaller();
-    const oversize = 999;
+    // Must be > LARGEST_TIER_USABLE_GB (~349) but <= 500 so that the router's
+    // PVC pre-flight validation fires instead of Zod's hard max(500) cap.
+    const oversize = LARGEST_TIER_USABLE_GB + 1;
 
     await expect(
       caller.deployment.create({

@@ -25,7 +25,11 @@ const dbHolder = vi.hoisted(() => ({
 // ── Mocks ────────────────────────────────────────────────────────────────────
 
 vi.mock("../../utils/admin.js", () => {
-  const adminIds = new Set(["admin-001"]);
+  // Middleware calls isAdmin(ctx.user.auth0Id), where auth0Id is of the form
+  // "auth0|admin-001". Match both the short "admin-001" (internal user id) and
+  // the "auth0|admin-001" (auth0 subject) forms so helpers that use either
+  // identifier both pass the admin guard.
+  const adminIds = new Set(["admin-001", "auth0|admin-001"]);
   return {
     isAdmin: (userId: string) => adminIds.has(userId),
     getAdminUserIds: () => adminIds,

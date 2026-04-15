@@ -508,6 +508,32 @@ export const skillsCatalogRelations = relations(skillsCatalog, ({ many }) => ({
   deploymentSkills: many(deploymentSkills),
 }));
 
+// ── Promo Codes / Redemptions ──────────────────────────────────────────────
+// Mirrors schema.pg.ts `promoCodes` + `promoRedemptions`. The deployment
+// router's delete path cleans up promo_redemptions for the deployment being
+// deleted, so the sqlite mirror needs these tables for integration tests.
+
+export const promoCodes = sqliteTable("promo_codes", {
+  id: text("id").primaryKey(),
+  code: text("code").notNull().unique(),
+  description: text("description"),
+  monthsFree: integer("months_free").notNull().default(1),
+  maxUses: integer("max_uses"),
+  usesRemaining: integer("uses_remaining"),
+  expiresAt: text("expires_at"),
+  active: integer("active", { mode: "boolean" }).notNull().default(true),
+  createdBy: text("created_by").references(() => users.id),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+});
+
+export const promoRedemptions = sqliteTable("promo_redemptions", {
+  id: text("id").primaryKey(),
+  promoCodeId: text("promo_code_id").notNull().references(() => promoCodes.id),
+  userId: text("user_id").notNull().references(() => users.id),
+  deploymentId: text("deployment_id").references(() => deployments.id),
+  redeemedAt: text("redeemed_at").notNull().$defaultFn(now),
+});
+
 export const deploymentSkillsRelations = relations(deploymentSkills, ({ one }) => ({
   deployment: one(deployments, { fields: [deploymentSkills.deploymentId], references: [deployments.id] }),
   skill: one(skillsCatalog, { fields: [deploymentSkills.skillId], references: [skillsCatalog.id] }),

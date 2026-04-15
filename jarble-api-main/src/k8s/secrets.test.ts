@@ -81,8 +81,7 @@ describe("updateDeploymentSecret", () => {
     expect(data.LLM_PROVIDER).toBe("openrouter");
   });
 
-  it("includes JARBLE_API_URL when set in env", async () => {
-    process.env.JARBLE_API_URL = "https://api.jarble.ai";
+  it("includes JARBLE_API_URL (defaults to internal cluster URL when env var unset)", async () => {
     mockCoreApi.readNamespacedSecret.mockResolvedValue({
       body: { data: {} },
     } as any);
@@ -90,7 +89,12 @@ describe("updateDeploymentSecret", () => {
     await updateDeploymentSecret("dep-1", "user-1", "bot", "openclaw", {});
 
     const data = mockCoreApi.replaceNamespacedSecret.mock.calls[0][2].stringData!;
-    expect(data.JARBLE_API_URL).toBe("https://api.jarble.ai");
+    // Prod code now always populates JARBLE_API_URL, preferring the internal
+    // K8s service URL (pods can't reach the external HTTPS URL due to the
+    // egress NetworkPolicy). The external URL is only used as a fallback if
+    // JARBLE_INTERNAL_API_URL is not set.
+    expect(data.JARBLE_API_URL).toBeDefined();
+    expect(data.JARBLE_API_URL).toMatch(/svc\.cluster\.local|jarble\.ai/);
   });
 
   it("includes CONFIG_WEBHOOK_SECRET when set in env", async () => {

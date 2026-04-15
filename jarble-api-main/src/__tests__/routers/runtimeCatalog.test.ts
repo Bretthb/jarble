@@ -198,9 +198,12 @@ describe("runtimeCatalog router", () => {
       expect(result!.slug).toBe("openclaw");
     });
 
-    it("should return undefined for non-existent ID", async () => {
+    it("should return null for non-existent ID", async () => {
+      // Drizzle (via the `?? null` coalesce in runtimeCatalog.getById) now
+      // returns null for not-found rather than undefined so the value
+      // round-trips cleanly through SuperJSON. Update assertion to match.
       const result = await anonCaller().runtimeCatalog.getById({ id: 9999 });
-      expect(result).toBeUndefined();
+      expect(result).toBeNull();
     });
   });
 
