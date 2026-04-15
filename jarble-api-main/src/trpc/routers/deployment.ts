@@ -184,7 +184,10 @@ export const deploymentRouter = router({
       orgId: z.string().nullable(), // null to unassign (return to personal)
     }))
     .mutation(async ({ ctx, input }) => {
-      // Only deployment owner can assign
+      // Only the creator (not arbitrary org members) can assign/unassign the deployment
+      // to/from an org. We intentionally check userId here instead of using
+      // findDeploymentWithAccess: transferring ownership between orgs is a creator-only
+      // action, not something any admin/owner of the current org should be able to do.
       const deployment = await ctx.db.query.deployments.findFirst({
         where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
       });
@@ -209,15 +212,18 @@ export const deploymentRouter = router({
       sourceDeploymentId: z.string(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const [child, owner] = await Promise.all([
-        ctx.db.query.deployments.findFirst({
-          where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
-        }),
-        ctx.db.query.deployments.findFirst({
-          where: and(eq(deployments.id, input.sourceDeploymentId), eq(deployments.userId, ctx.user.id)),
-        }),
-      ]);
-      if (!child) throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      // Child: org admins/owners can link one of their org's deployments to a pool.
+      // Pool owner source: must be directly owned by the caller — cross-user credit
+      // pool sharing is not supported.
+      const { deployment: child } = await findDeploymentWithAccess(
+        ctx.db,
+        input.deploymentId,
+        ctx.user.id,
+        { requireRole: ["owner", "admin"] },
+      );
+      const owner = await ctx.db.query.deployments.findFirst({
+        where: and(eq(deployments.id, input.sourceDeploymentId), eq(deployments.userId, ctx.user.id)),
+      });
       if (!owner) throw new TRPCError({ code: "NOT_FOUND", message: "Pool owner not found" });
       if ((owner as any).llmMode !== "included") throw new TRPCError({ code: "BAD_REQUEST", message: "Target deployment does not use included credits" });
       if ((owner as any).llmApiKeySourceDeploymentId) throw new TRPCError({ code: "BAD_REQUEST", message: "Target is itself linked - cannot chain pools" });
@@ -235,10 +241,12 @@ export const deploymentRouter = router({
   unlinkFromPool: protectedProcedure
     .input(z.object({ deploymentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const dep = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
-      });
-      if (!dep) throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      const { deployment: dep } = await findDeploymentWithAccess(
+        ctx.db,
+        input.deploymentId,
+        ctx.user.id,
+        { requireRole: ["owner", "admin"] },
+      );
       if (!(dep as any).llmApiKeySourceDeploymentId) throw new TRPCError({ code: "BAD_REQUEST", message: "Not linked to a pool" });
 
       await ctx.db.update(deployments)
@@ -702,6 +710,12 @@ export const deploymentRouter = router({
         });
       }
 
+      // Access + role check (allows org owner/admin to deploy as well). Throws
+      // NOT_FOUND or FORBIDDEN as appropriate.
+      await findDeploymentWithAccess(ctx.db, deploymentId, ctx.user.id, {
+        requireRole: ["owner", "admin"],
+      });
+
       // Atomic conditional update: only transition from "pending" or "stopped" or "failed"
       // This prevents race conditions from rapid button clicks causing double-deploys
       const validStartStates = ["pending", "stopped", "failed"];
@@ -710,7 +724,6 @@ export const deploymentRouter = router({
         .set({ status: "creating", error: null })
         .where(and(
           eq(deployments.id, deploymentId),
-          eq(deployments.userId, ctx.user.id),
           or(
             eq(deployments.status, "pending"),
             eq(deployments.status, "stopped"),
@@ -722,9 +735,9 @@ export const deploymentRouter = router({
       const rowsAffected = (result as any)?.rowCount ?? (result as any)?.rowsAffected ?? (result as any)?.changes ?? (result as any)?.[0]?.affectedRows ?? 0;
 
       if (rowsAffected === 0) {
-        // Either deployment doesn't exist, user doesn't own it, or it's already deploying
+        // Deployment exists (access check passed above) but is in wrong state
         const deployment = await ctx.db.query.deployments.findFirst({
-          where: and(eq(deployments.id, deploymentId), eq(deployments.userId, ctx.user.id)),
+          where: eq(deployments.id, deploymentId),
         });
 
         if (!deployment) {
@@ -926,11 +939,14 @@ export const deploymentRouter = router({
   getStatus: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
-      });
-      if (!deployment) {
-        return { status: "not_found" };
+      let deployment;
+      try {
+        ({ deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id));
+      } catch (err) {
+        if (err instanceof TRPCError && err.code === "NOT_FOUND") {
+          return { status: "not_found" };
+        }
+        throw err;
       }
 
       const managedBy = (deployment.managedBy ?? "legacy") as ManagedBy;
@@ -941,10 +957,16 @@ export const deploymentRouter = router({
   getStorageUsage: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      // Verify ownership
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
-      });
+      // Verify access (org members can view)
+      let deployment;
+      try {
+        ({ deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id));
+      } catch (err) {
+        if (err instanceof TRPCError && err.code === "NOT_FOUND") {
+          return null;
+        }
+        throw err;
+      }
       if (!deployment) {
         return null;
       }
@@ -966,12 +988,7 @@ export const deploymentRouter = router({
       tailLines: z.number().min(1).max(5000).default(200),
     }))
     .query(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
-      });
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id);
       if (deployment.status !== "running") {
         return { logs: "", podName: null };
       }
@@ -1273,14 +1290,14 @@ export const deploymentRouter = router({
         throw new TRPCError({ code: "FORBIDDEN", message: "Platform LLM mode is restricted to administrators" });
       }
 
-      // Fetch the existing deployment to detect mode switches
-      const existing = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, id), eq(deployments.userId, ctx.user.id)),
-      });
-
-      if (!existing) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
+      // Fetch the existing deployment to detect mode switches. Org owners/admins
+      // may mutate deployments owned by their org.
+      const { deployment: existing } = await findDeploymentWithAccess(
+        ctx.db,
+        id,
+        ctx.user.id,
+        { requireRole: ["owner", "admin"] },
+      );
 
       const updates: Record<string, any> = { ...rawUpdates };
 
@@ -1378,9 +1395,11 @@ export const deploymentRouter = router({
         updates.monthlyPriceCents = calculateMonthlyPriceCents(newCpu, newMemory, newStorage);
       }
 
+      // Access already verified above (findDeploymentWithAccess). Key off id alone
+      // so org-owned deployments update correctly when mutated by an org admin.
       await ctx.db.update(deployments)
         .set(updates)
-        .where(and(eq(deployments.id, id), eq(deployments.userId, ctx.user.id)));
+        .where(eq(deployments.id, id));
 
       // Config sync: push updated configs to PVC if deployment is running.
       // Memory scope is enforced at the MCP server level: 'off' hides tools, 'session' guards on session_id.
@@ -1704,13 +1723,12 @@ export const deploymentRouter = router({
   updateRuntime: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
-      });
-
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
+      const { deployment } = await findDeploymentWithAccess(
+        ctx.db,
+        input.id,
+        ctx.user.id,
+        { requireRole: ["owner", "admin"] },
+      );
 
       if (deployment.status !== "running") {
         throw new TRPCError({
@@ -1739,13 +1757,12 @@ export const deploymentRouter = router({
   cancel: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
-      });
-
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
+      const { deployment } = await findDeploymentWithAccess(
+        ctx.db,
+        input.id,
+        ctx.user.id,
+        { requireRole: ["owner", "admin"] },
+      );
 
       if (!deployment.stripeSubscriptionId) {
         throw new TRPCError({
@@ -1781,13 +1798,12 @@ export const deploymentRouter = router({
   reactivate: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
-      });
-
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
+      const { deployment } = await findDeploymentWithAccess(
+        ctx.db,
+        input.id,
+        ctx.user.id,
+        { requireRole: ["owner", "admin"] },
+      );
 
       if (!deployment.cancelledAt) {
         throw new TRPCError({
@@ -1823,13 +1839,12 @@ export const deploymentRouter = router({
   linkSubscription: protectedProcedure
     .input(z.object({ deploymentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
-      });
-
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
+      const { deployment } = await findDeploymentWithAccess(
+        ctx.db,
+        input.deploymentId,
+        ctx.user.id,
+        { requireRole: ["owner", "admin"] },
+      );
 
       if (deployment.stripeSubscriptionId) {
         throw new TRPCError({
@@ -1898,13 +1913,13 @@ export const deploymentRouter = router({
   exportConfigs: protectedProcedure
     .input(z.object({ id: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
-      });
-
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
+      // Config export is sensitive (may include secrets/prompts) — org admins only.
+      const { deployment } = await findDeploymentWithAccess(
+        ctx.db,
+        input.id,
+        ctx.user.id,
+        { requireRole: ["owner", "admin"] },
+      );
 
       if (deployment.status !== "running") {
         throw new TRPCError({
@@ -1935,12 +1950,12 @@ export const deploymentRouter = router({
       version: z.string().default("latest"),
     }))
     .mutation(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
-      });
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
+      const { deployment } = await findDeploymentWithAccess(
+        ctx.db,
+        input.id,
+        ctx.user.id,
+        { requireRole: ["owner", "admin"] },
+      );
       if (deployment.status !== "running") {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: `Deployment must be running (currently ${deployment.status})` });
       }
@@ -1985,13 +2000,7 @@ export const deploymentRouter = router({
   getPodConfig: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
-      });
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
-
+      const { deployment } = await findDeploymentWithAccess(ctx.db, input.id, ctx.user.id);
       if (deployment.status !== "running") {
         return { status: "unavailable" as const, model: null, channels: null };
       }
@@ -2041,10 +2050,12 @@ export const deploymentRouter = router({
       flowId: z.string().nullable(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
-      });
-      if (!deployment) throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      const { deployment } = await findDeploymentWithAccess(
+        ctx.db,
+        input.id,
+        ctx.user.id,
+        { requireRole: ["owner", "admin"] },
+      );
 
       // Verify the flow exists and this deployment is a member (if setting, not clearing)
       if (input.flowId) {
@@ -2078,12 +2089,12 @@ export const deploymentRouter = router({
       themeConfig: z.record(z.string(), z.unknown()),
     }))
     .mutation(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
-      });
-      if (!deployment) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
-      }
+      await findDeploymentWithAccess(
+        ctx.db,
+        input.id,
+        ctx.user.id,
+        { requireRole: ["owner", "admin"] },
+      );
 
       const error = validateThemeConfig(input.themeConfig);
       if (error) {
@@ -2299,8 +2310,10 @@ export const deploymentRouter = router({
         .where(eq(promoRedemptions.deploymentId, input.id));
       logger.debug({ deploymentId: input.id }, "delete: promo_redemptions removed");
 
+      // Access + role check already enforced at top via findDeploymentWithAccess.
+      // Use id alone so org-owned deployments delete correctly for org admins.
       await ctx.db.delete(deployments)
-        .where(and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)));
+        .where(eq(deployments.id, input.id));
       logger.debug({ deploymentId: input.id }, "delete: deployments row removed");
 
       logger.info({ deploymentId: input.id, userId: ctx.user.id }, "delete: deployment fully deleted");
@@ -2610,12 +2623,8 @@ export const deploymentRouter = router({
   listChatSessions: protectedProcedure
     .input(z.object({ deploymentId: z.string() }))
     .query(async ({ ctx, input }) => {
-      // Verify deployment ownership
-      const dep = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
-        columns: { id: true },
-      });
-      if (!dep) throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      // Verify deployment access (any org member may view chat sessions)
+      await findDeploymentWithAccess(ctx.db, input.deploymentId, ctx.user.id);
 
       const sessions = await ctx.db.query.chatSessions.findMany({
         where: eq(chatSessions.deploymentId, input.deploymentId),
@@ -2628,12 +2637,8 @@ export const deploymentRouter = router({
   getChatMessages: protectedProcedure
     .input(z.object({ sessionId: z.string(), deploymentId: z.string() }))
     .query(async ({ ctx, input }) => {
-      // Verify deployment ownership
-      const dep = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
-        columns: { id: true },
-      });
-      if (!dep) throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      // Verify deployment access (any org member may read chat messages)
+      await findDeploymentWithAccess(ctx.db, input.deploymentId, ctx.user.id);
 
       const msgs = await ctx.db.query.chatMessages.findMany({
         where: eq(chatMessages.sessionId, input.sessionId),
@@ -2657,12 +2662,8 @@ export const deploymentRouter = router({
       })).max(200),
     }))
     .mutation(async ({ ctx, input }) => {
-      // Verify deployment ownership
-      const dep = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
-        columns: { id: true },
-      });
-      if (!dep) throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      // Verify deployment access (any org member may sync their own chat session)
+      await findDeploymentWithAccess(ctx.db, input.deploymentId, ctx.user.id);
 
       const now = dbDate();
 
@@ -2707,11 +2708,8 @@ export const deploymentRouter = router({
   deleteChatSession: protectedProcedure
     .input(z.object({ sessionId: z.string(), deploymentId: z.string() }))
     .mutation(async ({ ctx, input }) => {
-      const dep = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
-        columns: { id: true },
-      });
-      if (!dep) throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
+      // Verify deployment access (any org member may delete a chat session on the deployment)
+      await findDeploymentWithAccess(ctx.db, input.deploymentId, ctx.user.id);
 
       await ctx.db.delete(chatSessions).where(eq(chatSessions.id, input.sessionId));
       return { success: true };
@@ -2884,10 +2882,14 @@ export const deploymentRouter = router({
   getEnvVarMap: protectedProcedure
     .input(z.object({ id: z.string() }))
     .query(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.id), eq(deployments.userId, ctx.user.id)),
-      });
-      if (!deployment) throw new TRPCError({ code: "NOT_FOUND" });
+      // Env var map lists secret key names — restrict to org owner/admin
+      // (not regular members) to avoid leaking naming clues.
+      const { deployment } = await findDeploymentWithAccess(
+        ctx.db,
+        input.id,
+        ctx.user.id,
+        { requireRole: ["owner", "admin"] },
+      );
 
       const vars: Array<{ key: string; source: "llm" | "platform" | "system" | "user" | "agent"; visible: "bot" | "system" }> = [];
 
