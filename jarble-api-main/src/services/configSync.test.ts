@@ -827,7 +827,12 @@ describe("configSync", () => {
       );
     });
 
-    it("loads service instruction snippets", async () => {
+    // TODO(JAR-92): Marketplace cleanup (commit 08bb9b1) removed service
+    // instruction snippets, remote skill proxy configs, and installed
+    // marketplace components from buildDeploymentFields. These 6 tests
+    // exercise the old code path. Either re-enable when the feature returns
+    // or delete the suite once the removal is confirmed permanent.
+    it.skip("loads service instruction snippets", async () => {
       mockDeploymentsFindFirst.mockResolvedValue(makeDeployment());
       mockServiceInstallsFindMany.mockResolvedValue([
         { deploymentId: "dep-1", packageId: "svc-1" },
@@ -857,7 +862,7 @@ describe("configSync", () => {
       );
     });
 
-    it("loads remote skill proxy configs for remote services", async () => {
+    it.skip("loads remote skill proxy configs for remote services", async () => {
       mockDeploymentsFindFirst.mockResolvedValue(makeDeployment());
       mockServiceInstallsFindMany.mockResolvedValue([
         { deploymentId: "dep-1", packageId: "svc-remote" },
@@ -928,7 +933,7 @@ describe("configSync", () => {
       expect(mockRenderConfigs).toHaveBeenCalled();
     });
 
-    it("loads installed marketplace components", async () => {
+    it.skip("loads installed marketplace components", async () => {
       mockDeploymentsFindFirst.mockResolvedValue(makeDeployment());
       mockComponentInstallsFindMany.mockResolvedValue([
         {
@@ -962,7 +967,7 @@ describe("configSync", () => {
       );
     });
 
-    it("skips component install entries without component relation", async () => {
+    it.skip("skips component install entries without component relation", async () => {
       mockDeploymentsFindFirst.mockResolvedValue(makeDeployment());
       mockComponentInstallsFindMany.mockResolvedValue([
         { deploymentId: "dep-1", componentId: "comp-1", component: null },
@@ -1111,7 +1116,7 @@ describe("configSync", () => {
       );
     });
 
-    it("handles hybrid hosting model services", async () => {
+    it.skip("handles hybrid hosting model services", async () => {
       mockDeploymentsFindFirst.mockResolvedValue(makeDeployment());
       mockServiceInstallsFindMany.mockResolvedValue([
         { deploymentId: "dep-1", packageId: "svc-hybrid" },
@@ -1144,7 +1149,7 @@ describe("configSync", () => {
       );
     });
 
-    it("skips remote skill configs for self-hosted services", async () => {
+    it.skip("skips remote skill configs for self-hosted services", async () => {
       mockDeploymentsFindFirst.mockResolvedValue(makeDeployment());
       mockServiceInstallsFindMany.mockResolvedValue([
         { deploymentId: "dep-1", packageId: "svc-self" },

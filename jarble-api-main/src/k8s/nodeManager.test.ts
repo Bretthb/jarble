@@ -67,10 +67,10 @@ import {
 // ── SERVER_TYPES table shape ────────────────────────────────────────────────
 
 describe("SERVER_TYPES table", () => {
-  it("contains all 5 expected Hetzner CPX tiers", () => {
+  it("contains the expected Hetzner CPX tiers (minimum cpx31 for Open WebUI sidecar)", () => {
+    // cpx11 (2 vCPU / 2 GB) and cpx21 (3 vCPU / 4 GB) were removed because the
+    // Open WebUI sidecar (~500MB RAM) does not fit alongside OpenClaw below cpx31.
     expect(SERVER_TYPES.map((t) => t.name)).toEqual([
-      "cpx11",
-      "cpx21",
       "cpx31",
       "cpx41",
       "cpx51",
@@ -160,10 +160,11 @@ describe("pickServerType — CPU/RAM dimension (existing behavior)", () => {
     expect(picked.name).toBe("cpx41");
   });
 
-  it("a 1.5 vCPU + 1.5 GiB RAM bot picks cpx11", () => {
-    // 1.5 + 0.5 headroom = 2.0 → cpx11 (2 cores) just fits.
+  it("a 1.5 vCPU + 1.5 GiB RAM bot picks cpx31 (minimum tier after cpx11/cpx21 removal)", () => {
+    // Since cpx11 (2 vCPU / 2 GB) and cpx21 (3 vCPU / 4 GB) were removed,
+    // the smallest available tier is cpx31 — any bot lands there.
     const picked = pickServerType(1.5, 1.5, 10);
-    expect(picked.name).toBe("cpx11");
+    expect(picked.name).toBe("cpx31");
   });
 });
 
@@ -175,8 +176,11 @@ describe("pickServerType — tierOverride", () => {
     expect(picked.name).toBe("cpx31");
   });
 
-  it("an explicit cpx11 override that does NOT fit a 30 GiB PVC throws", () => {
-    expect(() => pickServerType(1, 1, 30, "cpx11")).toThrow(
+  it("an explicit cpx31 override that does NOT fit a 200 GiB PVC throws", () => {
+    // cpx31 has 160 GiB root, ~149 GiB usable after Longhorn overhead.
+    // A 200 GiB PVC cannot fit — prod should throw rather than silently
+    // provision a doomed VPS. (Was cpx11+30GiB before cpx11/cpx21 removal.)
+    expect(() => pickServerType(1, 1, 200, "cpx31")).toThrow(
       /only has \d+ GiB usable for Longhorn/,
     );
   });
@@ -188,10 +192,11 @@ describe("pickServerType — tierOverride", () => {
   });
 
   it("override does not check CPU/RAM headroom (caller's responsibility)", () => {
-    // If the user explicitly picks cpx11, we trust them on CPU/RAM —
+    // If the user explicitly picks cpx31, we trust them on CPU/RAM —
     // we only enforce the disk fit because that's the silent-failure mode.
-    const picked = pickServerType(8, 16, 5, "cpx11");
-    expect(picked.name).toBe("cpx11");
+    // (Previously tested with cpx11 before cpx11/cpx21 were removed.)
+    const picked = pickServerType(32, 64, 5, "cpx31");
+    expect(picked.name).toBe("cpx31");
   });
 });
 

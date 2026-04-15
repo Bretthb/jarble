@@ -148,6 +148,30 @@ const CREATE_TABLES_SQL = `
 
   CREATE UNIQUE INDEX IF NOT EXISTS uq_deployment_skill ON deployment_skills(deployment_id, skill_id);
 
+  -- Mirrors schema.pg.ts promoCodes + promoRedemptions. Required by the
+  -- deployment.delete procedure which cleans up promo_redemptions rows keyed
+  -- on deployment_id.
+  CREATE TABLE IF NOT EXISTS promo_codes (
+    id TEXT PRIMARY KEY,
+    code TEXT NOT NULL UNIQUE,
+    description TEXT,
+    months_free INTEGER DEFAULT 1 NOT NULL,
+    max_uses INTEGER,
+    uses_remaining INTEGER,
+    expires_at TEXT,
+    active INTEGER DEFAULT 1 NOT NULL,
+    created_by TEXT REFERENCES users(id),
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
+  CREATE TABLE IF NOT EXISTS promo_redemptions (
+    id TEXT PRIMARY KEY,
+    promo_code_id TEXT NOT NULL REFERENCES promo_codes(id),
+    user_id TEXT NOT NULL REFERENCES users(id),
+    deployment_id TEXT REFERENCES deployments(id),
+    redeemed_at TEXT DEFAULT (datetime('now')) NOT NULL
+  );
+
   CREATE TABLE IF NOT EXISTS creator_profiles (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL REFERENCES users(id) UNIQUE,

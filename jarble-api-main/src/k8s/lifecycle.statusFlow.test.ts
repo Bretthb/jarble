@@ -67,6 +67,8 @@ vi.mock("./client.js", () => ({
     }),
     deleteNamespacedPersistentVolumeClaim: vi.fn().mockResolvedValue({}),
     deleteNamespacedSecret: vi.fn().mockResolvedValue({}),
+    createNamespacedService: vi.fn().mockResolvedValue({}),
+    deleteNamespacedService: vi.fn().mockResolvedValue({}),
   },
   appsApi: {
     createNamespacedDeployment: vi.fn((ns: string, body: any) => {
@@ -74,6 +76,16 @@ vi.mock("./client.js", () => ({
       snapshotStatus("deployment", id);
       return deploymentCreateImpl(ns, body);
     }),
+  },
+  networkingApi: {
+    createNamespacedIngress: vi.fn().mockResolvedValue({}),
+    deleteNamespacedIngress: vi.fn().mockResolvedValue({}),
+  },
+  customApi: {
+    createNamespacedCustomObject: vi.fn().mockResolvedValue({}),
+    deleteNamespacedCustomObject: vi.fn().mockResolvedValue({}),
+    patchNamespacedCustomObject: vi.fn().mockResolvedValue({}),
+    getNamespacedCustomObject: vi.fn().mockResolvedValue({}),
   },
 }));
 

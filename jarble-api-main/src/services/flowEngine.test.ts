@@ -21,9 +21,43 @@ vi.mock("../utils/logger.js", () => ({
   }),
 }));
 
+// The flow engine now delegates deployment node execution to flowDelegation's
+// executeDelegation() rather than marketplaceHub's executeAgentCall(). We keep
+// the test variable named mockExecuteAgentCall for readability — it now maps
+// onto executeDelegation under the hood. The mock must return the
+// delegationResult shape: { response, uiBlocks, componentDefs, suggestions,
+// children, callId, depth, creditsUsed }. The engine re-wraps this into
+// { result: { response, ... }, creditsCharged: creditsUsed } as the step result.
 const mockExecuteAgentCall = vi.fn();
-vi.mock("./marketplaceHub.js", () => ({
-  executeAgentCall: (...args: any[]) => mockExecuteAgentCall(...args),
+function toDelegationResult(agentCallReturn: any) {
+  // Test helpers historically return { result, creditsCharged }. Adapt to the
+  // new delegationResult shape so we don't have to rewrite every mock call.
+  //
+  // IMPORTANT: FlowExecutionEngine.executeDeploymentViaDelegation() only
+  // forwards these 7 fields from delegationResult into the step's `result`:
+  //   response, uiBlocks, componentDefs, suggestions, children, callId, depth.
+  // If a test mock returned `{ result: { message: "hello" } }` (legacy shape),
+  // the `message` key cannot survive the engine's projection. To keep legacy
+  // assertions working we stash the inner object at BOTH `response` and on
+  // each projected key as extra fields the engine does copy.
+  const r = agentCallReturn ?? {};
+  const inner = r.result;
+  const innerObj = inner && typeof inner === "object" ? inner : {};
+  return {
+    response: typeof inner === "string" ? inner : innerObj,
+    uiBlocks: innerObj,
+    componentDefs: [],
+    suggestions: [],
+    children: [],
+    callId: "call_test",
+    depth: 0,
+    creditsUsed: r.creditsCharged ?? 0,
+  };
+}
+vi.mock("./flowDelegation.js", () => ({
+  buildDelegationTools: () => [],
+  executeDelegation: (...args: any[]) =>
+    Promise.resolve(mockExecuteAgentCall(...args)).then(toDelegationResult),
 }));
 
 vi.mock("../db/index.js", () => ({
@@ -52,7 +86,7 @@ function makeNode(
     type,
     label: `Node ${id}`,
     position: { x: 0, y: 0 },
-    serviceId: type === "deployment" ? `svc_${id}` : undefined,
+    deploymentId: type === "deployment" ? `dep_${id}` : undefined,
     config,
   };
 }
@@ -357,7 +391,7 @@ describe("FlowExecutionEngine", () => {
   // ── Step execution by node type ─────────────────────────────────────────
 
   describe("execute - deployment node", () => {
-    it("calls executeAgentCall and records the result", async () => {
+    it("delegates to the target deployment and records the result", async () => {
       const nodes = [
         makeNode("agent1", "deployment", { prompt: "Hello" }),
       ];
@@ -368,30 +402,33 @@ describe("FlowExecutionEngine", () => {
       expect(mockExecuteAgentCall).toHaveBeenCalledOnce();
       expect(mockExecuteAgentCall).toHaveBeenCalledWith(
         expect.objectContaining({
-          calleeServiceId: "svc_agent1",
-          skillName: "default",
-          callerUserId: "user_test",
+          targetDeploymentId: "dep_agent1",
+          targetNodeId: "agent1",
+          userId: "user_test",
         })
       );
-      const stepResult = state.stepResults.get("agent1");
+      const stepResult = state.stepResults.get("agent1") as any;
       expect(stepResult?.status).toBe("completed");
-      expect(stepResult?.result).toEqual({ message: "ok" });
+      // The engine projects delegationResult onto 7 fields. The test mock
+      // stashes the legacy { message: "ok" } under `response` so assertions
+      // can still reach it via stepResult.result.response.message.
+      expect(stepResult?.result?.response?.message).toBe("ok");
       expect(stepResult?.creditsCharged).toBe(5);
     });
 
-    it("fails when deployment node has no serviceId", async () => {
+    it("fails when deployment node has no deploymentId", async () => {
       const node: FlowNode = {
         id: "bad",
         type: "deployment",
         label: "Bad Node",
         position: { x: 0, y: 0 },
-        // no serviceId
+        // no deploymentId
       };
       const engine = createEngine({ nodes: [node], edges: [] });
       const state = await engine.execute();
 
       expect(state.stepResults.get("bad")?.status).toBe("failed");
-      expect(state.stepResults.get("bad")?.error).toContain("no serviceId");
+      expect(state.stepResults.get("bad")?.error).toContain("no deploymentId");
     });
   });
 
@@ -400,8 +437,11 @@ describe("FlowExecutionEngine", () => {
       const nodes = [
         makeNode("A", "deployment"),
         makeNode("T", "transform", {
+          // After the delegation refactor, deployment nodes surface their
+          // inner payload under `response`. Use pick:response.X to reach
+          // fields on the delegated agent's reply.
           input: "{{A}}",
-          expression: "pick:message",
+          expression: "pick:response",
         }),
       ];
       const edges = [makeEdge("A", "T")];
@@ -416,7 +456,11 @@ describe("FlowExecutionEngine", () => {
 
       const tResult = state.stepResults.get("T");
       expect(tResult?.status).toBe("completed");
-      expect(tResult?.result).toEqual({ message: "hello" });
+      // pick:response picks the `response` field from the source stepResult,
+      // which (per test-mock adapter) contains the legacy inner object.
+      expect(tResult?.result).toEqual({
+        response: { message: "hello", extra: "discard" },
+      });
     });
 
     it("applies merge transform (spreads the input object)", async () => {
@@ -472,7 +516,9 @@ describe("FlowExecutionEngine", () => {
     it("evaluates comparison condition string", async () => {
       const nodes = [
         makeNode("A", "deployment"),
-        makeNode("C", "condition", { condition: "{{A.count}} > 5" }),
+        // After delegation refactor, deployment-node payload lives under
+        // `response`, so templates reach it via `{{A.response.count}}`.
+        makeNode("C", "condition", { condition: "{{A.response.count}} > 5" }),
       ];
       const edges = [makeEdge("A", "C")];
 
@@ -492,9 +538,17 @@ describe("FlowExecutionEngine", () => {
     it("resolves template vars and returns config as result", async () => {
       const nodes = [
         makeNode("A", "deployment"),
-        makeNode("O", "output", { summary: "Got: {{A.message}}" }),
+        // {{A.response}} reaches the delegated agent's primary reply string.
+        makeNode("O", "output", { summary: "Got: {{A.response}}" }),
       ];
       const edges = [makeEdge("A", "O")];
+
+      // beforeEach default mock returns { result: { message: "ok" } }; force
+      // a string response so the template interpolates cleanly.
+      mockExecuteAgentCall.mockResolvedValueOnce({
+        result: "ok",
+        creditsCharged: 5,
+      });
 
       const engine = createEngine({ nodes, edges });
       const state = await engine.execute();
@@ -687,7 +741,7 @@ describe("FlowExecutionEngine", () => {
   describe("edge conditions", () => {
     it("skips a node when edge condition is not met", async () => {
       const nodes = [makeNode("A"), makeNode("B")];
-      const edges = [makeEdge("A", "B", "{{A.go}} == yes")];
+      const edges = [makeEdge("A", "B", "{{A.response.go}} == yes")];
 
       mockExecuteAgentCall.mockResolvedValueOnce({
         result: { go: "no" },
@@ -702,7 +756,7 @@ describe("FlowExecutionEngine", () => {
 
     it("runs a node when edge condition is met", async () => {
       const nodes = [makeNode("A"), makeNode("B")];
-      const edges = [makeEdge("A", "B", "{{A.go}} == yes")];
+      const edges = [makeEdge("A", "B", "{{A.response.go}} == yes")];
 
       mockExecuteAgentCall
         .mockResolvedValueOnce({ result: { go: "yes" }, creditsCharged: 0 })

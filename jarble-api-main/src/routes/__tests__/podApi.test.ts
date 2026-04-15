@@ -247,7 +247,11 @@ function mockService(overrides: Record<string, any> = {}) {
 
 // ── Suite ────────────────────────────────────────────────────────────────────
 
-describe("Pod API Route", () => {
+// TODO(JAR-92): The /api/pod/marketplace/* routes exercised below were
+// removed in commit 08bb9b1 "cleanup: remove Marketplace (#131)". The
+// podApi router now only serves /theme, /secrets, /platform/*. Re-enable
+// or delete once the marketplace removal is confirmed permanent.
+describe.skip("Pod API Route", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
 
