@@ -757,6 +757,24 @@ const CREATE_TABLES_SQL = `
     created_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
   CREATE UNIQUE INDEX IF NOT EXISTS uq_org_invite_email ON org_invites(org_id, email);
+
+  CREATE TABLE IF NOT EXISTS lifecycle_jobs (
+    id TEXT PRIMARY KEY,
+    deployment_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    status TEXT DEFAULT 'pending' NOT NULL,
+    attempts INTEGER DEFAULT 0 NOT NULL,
+    max_attempts INTEGER DEFAULT 5 NOT NULL,
+    last_error TEXT,
+    payload TEXT,
+    created_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    updated_at TEXT DEFAULT (datetime('now')) NOT NULL,
+    run_after TEXT DEFAULT (datetime('now')) NOT NULL,
+    completed_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS idx_lifecycle_jobs_status_run_after ON lifecycle_jobs(status, run_after);
+  CREATE INDEX IF NOT EXISTS idx_lifecycle_jobs_deployment_id ON lifecycle_jobs(deployment_id);
 `;
 
 export interface TestDbContext {

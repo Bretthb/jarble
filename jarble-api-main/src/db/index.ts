@@ -48,6 +48,8 @@ export const tables = {
   promoRedemptions: pgSchema.promoRedemptions,
   teamFiles: pgSchema.teamFiles,
   announcements: pgSchema.announcements,
+  managedNodes: pgSchema.managedNodes,
+  lifecycleJobs: pgSchema.lifecycleJobs,
 };
 
 /**

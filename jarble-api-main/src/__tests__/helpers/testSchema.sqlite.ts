@@ -902,6 +902,27 @@ export const managedNodes = sqliteTable("managed_nodes", {
   hetznerServerIdx: uniqueIndex("uq_managed_nodes_hetzner_server").on(table.hetznerServerId),
 }));
 
+// ── Lifecycle Jobs (Durable async work queue) ────────────────────────────
+
+export const lifecycleJobs = sqliteTable("lifecycle_jobs", {
+  id: text("id").primaryKey(),
+  deploymentId: text("deployment_id").notNull(),
+  userId: text("user_id").notNull(),
+  type: text("type").notNull(),
+  status: text("status").notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  maxAttempts: integer("max_attempts").notNull().default(5),
+  lastError: text("last_error"),
+  payload: text("payload"),
+  createdAt: text("created_at").notNull().$defaultFn(now),
+  updatedAt: text("updated_at").notNull().$defaultFn(now),
+  runAfter: text("run_after").notNull().$defaultFn(now),
+  completedAt: text("completed_at"),
+}, (table) => ({
+  pollingIdx: index("idx_lifecycle_jobs_status_run_after").on(table.status, table.runAfter),
+  deploymentIdx: index("idx_lifecycle_jobs_deployment_id").on(table.deploymentId),
+}));
+
 // ── Agent Calls Relations ─────────────────────────────────────────────
 
 export const agentCallsRelations = relations(agentCalls, ({ one }) => ({

@@ -474,6 +474,38 @@ export const managedNodes = pgTable("managed_nodes", {
   hetznerServerIdx: uniqueIndex("uq_managed_nodes_hetzner_server").on(table.hetznerServerId),
 }));
 
+// ── Lifecycle Jobs (Durable async work queue for deploy/start/restart) ───
+//
+// Replaces fire-and-forget IIFEs in the deployment router. Each row represents
+// a durable unit of K8s lifecycle work — "create", "start", or "restart" —
+// that must survive API pod restarts. A background worker polls the queue,
+// picks up pending jobs with SELECT ... FOR UPDATE SKIP LOCKED, and runs the
+// readiness-poll state machine. Failures are retried with exponential backoff
+// up to `maxAttempts`.
+export const lifecycleJobs = pgTable("lifecycle_jobs", {
+  id: varchar("id", { length: 255 }).primaryKey(),
+  deploymentId: varchar("deployment_id", { length: 255 }).notNull(),
+  userId: varchar("user_id", { length: 255 }).notNull(),
+  type: varchar("type", { length: 20 }).notNull(), // "create" | "start" | "restart"
+  status: varchar("status", { length: 20 }).notNull().default("pending"), // pending | running | completed | failed
+  attempts: integer("attempts").notNull().default(0),
+  maxAttempts: integer("max_attempts").notNull().default(5),
+  lastError: text("last_error"),
+  // Opaque JSON payload of pre-computed inputs (initialConfigs, secret entries,
+  // gateway token, managedBy, deployConfig). For `start`/`restart` jobs the
+  // worker can reconstruct most fields from the deployment row; for `create`
+  // we persist the rendered configs + gateway token so they are not lost on
+  // crash.
+  payload: jsonb("payload"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  runAfter: timestamp("run_after").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+}, (table) => ({
+  pollingIdx: index("idx_lifecycle_jobs_status_run_after").on(table.status, table.runAfter),
+  deploymentIdx: index("idx_lifecycle_jobs_deployment_id").on(table.deploymentId),
+}));
+
 // ── Orchestration Flow Relations ─────────────────────────────────────────
 
 export const orchestrationFlowsRelations = relations(orchestrationFlows, ({ one, many }) => ({

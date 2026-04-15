@@ -13,6 +13,7 @@ import { isStripeConfigured } from "./services/stripe.js";
 import { startStorageEnforcement } from "./services/storageEnforcement.js";
 import { startSubscriptionEnforcement } from "./services/subscriptionEnforcement.js";
 import { startStatusReconciler } from "./services/statusReconciler.js";
+import { startLifecycleWorker } from "./services/lifecycleJobs.js";
 import { startWebhookCleanup } from "./services/webhookCleanup.js";
 import { startStuckDeploymentMonitor } from "./services/stuckDeploymentMonitor.js";
 import helmet from "helmet";
@@ -249,6 +250,7 @@ async function start() {
   startStorageEnforcement();
   // startSubscriptionEnforcement(); // Disabled until Stripe is fully configured
   startStatusReconciler();  // Syncs DB status with K8s reality (fixes "stuck at creating")
+  startLifecycleWorker();   // JAR-86: picks up durable deploy/start/restart jobs from lifecycle_jobs
   startWebhookCleanup();      // Purges processedWebhookEvents older than 30 days (every 24h)
   startNodeWatcher();         // Auto-scales Hetzner workers when bot pods go Pending
   if (env.STUCK_MONITOR_ENABLED !== "false") {

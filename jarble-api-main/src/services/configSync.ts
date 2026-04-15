@@ -25,7 +25,7 @@
  */
 
 import { db, tables, dbDate, getRowsAffected } from "../db/index.js";
-import { eq, and, inArray } from "drizzle-orm";
+import { eq, and, inArray, sql } from "drizzle-orm";
 import {
   writeConfigsToPvc,
   readConfigsFromPvc,
@@ -95,10 +95,33 @@ async function retryOnce<T>(
   }
 }
 
-// ── Per-deployment sync mutex ────────────────────────────────────────────
-// Prevents concurrent syncs for the same deployment from racing.
-// Each deployment chains its syncs sequentially; different deployments run in parallel.
-const syncMutexes = new Map<string, Promise<ConfigSyncResult>>();
+// ── Per-deployment sync serialization (Postgres advisory locks) ──────────
+// Prevents concurrent syncs for the same deployment from racing — including
+// across multiple API pods / processes. We use pg_advisory_xact_lock keyed
+// by hashtext(deploymentId) inside a transaction. Different deployments run
+// in parallel (different hash keys = different locks).
+//
+// In the SQLite test mirror (single-process, no advisory locks) we skip the
+// lock since tests do not hit real concurrency.
+function isTestEnv(): boolean {
+  return Boolean(process.env.VITEST) || process.env.NODE_ENV === "test";
+}
+
+async function withDeploymentLock<T>(
+  deploymentId: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (isTestEnv()) {
+    // SQLite in-memory tests are single-process and lock-free.
+    return fn();
+  }
+  // Run under a transaction so the xact advisory lock is held until commit.
+  // Drizzle's node-postgres transaction exposes tx.execute for raw SQL.
+  return (db as any).transaction(async (tx: any) => {
+    await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${deploymentId}))`);
+    return fn();
+  });
+}
 
 // ── Helper: Build DeploymentFields from DB row ──────────────────────────
 
@@ -425,18 +448,10 @@ export interface ConfigSyncResult {
 }
 
 export function syncConfigsToPvc(deploymentId: string): Promise<ConfigSyncResult> {
-  // Chain onto any existing sync for this deployment (mutex)
-  const prev = syncMutexes.get(deploymentId) ?? Promise.resolve(undefined as unknown as ConfigSyncResult);
-  const next = prev
-    .catch(() => {}) // Don't let previous failure block next sync
-    .then(() => syncConfigsToPvcInner(deploymentId));
-  syncMutexes.set(deploymentId, next);
-  void next.finally(() => {
-    if (syncMutexes.get(deploymentId) === next) {
-      syncMutexes.delete(deploymentId);
-    }
-  });
-  return next;
+  // Serialize concurrent syncs for the same deployment via a Postgres
+  // advisory lock keyed on hashtext(deploymentId). Different deployments
+  // use different lock keys and run in parallel.
+  return withDeploymentLock(deploymentId, () => syncConfigsToPvcInner(deploymentId));
 }
 
 async function syncConfigsToPvcInner(deploymentId: string): Promise<ConfigSyncResult> {

@@ -22,6 +22,7 @@ import { encryptApiKey, decryptApiKey } from "../../utils/encryption.js";
 import { provisionOpenRouterKey, revokeOpenRouterKey } from "../../utils/openrouter.js";
 import { syncConfigsToPvc } from "../../services/configSync.js";
 import { safeFireAndForget } from "../../utils/safeAsync.js";
+import { enqueueLifecycleJob } from "../../services/lifecycleJobs.js";
 import { calculateMonthlyPriceCents } from "../../utils/pricing.js";
 import { seedPlatformAgents } from "../../services/platformAgents.js";
 import { COMPONENT_LIBRARY } from "../../data/componentLibrary.js";
@@ -862,75 +863,30 @@ export const deploymentRouter = router({
           "Auto-scale capacity check failed, proceeding without node pinning");
       }
 
-      // Start K8s deployment (fire-and-forget - don't block the response)
-      void (async () => {
-        try {
-          // Persist managedBy on the DB row before creating K8s resources
-          await ctx.db.update(deployments)
-            .set({ managedBy })
-            .where(eq(deployments.id, deploymentId));
-
-          await createDeployment(deploymentId, ctx.user.id, {
-            name: deployment.name,
-            runtime: deployment.runtime,
-            image: deployment.image || undefined,
-            cpuLimit: deployment.cpuLimit || undefined,
-            memoryMb: deployment.memoryMb || undefined,
-            storageMb: deployment.storageMb || undefined,
-            initialConfigs,
-            extraSecretEntries,
-            gatewayToken,
-            isolationLevel: ((deployment as any).isolationLevel || "standard") as IsolationLevel,
-            nodeName: targetNode,
-            deploymentType,
-          }, managedBy);
-          logger.info({ deploymentId }, "K8s createDeployment returned, polling for readiness...");
-
-          // Poll for pod readiness - 150 attempts × 2s = 300s (5 min) timeout
-          // Fresh VPS: ~60s K3s join + ~23s image pull + ~120-180s OpenClaw boot = ~4-5 min
-          await new Promise((r) => setTimeout(r, 1500));
-          let ready = false;
-          for (let i = 0; i < 150; i++) {
-            const podStatus = await getDeploymentPodStatus(deploymentId, managedBy);
-            if (podStatus.status === "running") { ready = true; break; }
-            if (podStatus.status === "failed") break;
-            await new Promise((r) => setTimeout(r, 2000));
-          }
-
-          // Only update if still in transitional state (don't overwrite enforcement actions).
-          // Wave 4 Layer B: includes the granular per-step statuses written by
-          // lifecycle.ts (waiting_volume, pulling_image, initializing) and the
-          // call-site write above (provisioning_node).
-          await ctx.db.update(deployments)
-            .set({ status: ready ? "running" : "failed", ...(ready ? { error: null } : { error: "Pod did not become ready" }) })
-            .where(and(
-              eq(deployments.id, deploymentId),
-              inArray(deployments.status, [
-                "creating",
-                "provisioning_node",
-                "waiting_volume",
-                "pulling_image",
-                "initializing",
-              ]),
-            ));
-          logger.info({ deploymentId, ready }, "Deployment create completed");
-        } catch (err: unknown) {
-          const message = err instanceof Error ? err.message : "Unknown deployment error";
-          await ctx.db.update(deployments)
-            .set({ status: "failed", error: message })
-            .where(and(
-              eq(deployments.id, deploymentId),
-              inArray(deployments.status, [
-                "creating",
-                "provisioning_node",
-                "waiting_volume",
-                "pulling_image",
-                "initializing",
-              ]),
-            ));
-          logger.error({ deploymentId, err }, "Deployment failed");
-        }
-      })();
+      // JAR-86: Enqueue a durable lifecycle job instead of firing off an
+      // IIFE. The background worker (startLifecycleWorker) picks this up and
+      // runs the createDeployment + readiness poll, surviving pod restarts.
+      await enqueueLifecycleJob(ctx.db, {
+        deploymentId,
+        userId: ctx.user.id,
+        type: "create",
+        payload: {
+          type: "create",
+          managedBy,
+          name: deployment.name,
+          runtime: deployment.runtime,
+          image: deployment.image || undefined,
+          cpuLimit: deployment.cpuLimit || undefined,
+          memoryMb: deployment.memoryMb || undefined,
+          storageMb: deployment.storageMb || undefined,
+          initialConfigs,
+          extraSecretEntries,
+          gatewayToken,
+          isolationLevel: ((deployment as any).isolationLevel || "standard") as IsolationLevel,
+          nodeName: targetNode,
+          deploymentType,
+        },
+      });
 
       return { success: true, deploymentId };
     }),
@@ -1590,41 +1546,20 @@ export const deploymentRouter = router({
           storageMb: deployment.storageMb || undefined,
         };
 
-        if (wasFailedState) {
-          await restartDeployment(input.id, managedBy, ctx.user.id, deployConfig);
-        } else {
-          await startDeployment(input.id, managedBy, ctx.user.id, deployConfig);
-        }
-
-        // Poll for pod readiness (fire-and-forget)
-        void (async () => {
-          try {
-            // Brief delay to let transitional status be visible in UI
-            await new Promise((r) => setTimeout(r, 1500));
-
-            let ready = false;
-            for (let i = 0; i < 90; i++) {
-              const podStatus = await getDeploymentPodStatus(input.id, managedBy);
-              if (podStatus.status === "running") { ready = true; break; }
-              if (podStatus.status === "failed") break;
-              await new Promise((r) => setTimeout(r, 2000));
-            }
-            // Only update if still in transitional state (don't overwrite enforcement actions)
-            await ctx.db.update(deployments)
-              .set({ status: ready ? "running" : "failed" })
-              .where(and(eq(deployments.id, input.id), eq(deployments.status, "creating")));
-            // Sync configs after start - picks up any changes made while stopped
-            if (ready) {
-              safeFireAndForget(syncConfigsToPvc(input.id), { operation: "syncConfigsToPvc", deploymentId: input.id });
-            }
-            logger.info({ deploymentId: input.id, ready }, "Deployment start completed");
-          } catch (err) {
-            await ctx.db.update(deployments)
-              .set({ status: "failed", error: "Failed to confirm pod startup" })
-              .where(and(eq(deployments.id, input.id), eq(deployments.status, "creating")));
-            logger.error({ deploymentId: input.id, err }, "Failed to confirm start");
-          }
-        })();
+        // JAR-86: Enqueue a durable job instead of running K8s ops + readiness
+        // poll in an IIFE. The worker handles start vs restart selection and
+        // resumes safely on crash.
+        await enqueueLifecycleJob(ctx.db, {
+          deploymentId: input.id,
+          userId: ctx.user.id,
+          type: "start",
+          payload: {
+            type: "start",
+            managedBy,
+            wasFailedState,
+            deployConfig,
+          },
+        });
 
         logger.info({ deploymentId: input.id, wasFailedState }, "Deployment start initiated");
       } catch (err) {
@@ -1663,40 +1598,25 @@ export const deploymentRouter = router({
           .set({ status: "restarting" })
           .where(eq(deployments.id, input.id));
 
-        // Fire-and-forget restart + status polling
-        void (async () => {
-          try {
-            await restartDeployment(input.id, managedBy, ctx.user.id, {
+        // JAR-86: Enqueue a durable restart job — the worker runs
+        // restartDeployment + the readiness poll.
+        await enqueueLifecycleJob(ctx.db, {
+          deploymentId: input.id,
+          userId: ctx.user.id,
+          type: "restart",
+          payload: {
+            type: "restart",
+            managedBy,
+            deployConfig: {
               name: deployment.name,
               runtime: deployment.runtime,
               image: deployment.image || undefined,
               cpuLimit: deployment.cpuLimit || undefined,
               memoryMb: deployment.memoryMb || undefined,
               storageMb: deployment.storageMb || undefined,
-            });
-
-            // Brief delay to let transitional status be visible in UI
-            await new Promise((r) => setTimeout(r, 1500));
-
-            let ready = false;
-            for (let i = 0; i < 90; i++) {
-              const podStatus = await getDeploymentPodStatus(input.id, managedBy);
-              if (podStatus.status === "running") { ready = true; break; }
-              if (podStatus.status === "failed") break;
-              await new Promise((r) => setTimeout(r, 2000));
-            }
-            // Only update if still in transitional state (don't overwrite enforcement actions)
-            await ctx.db.update(deployments)
-              .set({ status: ready ? "running" : "failed" })
-              .where(and(eq(deployments.id, input.id), eq(deployments.status, "restarting")));
-            logger.info({ deploymentId: input.id, ready }, "Deployment restart completed");
-          } catch (err) {
-            await ctx.db.update(deployments)
-              .set({ status: "failed", error: "Restart failed" })
-              .where(and(eq(deployments.id, input.id), eq(deployments.status, "restarting")));
-            logger.error({ deploymentId: input.id, err }, "Failed to restart");
-          }
-        })();
+            },
+          },
+        });
 
         logger.info({ deploymentId: input.id }, "Deployment restart initiated");
       } catch (err) {
