@@ -1231,6 +1231,27 @@ describe("configSync", () => {
       expect(writeCallCount).toBe(2); // First fails, retry succeeds
     });
   });
+
+  // ── JAR-86: advisory-lock wrapper (test env no-op path) ─────────────────
+  describe("JAR-86 concurrency serialization", () => {
+    it("concurrent syncs for same deploymentId do not crash or corrupt state", async () => {
+      // In the VITEST env path, withDeploymentLock is a no-op (SQLite has no
+      // advisory locks). The observable behavior here is that two concurrent
+      // calls to syncConfigsToPvc for the same deployment both resolve without
+      // throwing and without depending on the removed process-local mutex Map.
+      mockDeploymentsFindFirst.mockResolvedValue(makeDeployment({ status: "running" }));
+      mockRenderConfigs.mockReturnValue([{ path: "soul.md", content: "x" }]);
+      mockGetSecretEntries.mockReturnValue({ LLM_PROVIDER: "openrouter" });
+      mockReadCurrentSecretData.mockResolvedValue({ LLM_PROVIDER: "openrouter" });
+
+      const [r1, r2] = await Promise.all([
+        syncConfigsToPvc("dep-1"),
+        syncConfigsToPvc("dep-1"),
+      ]);
+      expect(r1.success).toBe(true);
+      expect(r2.success).toBe(true);
+    });
+  });
 });
 
 // ══════════════════════════════════════════════════════════════════════════════

@@ -349,6 +349,24 @@ describe("deployment.deploy", () => {
       caller.deployment.deploy("dep-running")
     ).rejects.toThrow("Cannot deploy: deployment is already running");
   });
+
+  // JAR-86: deploy should enqueue a lifecycle job instead of firing an IIFE.
+  it("enqueues a lifecycle_jobs row with type=create", async () => {
+    seedDeployment({ id: "dep-enqueue", status: "pending" });
+    const caller = authedCaller();
+
+    await caller.deployment.deploy("dep-enqueue");
+
+    const job = ctx.raw
+      .prepare("SELECT type, status, deployment_id FROM lifecycle_jobs WHERE deployment_id = ?")
+      .get("dep-enqueue") as any;
+    expect(job).toBeDefined();
+    expect(job.type).toBe("create");
+    expect(job.status).toBe("pending");
+    // The K8s createDeployment must NOT have been called synchronously —
+    // the worker is responsible for that now.
+    expect(mockCreateDeployment).not.toHaveBeenCalled();
+  });
 });
 
 describe("deployment.stop", () => {
@@ -410,6 +428,22 @@ describe("deployment.restart", () => {
     await expect(
       caller.deployment.restart({ id: "dep-restart-stopped" })
     ).rejects.toThrow("Cannot restart");
+  });
+
+  // JAR-86: restart should enqueue a lifecycle job instead of firing an IIFE.
+  it("enqueues a lifecycle_jobs row with type=restart", async () => {
+    seedDeployment({ id: "dep-restart-enq", status: "running" });
+    const caller = authedCaller();
+
+    await caller.deployment.restart({ id: "dep-restart-enq" });
+
+    const job = ctx.raw
+      .prepare("SELECT type, status FROM lifecycle_jobs WHERE deployment_id = ?")
+      .get("dep-restart-enq") as any;
+    expect(job).toBeDefined();
+    expect(job.type).toBe("restart");
+    expect(job.status).toBe("pending");
+    expect(mockRestartDeployment).not.toHaveBeenCalled();
   });
 });
 
