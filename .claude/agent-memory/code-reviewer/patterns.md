@@ -82,6 +82,21 @@ In `tamboAgent.ts`, blocks from `executeDelegation` are forwarded directly as `T
 **Why:** Confirmed Apr 2026 canvas forwarding PR review.
 **How to apply:** Any place that emits a TOOL_CALL event with `block.props` should call `resolveUIBlocks()` on the block first, or document that only built-in components are expected.
 
+**MCP server tokens must never be committed to `.claude/settings.json`.**
+Claude Code's `.claude/settings.json` is explicitly un-gitignored (committed via `.gitignore` `!.claude/settings.json` exception). Any MCP server configured there with a hardcoded `--access-token` or `--bearer-token` arg will be committed. The Sentry DSN token (`sntryu_*`) and Vercel bearer token (`vcp_*`) were introduced in this file. Use `settings.local.json` (gitignored) for tokens, or pass via environment variables using the MCP server's `env` block.
+**Why:** Tokens in committed files are in git history forever even after removal.
+**How to apply:** Flag any `--access-token`, `--bearer-token`, or inline API keys in `.claude/settings.json`. Direct to `.claude/settings.local.json` instead.
+
+**Worktree static QA will always fail unless dependencies are installed first.**
+`git worktree add --detach` copies only the git tree — no `node_modules`. Running `npm run typecheck` in a fresh worktree without a prior `npm install`/`pnpm install` will always fail. Any nightly/CI static QA in a disposable worktree must run the appropriate install step first, or symlink `node_modules` from the primary checkout.
+**Why:** Confirmed nightly-sync.mjs review Apr 2026 — `runStaticQaInWorktree` runs typecheck with no install step.
+**How to apply:** Flag any `spawnSync("npm", ["run", "typecheck"])` inside a worktree path that lacks a prior install.
+
+**`spawn("claude", [...], { detached: true })` on Windows does NOT work correctly.**
+On Windows 10, `detached: true` in Node.js `child_process.spawn` does NOT create a truly independent process — it creates a new console window that is still visible and may be killed when the parent exits. The correct Windows approach is to omit `detached` and instead use `{ windowsHide: true, stdio: "ignore" }`, or to use `{ shell: true, detached: false }` and rely on `child.unref()`. Brett runs Windows 10.
+**Why:** Claude Code Stop hooks on Windows 10 use this pattern and the agent will be killed prematurely.
+**How to apply:** Add `windowsHide: true` and a `process.platform === "win32"` guard, or use a cross-platform wrapper.
+
 **`stripControlTags` in ConversationHistoryPanel.tsx uses a single regex with mismatched open/close groups for `FLOW SYSTEM INSTRUCTIONS`.**
 The opening alternation is `FLOW SYSTEM INSTRUCTIONS[^\]]*` (allows suffix like `— AUTHORITATIVE`) but the closing alternation is `FLOW SYSTEM INSTRUCTIONS` (no suffix). Because the closing tag in practice is `[/FLOW SYSTEM INSTRUCTIONS]` (no suffix), this actually works correctly. But it's fragile: if a closing tag were ever emitted with a suffix, the regex would fail to strip it.
 **Why:** Opening tag is `[FLOW SYSTEM INSTRUCTIONS — AUTHORITATIVE]`; closing is `[/FLOW SYSTEM INSTRUCTIONS]`.

@@ -84,6 +84,9 @@ scripts/nightly-qa/reports/
 # Playwright MCP logs
 .playwright-mcp/
 
+# Disposable git worktrees used by nightly per-branch QA
+.worktrees/
+
 # Runtime build artifacts — copied fresh from jarble-api-main/src/mcp/ at
 # CI build time (see .github/workflows/deploy-runtimes.yml). Do not commit:
 # the canonical source lives under jarble-api-main/.
@@ -100,6 +103,7 @@ runtimes/openclaw/jarble-ui-server.js
 !.claude/settings.json
 !.claude/settings.local.json
 !.claude/commands/
+!.claude/crew.json
 scripts/nightly-qa/.env
 scripts/nightly-qa/.qa-state.json
 scripts/nightly-qa/.qa-lock

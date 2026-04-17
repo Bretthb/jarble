@@ -309,6 +309,7 @@ kubectl -n jarble-production exec deployment/jarble-api-kuberoapp-web -- env  # 
 | `chat-ux.md` | Working in `useCanvasChat*`, `assistantRuntime*`, `conversationStorage*`, `chat/`, `canvas/` | Chat streaming, typewriter, reasoning, edit sync, canvas controls |
 | `env-config.md` | Working in `.env*`, `docker*`, `db/init*`, `infrastructure/` | Environment variables, debug endpoints, Neon Postgres dev setup |
 | `autoscaling.md` | Working in `nodeManager*`, `cluster-autoscaler*` | Hetzner auto-scaling, server type mapping |
+| `linear-workflow.md` | Working in `ROADMAP.md`, `scripts/linear/**`, `.claude/commands/dispatch-roadmap.md`, `.claude/hooks/ticket-*`, `.claude/agents/{ticket-*,linear-orchestrator}*` | Roadmap → Linear dispatch, session hooks, nightly sync |
 
 ## Custom Skills
 
@@ -319,6 +320,7 @@ kubectl -n jarble-production exec deployment/jarble-api-kuberoapp-web -- env  # 
 | `/new-component` | Scaffold canvas component | 5-step pattern: file, manifest, register, resolve, verify |
 | `/new-router` | Scaffold tRPC router | Zod v3 patterns, registration, typecheck |
 | `/new-platform` | Add messaging platform | All 5 touchpoints: credentials, config, wizard, UI, steps |
+| `/dispatch-roadmap` | Split `ROADMAP.md` into Linear tickets | Parses roadmap + `.claude/crew.json`, previews assignments, writes tickets with embedded Claude Code prompts |
 
 ## Claude Agents
 
@@ -338,6 +340,9 @@ Pre-configured agents in `.claude/agents/`:
 | `runtime-handler` | Runtime configs, secret mapping, platform env vars |
 | `openclaw-diagnostics` | Gateway timeouts, chat failures, config sync |
 | `canvas-component-builder` | Scaffold canvas components (5-step pattern) |
+| `ticket-dispatcher` | Parse ROADMAP.md into per-assignee Linear ticket drafts with embedded Claude Code prompts |
+| `ticket-updater` | Post session-end Linear comment (mermaid + AC delta + token/cost footer) from Stop hook |
+| `linear-orchestrator` | Nightly cross-ticket planner: writes focus-plan.json + docs/daily-standup.md |
 
 ### Agentic Overnight QA System
 
@@ -354,6 +359,39 @@ Pre-configured agents in `.claude/agents/`:
 **GitHub Actions**: Cron disabled (runs locally instead). Manual dispatch still available via `workflow_dispatch` but requires an `ANTHROPIC_API_KEY` secret.
 
 **Key design**: Tests are dynamic, not scripted. The orchestrator reads `git diff` and CLAUDE.md each cycle to discover what changed and decide what to test. When you add a new page, router, or component, it gets tested automatically — no script updates needed. Agent memory (`.claude/agent-memory/qa/`) tracks coverage, failure patterns, and regression watchlists across runs.
+## Team Workflow (Linear-Driven)
+
+Jarble uses a Linear-driven workflow: `CLAUDE.md` is the source of truth for what the system **is**, `ROADMAP.md` is the source of truth for what is **coming next** and who is doing it, and Linear is the timeline of what is happening **right now**. Hooks keep Linear fresh automatically — no one has to remember to comment.
+
+**How it works end-to-end:**
+1. Brett edits `ROADMAP.md`, adding `### Feature:` blocks under `## Epic:` headers with assignee, priority, size, labels, acceptance criteria, and files likely touched.
+2. Brett runs `/dispatch-roadmap`. The command launches the `ticket-dispatcher` agent, which splits oversized features, resolves assignees from `.claude/crew.json`, checks load + duplicates, and shows a preview table. On `approve all`, tickets are created in Linear with a `## Claude Code Prompt` block embedded in each description.
+3. A teammate branches `<type>/jar-XX-<slug>` from `develop` and runs `/work-ticket JAR-XX`. The `SessionStart` hook (`.claude/hooks/ticket-context-start.mjs`) detects the branch, fetches the ticket, and injects scope + acceptance criteria into the session.
+4. As the teammate works, the `PostToolUse` hook (`ticket-track-changes.mjs`) buffers their Edit/Write/Bash events to `.claude/sessions/JAR-XX-<ts>.jsonl` (debounced, no file contents).
+5. On `/quit`, the `Stop` hook (`ticket-session-end.mjs`) spawns the `ticket-updater` subagent headless on **the teammate's own Claude subscription**. The agent composes a rich Linear comment — summary, file list, mermaid of the change shape, AC delta, token/cost footer — and posts it via the Linear MCP. If a PR exists and typechecks passed, it also transitions the ticket to In Review.
+6. Every night at 04:00 (local cron on Brett's machine), `scripts/linear/nightly-sync.mjs` pulls all open tickets, builds a cross-ticket collision map **plus pairwise merge-conflict probe**, calls the `linear-orchestrator` agent to produce a per-ticket QA focus plan + `docs/daily-standup.md`, runs per-branch **static QA in a disposable git worktree** (typecheck + test against the branch, not develop), runs runtime QA focused per ticket against `dev.jarble.ai`, and posts a condensed result to each ticket. If a branch is ≥ 20 commits behind develop or would conflict on merge, the comment includes an explicit rebase nudge so merges stay clean.
+
+**Why this shape:** the development sessions run on each teammate's own Max subscription, so Claude token cost distributes by construction. Dispatch and nightly sync live on Brett's machine because those are organizer-side tasks. Every session comment includes a `Tokens: X in / Y out • Cost: $Z • Run by: @handle` footer so the team can see per-ticket spend and discuss rebalancing if needed.
+
+**Files:**
+- `ROADMAP.md` — forward-looking plan, one `### Feature:` per ticket.
+- `.claude/crew.json` — crew handle → Linear user id mapping (fill via `node scripts/linear/list-crew.mjs`).
+- `scripts/linear/graphql-client.mjs` — shared Linear GraphQL client (never throws).
+- `scripts/linear/token-cost.mjs` — transcript → cost footer util.
+- `scripts/linear/branch-status.mjs` — ahead/behind + `git merge-tree` conflict probes + disposable worktrees.
+- `scripts/linear/nightly-sync.mjs` — cron entry point. Flags: `--dry-run`, `--cycles <n>`, `--no-static-qa`, `--max-tickets <n>`, `--states "a,b"`, `--base <branch>`, `--verbose`.
+- `.claude/commands/dispatch-roadmap.md` — slash command.
+- `.claude/agents/ticket-dispatcher.md`, `ticket-updater.md`, `linear-orchestrator.md` — the three agents.
+- `.claude/hooks/ticket-context-start.mjs`, `ticket-track-changes.mjs`, `ticket-session-end.mjs` — the three hooks.
+- `.claude/rules/linear-workflow.md` — full walkthrough including the cron stanza and smoke test.
+
+**Environment:** set `LINEAR_API_KEY` on the machine that runs dispatches or the nightly cron. Hooks silently no-op without it. Override the team key via `LINEAR_TEAM_KEY` (default `JAR`). Override the base branch via `JARBLE_BASE_BRANCH` (default `develop`). Set `SKIP_JAR_TAG=1` in a Bash command to bypass the pre-commit JAR-tag enforcement for a single commit.
+
+**Cron stanza (runs on the organizer's machine):**
+```cron
+0 4 * * *  cd /absolute/path/to/jarble && LINEAR_API_KEY=lin_api_... node scripts/linear/nightly-sync.mjs >> scripts/linear/.nightly.log 2>&1
+```
+
 ## Linear Integration & Development Workflow
 
 ### Connection

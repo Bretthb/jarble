@@ -97,19 +97,16 @@
     "SessionStart": [
       {
         "hooks": [
-          "bash scripts/claude-hooks/session-start.sh"
+          "bash scripts/claude-hooks/session-start.sh",
+          "node .claude/hooks/ticket-context-start.mjs"
         ]
       }
     ],
     "Stop": [
       {
         "hooks": [
-          "bash scripts/claude-hooks/session-end.sh"
-        ]
-      },
-      {
-        "hooks": [
-          "node scripts/claude-hooks/linear-session-update.mjs"
+          "bash scripts/claude-hooks/session-end.sh",
+          "node .claude/hooks/ticket-session-end.mjs"
         ]
       }
     ],
@@ -133,6 +130,12 @@
           "node .claude/hooks/format.js"
         ],
         "matcher": "Edit|Write"
+      },
+      {
+        "hooks": [
+          "node .claude/hooks/ticket-track-changes.mjs"
+        ],
+        "matcher": "Edit|Write|Bash"
       }
     ]
   }
