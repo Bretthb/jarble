@@ -90,6 +90,9 @@ scripts/nightly-qa/reports/
 # Disposable git worktrees used by nightly per-branch QA
 .worktrees/
 
+# Nightly sync runtime artifacts (graph.json, focus-plan.json per run)
+.nightly/
+
 # Runtime build artifacts — copied fresh from jarble-api-main/src/mcp/ at
 # CI build time (see .github/workflows/deploy-runtimes.yml). Do not commit:
 # the canonical source lives under jarble-api-main/.

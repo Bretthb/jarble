@@ -107,7 +107,11 @@ async function main() {
     pairConflicts: computePairConflicts(issues, branchHealthByTicket),
   };
 
-  const tmpDir = join(tmpdir(), `jarble-nightly-${Date.now()}`);
+  // Stage artifacts inside the repo so the orchestrator child — which runs with
+  // the default Claude Code sandbox scoped to the workspace — can read/write them.
+  // Using os.tmpdir() fails under bypassPermissions=false because temp is outside
+  // the session's allowed working directories.
+  const tmpDir = join(REPO_ROOT, ".nightly", `run-${Date.now()}`);
   mkdirSync(tmpDir, { recursive: true });
   const graphPath = join(tmpDir, "graph.json");
   const focusPath = join(tmpDir, "focus-plan.json");
@@ -132,8 +136,8 @@ async function main() {
     env: process.env,
     timeout: 5 * 60 * 1000,
   });
-  if (orchRes.status !== 0 && !existsSync(focusPath)) {
-    log("linear-orchestrator agent did not produce a focus plan. Falling back to all open tickets.");
+  if (!existsSync(focusPath)) {
+    log(`linear-orchestrator agent did not produce a focus plan (exit=${orchRes.status}). Falling back to all open tickets.`);
     writeFileSync(focusPath, JSON.stringify(graph.tickets.map((t) => ({
       identifier: t.identifier, title: t.title, focus: `${t.identifier}: ${t.title}`,
     })), null, 2));
