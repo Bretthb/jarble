@@ -13,18 +13,66 @@ This repo includes a **portable memory system** so Claude Code context travels w
 - **`scripts/setup.sh`** — Run `bash scripts/setup.sh` after cloning on a new machine to restore memory, install deps.
 - **Hooks** (`.claude/settings.json`): `SessionStart` restores committed memory → local; `Stop` copies local → committed and stages for git.
 
-## Project Overview
+## What Jarble Is
 
-> **Source of truth**: `PRODUCT.md` in the repo root. If anything here contradicts PRODUCT.md, PRODUCT.md wins.
+**Jarble is infrastructure for deploying agentic runtimes.**
 
-Jarble is an **infrastructure platform for AI agents**. The platform has two sides:
+Users deploy agentic runtimes (OpenClaw, Hermes, ZeroClaw, and more over time). On top of every runtime, Jarble layers a consistent set of universal features — orchestration, memory viewing, CLI access, a marketplace, and (eventually) benchmarking. The moat is that universal layer, not any single runtime.
 
-- **Builders** create, host, and monetize agents — pick a runtime (OpenClaw), write a system prompt, add MCP connections, install skills/components, publish to the marketplace, and earn on every deployment.
-- **Businesses** discover, deploy, and run agents in the tools their teams already use — browse the marketplace, deploy in one click, agents run inside existing workflows.
+> `PRODUCT.md` is the product source of truth, but it currently lags this framing (it describes the older "AI-agent marketplace" shape). If anything in `PRODUCT.md` directly contradicts this section, ask the user before acting — do not silently follow the older framing.
 
-The **marketplace** connects both sides. The **infrastructure** (K8s pods, config sync, LLM routing) makes everything run. The moat is the infrastructure layer, not any single agent.
+## Runtimes
 
-Each deployment gets a **web chat interface** (`/d/[id]`) with rich UI components (charts, tables, 3D visualizations, live widgets) rendered via an MCP UI server as interactive canvas blocks inline in conversation. Agents can also be connected to messaging platforms (WhatsApp, Discord, Slack, Telegram).
+Runtimes live under `runtimes/` (currently `openclaw`, `zeroclaw`). They're wired into the API via runtime handlers in `jarble-api-main/src/runtimes/handlers/` and surfaced in the wizard via `Jarble-mvp/views/onboarding/wizardStepConfig.ts`.
+
+Two UI models:
+
+- **Native UI** — if a runtime ships its own UI, Jarble surfaces it rather than replacing it. Don't paper over a runtime's own surface with universal-UI assumptions.
+- **Universal UI** — if a runtime has no native UI, Jarble provides one. This is the existing `/d/[id]` chat + canvas experience (SSE streaming, canvas components via the MCP UI server, messaging-platform channels for WhatsApp / Discord / Slack / Telegram).
+
+Runtimes are configured per-deployment: system prompt, MCP connections, installed skills, LLM provider (via OpenRouter or BYOK), platform credentials. Users and orgs configure their runtime however they want.
+
+When adding a new runtime, decide native-UI vs universal-UI up front and wire only what applies.
+
+## Universal Features
+
+The five things Jarble offers across every runtime:
+
+| Pillar | Status | Notes |
+|--------|--------|-------|
+| Runtime teams / orchestration | Built | Flow engine in `jarble-api-main/src/services/flowEngine.ts` — DAG with cycles, HITL (`waitForInput`), subflows. See `.claude/rules/flows.md`. Canvas at `Jarble-mvp/views/Deployments.tsx`. |
+| File viewers for agentic memory | Built / evolving | Surfaces the runtime's memory/skills/knowledge files to the user. |
+| CLI access to the runtime | Built / evolving | Users can reach into their running runtime via CLI. |
+| Marketplace | **Being reworked — components are being dropped** | Current routes: `/marketplace` (components, deprecating) and `/marketplace/services` (services, staying). Do not add weight to the component marketplace. |
+| Benchmarking | Future | Not built. Do not speculatively scaffold it. |
+
+## Builders, Businesses, and Organizations
+
+Jarble has two user archetypes, both served through the same primitives:
+
+- **Agentic builders** — teams producing runtimes and the skills/tools that plug into them.
+- **Businesses** — teams running runtimes inside the tools they already use.
+
+Both archetypes work through **organizations**. Signup is individual-first (GitHub-style); anyone can create or join any number of orgs. There are no separate "builder" vs "business" account types. Deployments are optionally scoped to an org via `orgId` (null = personal mode).
+
+The `org` tRPC router, `OrgContext` provider, and org-scoped deployment filtering are all already in place — see the existing "Organizations" section further down for the implementation details.
+
+## What Jarble Is NOT
+
+- **Not a single-runtime platform.** OpenClaw is the most built-out runtime today, but do not hard-code assumptions that it's the only one. Zeroclaw exists; Hermes is coming.
+- **Not a chatbot builder.** The universal UI is one surface. Runtimes can also run headless, through messaging platforms, through their own native UI, or via CLI.
+- **Not a component marketplace.** The current component marketplace is being deprecated. The services marketplace is staying.
+- **Not model-dependent.** OpenRouter handles routing; BYOK is supported. No lock-in to any model vendor.
+- **Not a consulting firm.** Any hand-holding during onboarding is a product motion, not billable hours.
+
+## Rules for Development
+
+- Every feature should either strengthen the universal layer across runtimes, or enable a new runtime to plug in cleanly. If it only helps one runtime in a way the others couldn't reuse, question it.
+- **Do not build weight into the component marketplace.** That surface is being reworked and the components piece is being dropped. Services marketplace is still live.
+- **Do not scaffold benchmarking speculatively.** It's a future pillar with no code yet.
+- Prefer editing existing code over introducing new abstractions. Reuse first. Do not build abstractions for runtimes or features that do not exist yet.
+- Respect the native-UI vs universal-UI split. If a runtime has its own UI, don't force universal-UI features onto it.
+- **Never use em dashes (—) in user-facing frontend text.** Use commas, periods, or rewrite the sentence instead.
 
 ## Monorepo Structure
 
@@ -123,10 +171,6 @@ DAG-based pipeline executor with 6 node types, cycle support, HITL (`waitForInpu
 - `@/*` → `Jarble-mvp/*` (frontend only)
 - `@jarble/component-manifest` → `shared/component-manifest/index.ts` (both)
 - `@jarble/component-manifest` must be in `next.config.ts:transpilePackages` (raw TypeScript, no build step)
-
-## Writing Rules
-
-- **Never use em dashes (—) in user-facing frontend text.** Use commas, periods, or rewrite the sentence instead.
 
 ## Key Patterns
 
