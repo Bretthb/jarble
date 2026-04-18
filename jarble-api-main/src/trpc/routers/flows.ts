@@ -24,6 +24,7 @@ import {
   fanoutSyncConfigs,
   syncFlowMemberships,
   validateDeploymentReferences,
+  stripStaleDeploymentRefs,
 } from "../../services/flowMemberships.js";
 import {
   flowsChatProcedures,
@@ -711,105 +712,29 @@ export const flowsRouter = router({
       // Source flow may already contain dead references (older orphans). We
       // strip them so the new flow is clean rather than rejecting the
       // duplicate outright — see docs/audits/stale-flow-deployment-ids.md.
-      let definitionToWrite: string | unknown = sourceFlow.definition;
-      try {
-        const defParsed: { nodes?: any[]; edges?: any[] } | null =
-          typeof sourceFlow.definition === "string"
-            ? JSON.parse(sourceFlow.definition)
-            : (sourceFlow.definition as any);
-
-        if (defParsed && Array.isArray(defParsed.nodes)) {
-          const referencedIds = Array.from(
-            getDefinitionDeploymentIds(defParsed),
-          );
-          if (referencedIds.length > 0) {
-            const validation = await validateDeploymentReferences(
-              defParsed,
-              userId,
-            );
-            if (!validation.ok) {
-              // Compute the set of stale ids and rewrite the definition.
-              // We re-query to know which ids are valid for the caller.
-              const deploymentsTable = (tables as any).deployments;
-              const orgMembersTable = (tables as any).orgMembers;
-              let validIds = new Set<string>();
-              try {
-                let orgIds: string[] = [];
-                if (orgMembersTable) {
-                  const memberships = await db
-                    .select({ orgId: orgMembersTable.orgId })
-                    .from(orgMembersTable)
-                    .where(eq(orgMembersTable.userId, userId));
-                  orgIds = memberships
-                    .map((m: any) => m.orgId)
-                    .filter(Boolean);
-                }
-                const hasOrgIdColumn = !!deploymentsTable?.orgId;
-                const ownershipFilter =
-                  orgIds.length > 0 && hasOrgIdColumn
-                    ? or(
-                        eq(deploymentsTable.userId, userId),
-                        inArray(deploymentsTable.orgId, orgIds),
-                      )
-                    : eq(deploymentsTable.userId, userId);
-                const rows = await db
-                  .select({ id: deploymentsTable.id })
-                  .from(deploymentsTable)
-                  .where(
-                    and(
-                      inArray(deploymentsTable.id, referencedIds),
-                      ownershipFilter,
-                    ),
-                  );
-                validIds = new Set(rows.map((r: any) => r.id));
-              } catch {
-                validIds = new Set();
-              }
-
-              const isStale = (id: string | undefined | null) =>
-                !!id && !validIds.has(id);
-
-              const removedNodeIds = new Set<string>();
-              const keptNodes = (defParsed.nodes ?? []).filter((n: any) => {
-                const stale =
-                  isStale(n?.deploymentId) || isStale(n?.config?.deploymentId);
-                if (stale) removedNodeIds.add(n.id);
-                return !stale;
-              });
-              const keptEdges = (defParsed.edges ?? []).filter(
-                (e: any) =>
-                  !removedNodeIds.has(e.source) && !removedNodeIds.has(e.target),
-              );
-
-              const rewritten = {
-                ...defParsed,
-                nodes: keptNodes,
-                edges: keptEdges,
-              };
-              definitionToWrite = JSON.stringify(rewritten);
-
-              logger.warn(
-                {
-                  sourceFlowId: input.sourceFlowId,
-                  newFlowId: newId,
-                  userId,
-                  staleNodeCount: removedNodeIds.size,
-                  staleNodeIds: Array.from(removedNodeIds),
-                },
-                "duplicate: stripped stale deployment references during fork",
-              );
-            }
-          }
-        }
-      } catch (err) {
-        // If parsing fails entirely we copy the source as-is and leave the
-        // sync step to handle/log the error.
+      const stripResult = await stripStaleDeploymentRefs(
+        sourceFlow.definition,
+        userId,
+      );
+      const definitionToWrite = stripResult.definitionToWrite;
+      if (stripResult.parseError) {
         logger.warn(
           {
             sourceFlowId: input.sourceFlowId,
-            err: err instanceof Error ? err.message : String(err),
+            err: stripResult.parseError.message,
           },
           "duplicate: could not parse source definition for stale-ref sweep",
+        );
+      } else if (stripResult.removedNodeIds.size > 0) {
+        logger.warn(
+          {
+            sourceFlowId: input.sourceFlowId,
+            newFlowId: newId,
+            userId,
+            staleNodeCount: stripResult.removedNodeIds.size,
+            staleNodeIds: Array.from(stripResult.removedNodeIds),
+          },
+          "duplicate: stripped stale deployment references during fork",
         );
       }
 
