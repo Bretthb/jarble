@@ -73,45 +73,45 @@
     "SessionStart": [
       {
         "hooks": [
-          "bash scripts/claude-hooks/session-start.sh",
-          "node .claude/hooks/ticket-context-start.mjs"
+          { "type": "command", "command": "bash scripts/claude-hooks/session-start.sh" },
+          { "type": "command", "command": "node .claude/hooks/ticket-context-start.mjs" }
         ]
       }
     ],
     "Stop": [
       {
         "hooks": [
-          "bash scripts/claude-hooks/session-end.sh",
-          "node .claude/hooks/ticket-session-end.mjs"
+          { "type": "command", "command": "bash scripts/claude-hooks/session-end.sh" },
+          { "type": "command", "command": "node .claude/hooks/ticket-session-end.mjs" }
         ]
       }
     ],
     "PreToolUse": [
       {
+        "matcher": "Edit|Write",
         "hooks": [
-          "node .claude/hooks/block-lockfiles.js"
-        ],
-        "matcher": "Edit|Write"
+          { "type": "command", "command": "node .claude/hooks/block-lockfiles.js" }
+        ]
       },
       {
+        "matcher": "Bash",
         "hooks": [
-          "node .claude/hooks/typecheck-pre-commit.js"
-        ],
-        "matcher": "Bash"
+          { "type": "command", "command": "node .claude/hooks/typecheck-pre-commit.js" }
+        ]
       }
     ],
     "PostToolUse": [
       {
+        "matcher": "Edit|Write",
         "hooks": [
-          "node .claude/hooks/format.js"
-        ],
-        "matcher": "Edit|Write"
+          { "type": "command", "command": "node .claude/hooks/format.js" }
+        ]
       },
       {
+        "matcher": "Edit|Write|Bash",
         "hooks": [
-          "node .claude/hooks/ticket-track-changes.mjs"
-        ],
-        "matcher": "Edit|Write|Bash"
+          { "type": "command", "command": "node .claude/hooks/ticket-track-changes.mjs" }
+        ]
       }
     ]
   }

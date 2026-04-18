@@ -249,3 +249,5 @@ No active epics yet. Candidate epics to scope after launch:
 ## Shipped
 
 _Move finished features here to keep the active phases tidy._
+
+<!-- JAR-95 smoke test touch 2026-04-18 -->
