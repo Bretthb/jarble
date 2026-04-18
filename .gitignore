@@ -25,6 +25,9 @@ playwright-report/
 *.jpg
 *.jpeg
 *.gif
+qa-screenshots/
+# Playwright accessibility-tree dumps used by QA agents
+*-snapshot.md
 
 # Allow logo/favicon assets
 !Jarble-mvp/public/logo.png

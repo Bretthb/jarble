@@ -109,6 +109,68 @@ Windows Task Scheduler: create a daily task at 04:00 that runs `node C:\path\to\
 
 The log is per-machine and is not committed.
 
+## New teammate onboarding
+
+Every teammate does this one-time setup on their machine so the workflow fires correctly. Takes about five minutes.
+
+### 1. Clone and bootstrap
+
+```bash
+git clone git@github.com:Jarble-AI/develop-monorepo.git
+cd develop-monorepo
+bash scripts/setup.sh   # restores portable memory + installs deps
+```
+
+### 2. Install Claude Code
+
+If not already installed, follow the instructions at https://claude.com/claude-code.
+
+### 3. Authenticate the Linear MCP (one-time OAuth)
+
+Open Claude Code in the repo. The `linear-server` MCP is declared in `.claude/settings.json` and auto-connects. The first time any Linear tool is invoked (or you open `/mcp` and click Reconnect on `linear-server`), Linear opens an OAuth page in your browser. Approve with your `@jarble.ai` account. This authenticates the MCP for *in-session* tool calls (`/dispatch-roadmap`, `/create-ticket`, etc.).
+
+### 4. Create your personal Linear API key
+
+This is separate from the MCP auth. Hooks (`SessionStart`, `Stop`) and the nightly cron run *outside* Claude Code sessions, so they cannot use the MCP — they need a raw API key.
+
+1. Go to https://linear.app/settings/api.
+2. Click *Create new API key*, name it `jarble-claude-workflow`.
+3. Copy the `lin_api_...` token. You only see it once.
+
+### 5. Set `LINEAR_API_KEY` in your environment
+
+**Windows (Git Bash):**
+```bash
+setx LINEAR_API_KEY "lin_api_..."
+```
+`setx` writes to the persistent user env. It does NOT update the current shell — relaunch Claude Code.
+
+**macOS / Linux:** add to `~/.zshrc` or `~/.bashrc`:
+```bash
+export LINEAR_API_KEY="lin_api_..."
+```
+Then `source ~/.zshrc` (or `source ~/.bashrc`) and relaunch Claude Code.
+
+### 6. Verify
+
+Inside Claude Code:
+- `echo $LINEAR_API_KEY | head -c 10` should print `lin_api_`.
+- Create a throwaway branch: `git checkout -b test/jar-0-onboarding`. Reopen Claude Code. The `SessionStart` hook should silently no-op (the ticket `JAR-0` doesn't exist) without error. Delete the branch afterward.
+- Run `/create-ticket` against a trivial input and `cancel` at the preview step — confirms the MCP is live and the crew-assignment logic reads `crew.json` correctly.
+
+### 7. Add yourself to the crew
+
+Ask Brett (or another organizer) to:
+1. Run `node scripts/linear/list-crew.mjs` to print Linear team members and their IDs.
+2. Add you to `.claude/crew.json` with your handle, name, email, `linearUserId`, and `owns` areas.
+3. Commit and push.
+
+Once you pull, you will appear as a valid assignee in `/dispatch-roadmap` and as a fallback target when features in your `owns` areas have no explicit assignee.
+
+### That's it
+
+You are now wired into the loop. `/work-ticket JAR-XX` pulls context, your session-end posts a rich Linear comment (with your git email attributing the token-cost footer to you), and the pre-commit hook blocks commits that forget the `(JAR-XX)` tag. The nightly cron runs on the organizer's machine only — teammates do not need to install it.
+
 ## Smoke test (run after any change to this loop)
 
 1. Put one small feature in `ROADMAP.md`.

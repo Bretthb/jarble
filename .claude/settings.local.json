@@ -71,7 +71,8 @@
       "Bash(T=\"eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6ImtVdl9jYllXNmI3bm9fQWpUczdpLSJ9.eyJodHRwczovL2FwaS5qYXJibGUuYWkvZW1haWwiOiJicmV0dGhib25vMUBnbWFpbC5jb20iLCJodHRwczovL2FwaS5qYXJibGUuYWkvbmFtZSI6ImJyZXR0IGJvbm8iLCJodHRwczovL2FwaS5qYXJibGUuYWkvZW1haWxfdmVyaWZpZWQiOnRydWUsImlzcyI6Imh0dHBzOi8vamFyYmxlLWRldi51cy5hdXRoMC5jb20vIiwic3ViIjoiZ29vZ2xlLW9hdXRoMnwxMTU0NDk1NzAwNzI0NzEzNzYxOTAiLCJhdWQiOlsiaHR0cHM6Ly9hcGkuamFyYmxlLmFpIiwiaHR0cHM6Ly9qYXJibGUtZGV2LnVzLmF1dGgwLmNvbS91c2VyaW5mbyJdLCJpYXQiOjE3NzE0NDIxMTksImV4cCI6MTc3MTUyODUxOSwic2NvcGUiOiJvcGVuaWQgcHJvZmlsZSBlbWFpbCIsImF6cCI6IjFWUjMwODYyUm1aSUZSNDRVSU04YVZIWUV0M0syUnNoIn0.GY5_RElaV8a_IRbekKnP3EbVwF_0n0oBqUo3qxuEY38M44qXAcfiOdydTqBu0GCaj14Rh0T7etcWGcpY-h5iE7BREo-_ebFiSV2dORVYsAewh6F8d6R4OWEmjMRr6ZcFsd8ZI802iY46x1riz5XnpYIEYFiw0Zo1hzvPUiOyIoq27HAmteFywgxcMSKtQUnvlK3foSJTiF-PX9qKXEEzB2CeWSk3Rp1NL1qEPQk08ZtRn7s4-Dwy0mUDGlT-ziKEPkdLL66WIzWAIi3ngRFh0TUu5Rodr4RQZpqCnjhyLKi6DcD_WEYfRQAcMiuRKTmcEiVaNqtBOPyc_tF_Dk5UBg\")",
       "Bash(pkill:*)",
       "Bash(powershell -Command \"Get-Process -Id 26928 | Select-Object Id,ProcessName,Path; Get-Process -Id 16460 | Select-Object Id,ProcessName,Path\")",
-      "Bash(powershell -Command:*)"
+      "Bash(powershell -Command:*)",
+      "mcp__playwright__browser_navigate"
     ]
   }
 }

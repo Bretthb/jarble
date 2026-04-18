@@ -383,7 +383,7 @@ Jarble uses a Linear-driven workflow: `CLAUDE.md` is the source of truth for wha
 - `.claude/commands/dispatch-roadmap.md` — slash command.
 - `.claude/agents/ticket-dispatcher.md`, `ticket-updater.md`, `linear-orchestrator.md` — the three agents.
 - `.claude/hooks/ticket-context-start.mjs`, `ticket-track-changes.mjs`, `ticket-session-end.mjs` — the three hooks.
-- `.claude/rules/linear-workflow.md` — full walkthrough including the cron stanza and smoke test.
+- `.claude/rules/linear-workflow.md` — full walkthrough including **new-teammate onboarding**, the cron stanza, and the smoke test.
 
 **Environment:** set `LINEAR_API_KEY` on the machine that runs dispatches or the nightly cron. Hooks silently no-op without it. Override the team key via `LINEAR_TEAM_KEY` (default `JAR`). Override the base branch via `JARBLE_BASE_BRANCH` (default `develop`). Set `SKIP_JAR_TAG=1` in a Bash command to bypass the pre-commit JAR-tag enforcement for a single commit.
 
@@ -396,9 +396,11 @@ Jarble uses a Linear-driven workflow: `CLAUDE.md` is the source of truth for wha
 
 ### Connection
 
-Linear API key is available as `LINEAR_API_KEY` env var. Team key: `JAR`. GraphQL endpoint: `https://api.linear.app/graphql`.
+Linear API key is expected as `LINEAR_API_KEY` env var (per-teammate, `lin_api_...` from https://linear.app/settings/api). Team key: `JAR`. GraphQL endpoint: `https://api.linear.app/graphql`.
 
-For Claude Code sessions with MCP: `claude mcp add --transport http linear-server https://mcp.linear.app/mcp`
+The `linear-server` MCP is declared in `.claude/settings.json` and auto-connects on first tool use (OAuth). The MCP handles in-session tool calls (`/dispatch-roadmap`, `/create-ticket`). The raw `LINEAR_API_KEY` is needed separately because the `SessionStart` / `Stop` hooks and the nightly cron run outside Claude Code sessions and cannot use the MCP.
+
+**New teammates:** see `.claude/rules/linear-workflow.md#new-teammate-onboarding` for the one-time per-person setup (clone → MCP auth → API key → env var → crew.json entry).
 
 ### When to Create Tickets
 

@@ -23,12 +23,19 @@ Extract every `### Feature:` block under every `## Epic:`. For each block, read:
 
 For any feature marked `Size: large`, or any feature whose acceptance criteria list is ≥5 items, or whose Scope clearly spans multiple modules, split it. Prefer 2–3 smaller tickets. Each resulting draft must still carry a complete acceptance-criteria subset, not a hand-waved "part 1 of 3". If you cannot cleanly split a feature, leave it as one ticket and flag it with a warning.
 
-### 3. Resolve assignees
+### 3. Resolve assignees and collaborators
 
+**Assignee:**
 - If the feature has `Assignee: @handle`, resolve against `crew.json`. If unknown, flag.
 - Otherwise, match `Labels` or `Files likely touched` against each crew member's `owns` list; pick the closest.
 - Otherwise, fall back to `defaultAssignee`.
 - If any crew member has an empty `linearUserId`, emit a warning — the ticket will still be drafted but the actual create will fail until it is filled.
+
+**Collaborators** (people who can pick up the ticket if the assignee is blocked):
+- If the feature has `Collaborators: @h1, @h2`, use that list (drop the assignee if it appears).
+- Otherwise, auto-derive: find every crew member (other than the assignee) whose `owns` list shares at least one entry with the assignee's `owns`. Cap at 2 collaborators per ticket to avoid noise.
+- If no overlap exists, collaborators is an empty array — that's fine, not every ticket needs them.
+- Resolve each handle to its `linearUserId` for the draft. If a handle has an empty `linearUserId`, warn but still emit the draft.
 
 ### 4. Load-balance check
 
@@ -58,6 +65,10 @@ Each draft must follow this exact structure (copy the headings verbatim). The `#
 - Roadmap: `ROADMAP.md` ({#feature-slug})
 - Parent: <epic slug>
 
+## Collaborators
+- @<handle> (<reason: explicit | shared area: <area>>)
+- (omit the entire `## Collaborators` section if the array is empty)
+
 ## Dependencies
 - Blocked by: JAR-XX (if declared in roadmap)
 - Blocks: (filled in only if this feature is named in another feature's Depends on)
@@ -86,12 +97,13 @@ Return a structured list (one entry per draft) containing:
 - `title`
 - `assigneeHandle`
 - `assigneeId`
+- `collaborators` (array of `{ handle, linearUserId, reason }`; reason is `"explicit"` or `"shared area: <area>"`)
 - `priority` ("urgent|high|medium|low" or "none")
 - `size` ("small|medium|large")
 - `labels` (array of strings, must include one of `feature|bug|improvement|infrastructure`)
 - `files` (array)
 - `dependsOn` (array of JAR-identifiers from the roadmap; the command resolves them to UUIDs when creating blocks)
-- `description` (full markdown body as composed in step 6)
+- `description` (full markdown body as composed in step 6, including `## Collaborators` section when non-empty)
 - `slug` (from `{#feature-slug}`)
 - `warnings` (array of strings — capacity, duplicate, missing linearUserId, oversized-and-unsplittable, etc.)
 

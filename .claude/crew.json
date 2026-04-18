@@ -1,15 +1,29 @@
 {
-  "_comment": "Crew roster for /dispatch-roadmap. Run `node scripts/linear/list-crew.mjs` to print Linear users, then fill in linearUserId for each teammate. `handle` is referenced by @handle in ROADMAP.md Assignee lines. `owns` is an advisory list of areas the dispatcher uses when a feature has no explicit assignee.",
+  "_comment": "Crew roster for /dispatch-roadmap. `handle` is referenced as @handle in ROADMAP.md Assignee lines. `linearUserId` is the Linear user GUID (what the dispatcher passes to Linear). `owns` is an advisory list of areas the dispatcher uses when a feature has no explicit assignee. Overlapping `owns` between brett and tanner is intentional: they share organization-management and database-content and may co-own tickets in those areas.",
   "teamKey": "JAR",
   "defaultAssignee": "brett",
   "maxOpenTicketsPerMember": 5,
   "crew": [
     {
       "handle": "brett",
-      "name": "Brett",
-      "email": "bretthbono1@gmail.com",
-      "linearUserId": "",
-      "owns": ["infrastructure", "flow-engine", "runtime"]
+      "name": "Brett Bono",
+      "email": "bretthb@jarble.ai",
+      "linearUserId": "1423d612-1950-484e-a9e8-449d10315bcd",
+      "owns": ["infrastructure", "flow-engine", "runtime", "organization-management", "database-content"]
+    },
+    {
+      "handle": "tanner",
+      "name": "Tanner League",
+      "email": "tanner@jarble.ai",
+      "linearUserId": "f237478a-c0e3-4f2e-a341-37f8dff79fc3",
+      "owns": ["organization-management", "database-content"]
+    },
+    {
+      "handle": "cj",
+      "name": "Charles James",
+      "email": "charlesjb@jarble.ai",
+      "linearUserId": "5684abc7-9873-4f35-b198-5d636f13f057",
+      "owns": ["frontend", "design"]
     }
   ]
 }

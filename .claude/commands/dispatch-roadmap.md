@@ -34,16 +34,17 @@ Launch the `ticket-dispatcher` subagent (Opus) and pass it the full roadmap text
 
 Present a markdown table in the chat — **nothing is written to Linear yet**:
 
-| # | Proposed title | Assignee | Size | Priority | Labels | Files | Depends on | Notes |
-|---|----------------|----------|------|----------|--------|-------|-----------|-------|
+| # | Proposed title | Assignee | Collaborators | Size | Priority | Labels | Files | Depends on | Notes |
+|---|----------------|----------|---------------|------|----------|--------|-------|-----------|-------|
 
-Below the table, list any warnings (over-capacity assignees, possible duplicates, missing linearUserId).
+Collaborators column shows `@h1, @h2` (or `—` when empty). Below the table, list any warnings (over-capacity assignees, possible duplicates, missing linearUserId on an assignee or collaborator).
 
 ## Step 4: Interactive edit loop
 
 Wait for the user to respond. Accept commands until they say `approve all` or `cancel`:
 
 - `N: assign=@handle` — override assignee on row N
+- `N: collaborators=@h1,@h2` — override collaborators on row N (use `N: collaborators=` to clear)
 - `N: priority=high` — change priority on row N
 - `N: size=small` — change size on row N
 - `N: split` — split row N into two smaller tickets; ask for titles
@@ -57,7 +58,7 @@ After each command, re-print the updated table.
 ## Step 5: Create the tickets in Linear
 
 On `approve all`, call the Linear MCP (preferred) or the `createIssue` helper in `scripts/linear/graphql-client.mjs` for each draft:
-1. Create the issue with title, description (including the `## Claude Code Prompt` block), assignee, priority, and labels.
+1. Create the issue with title, description (including the `## Claude Code Prompt` and `## Collaborators` blocks), assignee, priority, and labels. The description is the primary subscription mechanism — Linear auto-subscribes users mentioned in the description, so collaborators get notified automatically.
 2. If any draft has `Depends on: JAR-xx`, call `addBlockingRelation` after both issues exist.
 3. Print the resulting `JAR-XXX — <title> — <url>` lines so the user can hand them off.
 
