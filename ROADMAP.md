@@ -89,7 +89,8 @@ Linear project: auto
 The visual workflow builder already exists. Flow Engine supports 6 node types, cycles, HITL, and subflows; edges already carry `delegates | reports | collaborates` semantics; `@xyflow/react` powers the Agent Teams canvas tab in `Deployments.tsx`. This epic is about **reconstructing and polishing** what is there so multi-agent flows feel like a product, not a prototype.
 
 ### Feature: Canvas edge-semantics pass {#feature-canvas-edge-semantics}
-Assignee: @brett
+Assignee: @cj
+Collaborators: @brett
 Priority: medium
 Size: small
 Labels: improvement
@@ -105,7 +106,8 @@ Labels: improvement
 **Files likely touched:** `jarble-api-main/src/services/flowEngine.ts`, `Jarble-mvp/views/Deployments.tsx`, edge component files under `Jarble-mvp/components/flow/` (if present)
 
 ### Feature: Agent Teams canvas UX polish {#feature-agent-teams-canvas-polish}
-Assignee: @brett
+Assignee: @cj
+Collaborators: @brett
 Priority: medium
 Size: medium
 Labels: improvement
@@ -121,7 +123,8 @@ Labels: improvement
 **Files likely touched:** `Jarble-mvp/views/Deployments.tsx`, custom node components under `Jarble-mvp/components/flow/`, `jarble-api-main/src/trpc/routers/flows.ts`
 
 ### Feature: Workflow save + share within an organization {#feature-workflow-org-sharing}
-Assignee: @brett
+Assignee: @tanner
+Collaborators: @brett
 Priority: medium
 Size: medium
 Labels: feature
@@ -160,7 +163,8 @@ Labels: infrastructure
 **Files likely touched:** `jarble-api-main/src/runtimes/handlers/openclaw.ts`, `jarble-api-main/src/runtimes/handlers/zeroclaw.ts`, new `jarble-api-main/src/runtimes/types.ts`, `jarble-api-main/src/runtimes/registry.ts` (if present, else create)
 
 ### Feature: Audit OpenClaw leaks in the API layer {#feature-audit-openclaw-leaks}
-Assignee: @brett
+Assignee: @tanner
+Collaborators: @brett
 Priority: high
 Size: medium
 Labels: improvement
@@ -177,6 +181,7 @@ Labels: improvement
 
 ### Feature: Frontend runtime-awareness pass {#feature-frontend-runtime-awareness}
 Assignee: @brett
+Collaborators: @cj
 Priority: medium
 Size: medium
 Labels: improvement
@@ -190,6 +195,46 @@ Labels: improvement
 - [ ] Chat UI tolerates runtimes whose SSE event set does not include OpenClaw-specific events (e.g. `REASONING_START` / `REASONING_END`) without visual glitches.
 
 **Files likely touched:** `jarble-api-main/src/trpc/routers/runtimeCatalog.ts`, `Jarble-mvp/views/onboarding/OnboardingWizard.tsx`, `Jarble-mvp/views/onboarding/wizardStepConfig.ts`, `Jarble-mvp/components/deployment/DeploymentConfiguration.tsx`, `Jarble-mvp/hooks/useCanvasChat.ts`
+
+### Feature: Plug-and-play validation (dummy third runtime) {#feature-plug-and-play-validation}
+Assignee: @brett
+Collaborators: @tanner
+Priority: high
+Size: small
+Labels: infrastructure
+
+**Scope:** The plug-and-play test for the runtime-agnostic core. Once the `RuntimeHandler` interface is finalized and OpenClaw leaks are audited out, prove the abstraction by adding a trivial "dummy" runtime handler (a no-op echo agent or equivalent) that requires zero changes to the API routers, wizard, chat UI, or flow engine. Time how long the add takes. If >1 hour, the abstraction still leaks and needs another pass.
+
+**Acceptance criteria:**
+- [ ] A new handler file (e.g. `runtimes/handlers/echo.ts`) satisfies `RuntimeHandler` and registers in the runtime catalog.
+- [ ] A deployment with `runtime=echo` can be created via the wizard without code changes outside `runtimes/`.
+- [ ] The echo agent accepts a message and streams a fixed response back via the shared chat path.
+- [ ] It participates in a flow — an OpenClaw agent can delegate to the echo agent and receive a reply.
+- [ ] Total add time logged in the ticket comment. Target: under 1 hour of focused work.
+
+**Files likely touched:** new `jarble-api-main/src/runtimes/handlers/echo.ts`, `jarble-api-main/src/runtimes/registry.ts`, `jarble-api-main/src/trpc/routers/runtimeCatalog.ts` (if the registry does not auto-discover)
+
+## Epic: Launch readiness {#epic-launch-readiness}
+Status: planned
+Linear project: auto
+
+Final week sweep to prove the platform is launchable.
+
+### Feature: Outsider onboarding test {#feature-outsider-onboarding-test}
+Assignee: @cj
+Priority: high
+Size: small
+Labels: infrastructure
+
+**Scope:** Invite someone outside the founding team (a friend, investor contact, or beta user) to sign up, go through the onboarding wizard, create an agent, chat with it, and wire it into a two-agent team — without any help from the crew. Record friction points and open follow-up tickets for anything that blocks or confuses them.
+
+**Acceptance criteria:**
+- [ ] At least one outsider completes signup → agent creation → chat → multi-agent team creation end-to-end.
+- [ ] A friction log is captured in the ticket comment (time per step, confusions, crashes).
+- [ ] Launch-blocking friction items are opened as new Linear tickets and linked to this one.
+- [ ] Non-blocking friction items are noted in a "post-launch polish" list.
+
+**Files likely touched:** none (this is a QA / observational ticket, fixes land in dependent tickets)
 
 ---
 
