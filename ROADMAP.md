@@ -80,21 +80,7 @@ Phase 1 has no active features on this roadmap. Retained here as a historical ma
 Status: in-progress
 Linear project: auto
 
-### Feature: Roadmap dispatcher end-to-end smoke test {#feature-dispatcher-smoke}
-Assignee: @brett
-Priority: medium
-Size: small
-Labels: infrastructure
-
-**Scope:** After merging the Linear-driven workflow scaffolding, run the end-to-end smoke test described in `.claude/rules/linear-workflow.md` — dispatch this placeholder feature, work it on a branch, confirm the Stop hook posts a rich Linear comment with mermaid + token-cost footer, and confirm a nightly dry run writes `docs/daily-standup.md`.
-
-**Acceptance criteria:**
-- [ ] `/dispatch-roadmap` creates a Linear ticket for this feature with the Claude Code prompt block present.
-- [ ] Running Claude Code on the branch posts a session-end comment on the ticket with mermaid diagram and per-session token/cost footer.
-- [ ] `node scripts/linear/nightly-sync.mjs --dry-run --cycles 0` writes `docs/daily-standup.md` with at least one ticket referenced.
-- [ ] Delete this feature after the smoke test passes (or move it to the Shipped section).
-
-**Files likely touched:** `ROADMAP.md`, `docs/daily-standup.md`
+_No active features. Smoke test passed 2026-04-18 as JAR-95 (see Shipped below)._
 
 ## Epic: Multi-agent orchestration {#epic-multi-agent-orchestration}
 Status: planned
@@ -249,3 +235,6 @@ No active epics yet. Candidate epics to scope after launch:
 ## Shipped
 
 _Move finished features here to keep the active phases tidy._
+
+### Feature: Roadmap dispatcher end-to-end smoke test (shipped 2026-04-18 as JAR-95)
+Validated the full Linear workflow loop: `/dispatch-roadmap` → ticket created with Claude Code prompt block, branch + SessionStart → scope injection, commit + `/exit` → Stop hook posts rich session comment attributed to @brett, and `nightly-sync.mjs --dry-run --cycles 0` writes `docs/daily-standup.md`. Two bugs found and fixed in the process: (1) `nightly-sync` staging graph/focus artifacts in `os.tmpdir()` which the orchestrator subagent can't access (fixed: staged under `<repo>/.nightly/`), and (2) `.claude/settings.json` hooks using string shortcut format instead of `{type: "command", command: "..."}` objects (fixed: converted format).
