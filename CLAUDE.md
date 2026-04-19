@@ -177,6 +177,16 @@ When writing new user-facing strings, use "agent". When writing new internal cod
 3. Add the new node type to the `@xyflow/react` node-type registry in `Jarble-mvp/views/Deployments.tsx` with a matching custom node component
 4. Update the `generateFromPrompt` system prompt in `flows.ts` so the LLM knows the new type exists
 
+### Recent Architecture (April 2026)
+
+Changes that aren't obvious from a cold read of the code:
+
+- **Per-deployment ingress**: Each deployment gets a direct subdomain `{id}.agents.jarble.ai`. Auth is enforced by a Traefik forward-auth middleware + signed cookie (not in-app). A per-deployment auth middleware is auto-created on deploy (`50b5dbf`, `8e23c3c`, `6905639`).
+- **Control UI proxy**: Fast-path proxy for the in-app Control Panel. Pod address is cached; DB lookups are skipped on the hot path (`187c95a`). Gateway token is passed in the URL hash for WS auto-connect (`ba3e04f`).
+- **OpenClaw-native canvas**: The legacy `jarble_ui` MCP bridge was dropped. Canvas renders are produced natively by OpenClaw (`6006e3b`). Do not re-introduce `jarble_ui`-style bridging.
+- **configSync advisory locks + durable lifecycle jobs** (JAR-86, `18bed02`): Deployment mutations (create/update/restart) acquire Postgres advisory locks so concurrent requests serialize instead of racing. Long-running lifecycle work (restart, redeploy) is durable — jobs survive API pod restarts.
+- **`findDeploymentWithAccess`** (JAR-83, `7c9e310`): The canonical authz entry point in the deployment router. When adding a new deployment procedure, call this helper — don't hand-roll ownership/org checks.
+
 ### TOS Consent Gate (JAR-64)
 
 The `users` table has three nullable consent fields: `tosAcceptedAt`, `tosVersion`, `privacyAcceptedAt`. A null `tosAcceptedAt` is the signal that the user has not accepted the current version — this is deliberate, existing users are NOT backfilled.
@@ -240,7 +250,7 @@ Production does NOT use `drizzle-kit migrate`. It uses a **custom migrator** at 
 3. On first run with a legacy `schema-pushed-directly` marker, backfills the tracker so existing schema is marked applied
 4. Tolerates `already exists` / `duplicate column` errors so partially-applied migrations retry safely
 
-**The packaged `npm run db:migrate:pg` script runs `drizzle-kit migrate`, which short-circuits on the legacy marker and does NOT apply new migrations in production.** Running it locally will silently do nothing. To apply a migration locally against the Neon dev branch:
+**The packaged `npm run db:migrate:pg` script runs `drizzle-kit migrate`, which short-circuits on the legacy marker and does NOT apply new migrations in production.** Running it locally will silently do nothing. The **only correct local apply** is the custom migrator directly:
 
 ```bash
 cd jarble-api-main && npx tsx src/db/migrate.pg.ts
@@ -310,17 +320,18 @@ kubectl -n jarble-production exec deployment/jarble-api-kuberoapp-web -- env  # 
 | `env-config.md` | Working in `.env*`, `docker*`, `db/init*`, `infrastructure/` | Environment variables, debug endpoints, Neon Postgres dev setup |
 | `autoscaling.md` | Working in `nodeManager*`, `cluster-autoscaler*` | Hetzner auto-scaling, server type mapping |
 | `linear-workflow.md` | Working in `ROADMAP.md`, `scripts/linear/**`, `.claude/commands/dispatch-roadmap.md`, `.claude/hooks/ticket-*`, `.claude/agents/{ticket-*,linear-orchestrator}*` | Roadmap → Linear dispatch, session hooks, nightly sync |
+| `overnight-qa-policy.md` | Working in QA agent prompts or overnight orchestrator configs | Prod-mutation authorization boundaries for overnight QA agents |
 
-## Custom Skills
+## Slash Commands (`.claude/commands/`)
 
-| Skill | Command | Purpose |
-|-------|---------|---------|
-| `/qa` | Run QA locally | Agentic QA cycle using Max subscription (no API cost) |
-| `/deploy-check` | Pre-deploy verification | Both typechecks + both test suites |
-| `/new-component` | Scaffold canvas component | 5-step pattern: file, manifest, register, resolve, verify |
-| `/new-router` | Scaffold tRPC router | Zod v3 patterns, registration, typecheck |
-| `/new-platform` | Add messaging platform | All 5 touchpoints: credentials, config, wizard, UI, steps |
-| `/dispatch-roadmap` | Split `ROADMAP.md` into Linear tickets | Parses roadmap + `.claude/crew.json`, previews assignments, writes tickets with embedded Claude Code prompts |
+Linear-driven workflow commands — see `.claude/rules/linear-workflow.md` for the full loop.
+
+| Command | Purpose |
+|---------|---------|
+| `/dispatch-roadmap` | Parse `ROADMAP.md` → create Linear tickets per assignee with Claude Code prompts embedded |
+| `/create-ticket` | Create a single ad-hoc Linear ticket (auto-assigns via `.claude/crew.json`) |
+| `/work-ticket JAR-XX` | Fetch a ticket, plan, implement, open PR |
+| `/triage` | Review & triage the Linear backlog |
 
 ## Claude Agents
 
