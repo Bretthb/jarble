@@ -4,7 +4,9 @@
 **Date:** 2026-04-19
 **Ticket:** [JAR-115](https://linear.app/jarble/issue/JAR-115)
 **Companion doc:** [`runtime-abstraction-proposal.md`](./runtime-abstraction-proposal.md)
-**Recommendation:** **ElizaOS** as the second production runtime, with a **LangGraph dummy adapter** landing first as the de-coupling forcing function.
+**Recommendation:** **ZeroClaw** — finish the runtime that is already in the catalog — as the second production runtime. ElizaOS is kept as a runner-up if ZeroClaw fails to meet operational bar.
+
+> **Revision note (2026-04-19):** The first draft recommended ElizaOS. Revised after discovering that `runtimes/zeroclaw/` is not a stub — it is a code-complete handler wrapping an upstream Rust binary. Finishing what exists is cheaper, more honest, and automatically tests the abstraction, because ZeroClaw genuinely is not OpenClaw.
 
 ## Context
 
@@ -14,8 +16,9 @@ The companion proposal (`runtime-abstraction-proposal.md`) enumerates the ten pl
 
 ## Candidates considered
 
-Five modern OSS agentic runtimes. All are ≤12 months old in their current form, actively maintained, and self-hostable on K8s.
+Six candidates — five modern OSS agentic runtimes plus the one already in our own catalog.
 
+0. **ZeroClaw** — upstream Rust binary ([`theonlyhennygod/zeroclaw`](https://github.com/theonlyhennygod/zeroclaw)) wrapped by a Jarble handler + Dockerfile at `runtimes/zeroclaw/`. **Already registered in our runtime catalog** (see `jarble-api-main/src/runtimes/handlers/zeroclaw.ts`).
 1. **[ElizaOS](https://github.com/elizaOS/eliza)** (formerly ai16z/eliza) — TypeScript character-based agent runtime.
 2. **[Letta](https://github.com/letta-ai/letta)** (formerly MemGPT) — stateful agent server with a dedicated ADE UI.
 3. **[Dify](https://github.com/langgenius/dify)** — full-stack OSS agent platform with native iframe embed.
@@ -28,20 +31,27 @@ Source research, version dates, and per-candidate profiles are at the end of thi
 
 All scores are relative to Jarble's integration need, not absolute quality. 5 = drops in cleanly / strongest fit. 1 = major mismatch.
 
-| Dimension | ElizaOS | Letta | Dify | LangGraph | CrewAI |
-|-----------|:---:|:---:|:---:|:---:|:---:|
-| Interface fit (matches post-`JAR-115` `RuntimeHandler`) | 4 | 4 | 3 | 3 | 3 |
-| Native UI iframe-ability | **5** | 3 | **5** | 3 | 2 |
-| MCP client support | 3 | 3 | **5** | 4 | 4 |
-| Model provider flexibility (BYOK / OpenRouter) | **5** | **5** | **5** | **5** | **5** |
-| K8s deployment model (per-deployment pod) | 4 | 4 | 2 | 3 | 3 |
-| Subagent / multi-agent primitive | 4 | 4 | 3 | 4 | **5** |
-| Messaging adapters (Discord/Telegram/WhatsApp) | **5** | 4 | 2 | 1 | 2 |
-| Memory model vs. our `memoryScope` knob | 4 | **5** | 3 | 3 | 4 |
-| License compatibility for managed hosting | **5** (MIT) | **5** (Apache-2.0) | 2 (Dify OSS License) | 3 (MIT lib / server non-commercial) | **5** (MIT) |
-| Maturity & release cadence | 4 | 4 | **5** | **5** | 4 |
-| Implementation effort (lower = better, inverted for table) | **5** (low) | 3 | 2 | 3 | 3 |
-| **Weighted total (sum)** | **48** | **44** | **37** | **37** | **40** |
+| Dimension | **ZeroClaw** | ElizaOS | Letta | Dify | LangGraph | CrewAI |
+|-----------|:---:|:---:|:---:|:---:|:---:|:---:|
+| Interface fit (matches post-`JAR-115` `RuntimeHandler`) | **5** (handler already exists) | 4 | 4 | 3 | 3 | 3 |
+| Native UI iframe-ability | 1 (no UI shipped) | **5** | 3 | **5** | 3 | 2 |
+| MCP client support | 3 (upstream TBD) | 3 | 3 | **5** | 4 | 4 |
+| Model provider flexibility (BYOK / OpenRouter) | **5** (22+ providers) | **5** | **5** | **5** | **5** | **5** |
+| K8s deployment model (per-deployment pod) | **5** (Dockerfile exists) | 4 | 4 | 2 | 3 | 3 |
+| Subagent / multi-agent primitive | 2 (none) | 4 | 4 | 3 | 4 | **5** |
+| Messaging adapters (Discord/Telegram/WhatsApp) | 2 (none in core) | **5** | 4 | 2 | 1 | 2 |
+| Memory model vs. our `memoryScope` knob | 3 (SQLite w/ hybrid search) | 4 | **5** | 3 | 3 | 4 |
+| License compatibility for managed hosting | 4 (upstream license TBD) | **5** (MIT) | **5** (Apache-2.0) | 2 (Dify OSS License) | 3 (MIT lib / server non-commercial) | **5** (MIT) |
+| Maturity & release cadence | 3 (single-maintainer upstream) | 4 | 4 | **5** | **5** | 4 |
+| Implementation effort (lower = better, inverted for table) | **5** (code-complete — operational work only) | **5** (low) | 3 | 2 | 3 | 3 |
+| **Weighted total (sum)** | **38** | **48** | **44** | **37** | **37** | **40** |
+
+Two things stand out in ZeroClaw's row:
+
+- It scores **1/5 on native UI** and **2/5 on messaging adapters** — real weaknesses, not hidden.
+- It scores **5/5 on interface fit, K8s deployment, and implementation effort** — because the code is already in the tree. This is the decisive factor for "second runtime" as a forcing-function claim.
+
+ElizaOS still wins the raw sum (48 vs. 38) on builder-facing richness, but the sum weights every dimension equally. The **"already in the catalog" signal is categorical, not incremental** — it is worth more than eleven evenly-weighted 1-point deltas. The Recommendation section below shows why.
 
 Rationale for the lowest / most surprising scores:
 
@@ -54,6 +64,30 @@ Rationale for the lowest / most surprising scores:
 ## Per-candidate assessment against the expanded interface
 
 Each candidate is evaluated against the ten surfaces from the proposal doc.
+
+### ZeroClaw (already in catalog)
+
+Status: handler at `jarble-api-main/src/runtimes/handlers/zeroclaw.ts` + runtime image at `runtimes/zeroclaw/` (Dockerfile, entrypoint, file-watcher). Declares `needsLlm: true`, `hasPlatforms: true`, `hasSkills: false`, `hasSystemPrompt: false`. Exposes a Gateway API on port 3000. Supports 22+ AI providers via the upstream Rust binary.
+
+| Surface | Fit | Notes |
+|---------|-----|-------|
+| 1. Native UI | ❌ | No UI shipped. Control Panel tab would be text-only unless we bolt on a chat UI. The `nativeUi: undefined` path from Surface 1 is the exact case this exercises. |
+| 2. Chat transport | ✅ | Gateway API on port 3000 — fits `chatTransport: "http-stream"` directly. No WS, no Ed25519 gateway token. |
+| 3. Canvas | ❌ | No canvas protocol. Text-only rendering. |
+| 4. Config surface | ✅ | Handler already renders a TOML config via `renderConfigs()`. Needs the PVC-layout lint from Surface 4 to confirm paths are under reserved prefixes. |
+| 5. Ingress / auth | ⚠ | Handler exists but ingress is not yet wired — the forward-auth middleware is OpenClaw-specific (JAR-121). ZeroClaw needs a non-gateway-token auth strategy. |
+| 6. Model switch | ⚠ | Env-var-driven (`PROVIDER=openrouter`); restart required. `modelSwitch: "restart"`. |
+| 7. Subagents | ❌ | `hasSystemPrompt: false`, `hasSkills: false`. No subagent primitive. `supportsNativeSubagents: false` (implicit). |
+| 8. Secrets | ✅ | Handler already emits different env var names than OpenClaw (`PROVIDER` vs `LLM_PROVIDER`). Benefits immediately from the split in Surface 8. |
+| 9. Probes | ⚠ | Dockerfile declares `HEALTHCHECK CMD zeroclaw doctor`. Needs a HTTP readiness probe (`/` or similar on :3000) for K8s. |
+| 10. Topology | ✅ | Single container, Longhorn PVC at `/data`. `kind: "k8s-deployment"`, `containerName: "zeroclaw"`, `pvcMountPath: "/data"`. |
+
+**Gaps flagged:**
+
+- **No native UI.** Means the Control Panel tab shows text-only chat for ZeroClaw deployments. Whether that is acceptable is a product call, not a technical one.
+- **No subagents / skills / system prompt.** ZeroClaw's builder-facing feature surface is a narrow subset of OpenClaw's. The wizard needs to hide those steps for ZeroClaw deployments. Good stress test for Surface 10 (`managedBy` → `topology`) and for runtime-awareness in the frontend (JAR-100).
+- **No messaging adapters in core.** Discord/Telegram/WhatsApp deployments on ZeroClaw would need a bridge, or the wizard must gate messaging steps behind `hasPlatforms` + a per-platform capability check.
+- **Operational unknowns.** The handler exists but we do not know whether a ZeroClaw deployment actually boots on K3s today. This is the *real work* — and it is cheaper to discover than building a brand-new ElizaOS handler.
 
 ### ElizaOS
 
@@ -144,57 +178,70 @@ Each candidate is evaluated against the ten surfaces from the proposal doc.
 
 | Runtime | If we pick it, the second-runtime integration is… | Strategic payoff |
 |---------|---------------------------------------------------|------------------|
+| **ZeroClaw** | Shortest — handler exists; the work is operational (does it boot?) plus landing the abstractions it needs | Cheapest credible claim to "runtime-agnostic". Forces Surface 1 (no native UI) and Surface 10 (topology) to be real. Does not broaden the marketplace product, but makes the platform architecture honest. |
 | **ElizaOS** | Short (TS stack match + bundled UI + built-in messaging cover 3 of our hardest surfaces) | Broadens marketplace to character/personality-driven agents. Complements OpenClaw's skill-first model. |
 | **Letta** | Medium, blocked on MCP-direction uncertainty and Postgres-per-deployment question | Memory-first differentiator. Premium positioning. |
 | **Dify** | Long, blocked on legal review and topology redesign | Plugs us into the largest OSS agent ecosystem. High reward, high risk. |
 | **LangGraph** | Medium, blocked on server licensing + graphs-as-code UX | Power-user surface. Flows parity. |
 | **CrewAI** | Medium, we own the entire UI | Best multi-agent primitive. Overlap with our Flows engine — maybe too much. |
 
-## Recommendation — ElizaOS, with a LangGraph dummy adapter first
+## Recommendation — ZeroClaw, with ElizaOS as runner-up
 
-### The primary pick: ElizaOS
+### The primary pick: ZeroClaw
 
-**Why ElizaOS:**
+**Why ZeroClaw:**
 
-1. **TypeScript stack match.** Every other candidate is Python-first. ElizaOS running on the same Node ecosystem as `jarble-api-main` means we can share types, share tooling, and debug the runtime in the same language as the platform.
-2. **Bundled native UI.** `@elizaos/client` is a React app that ships with the server. Our `nativeUi` capability (Surface 1) has exactly one transport to implement: `mode: "iframe"`, `authHandoff: "bearer-header"`. No separate hosted admin app, no multi-tenant topology.
-3. **Messaging adapters are free.** Built-in Discord, Telegram, Twitter/X, Farcaster, Slack. Our `platformCredentials` model maps to ElizaOS's plugin-config pattern directly. This is enormous: every other candidate means writing adapters we don't have to write.
-4. **License is MIT, clean.** Zero legal review.
-5. **Character-file abstraction is a natural marketplace primitive.** It lines up with a future "agent template" marketplace without forcing it now.
-6. **Low marginal cost on top of `runtime-abstraction-proposal.md`.** Once Surfaces 1, 2, 5, 6, 8, 10 are abstracted, the ElizaOS handler is a rough-estimate ~500-LOC module (comparable to the current OpenClaw handler before subtracting its legacy branches — sizing to be validated during the integration ticket, not asserted here).
+1. **It is already in the catalog.** A handler, a Dockerfile, an entrypoint, and a file-watcher exist in `runtimes/zeroclaw/` and `jarble-api-main/src/runtimes/handlers/zeroclaw.ts`. The cheapest credible "second runtime" is the one whose integration is already ~80% done.
+2. **It is genuinely not OpenClaw.** Different process (Rust binary, not OpenClaw's workspace shape), different config format (TOML, not `soul.md`), different env-var names (`PROVIDER` not `LLM_PROVIDER`), different gateway (port 3000, no Ed25519 token), no native UI. Every difference forces one of the ten abstraction surfaces to be real — in a way a hand-rolled dummy adapter cannot fake.
+3. **It is the most honest forcing function we have.** The LangGraph echo-agent was drafted because the original draft picked ElizaOS and needed a cheap validator. ZeroClaw plays that role automatically: if JAR-121's chat adapter registry is wrong, ZeroClaw will not boot. That is a pass/fail signal the proposal needs.
+4. **Operational work is the real work.** Finishing ZeroClaw forces us to confront questions we were going to have to answer for ElizaOS anyway — probe shape, ingress without gateway-token auth, wizard awareness of `hasSystemPrompt: false` — but against code that is already in the tree and cannot be rescoped mid-integration.
+5. **Marketplace implication is modest, not zero.** A lightweight Rust runtime with 22+ providers is a credible cost-optimized offering for builders who don't need OpenClaw's skill marketplace. Not a breakout product, but not an idle runtime either.
 
-**Strategic fit.** ElizaOS agents are character-first (personality, lore, social presence); OpenClaw agents are skill-first (tool use, task completion, memory). They address different builder personas without overlapping the marketplace — ElizaOS appeals to community / creator / social-media builders; OpenClaw keeps the internal-tooling / business-ops segment.
+**Strategic fit.** ZeroClaw does not broaden the marketplace the way ElizaOS (character-first) would. It does, however, prove the catalog is a real product surface rather than a one-entry list — which is the prerequisite for any future third-runtime bet.
 
-**Risk profile.** Worst case: the ElizaOS integration ships, no builders adopt it, and we spend ~2 engineering weeks on a second runtime that sits idle. Mitigated because the runtime-abstraction work is needed regardless for a credible marketplace claim — the integration is the validation, not the only deliverable. If it fails to attract builders we still have a more honest platform architecture.
+**Risk profile.** Worst case: ZeroClaw cannot be made to boot reliably on K3s and the upstream Rust maintainer stalls, so we cancel the integration and pivot to ElizaOS. This is *strictly cheaper* than starting with ElizaOS, because:
+- The abstraction work lands either way (JAR-117-121).
+- Any bugs surfaced by ZeroClaw make the subsequent ElizaOS integration easier.
+- We have ≤1 engineering week sunk before we know whether ZeroClaw is viable; ElizaOS would be ≥2 weeks before the same signal.
 
-### The forcing-function pick: LangGraph dummy adapter first
+### Runner-up: ElizaOS
 
-Per the acceptance criteria and `JAR-101`, we should land the cheapest thing that forces the abstractions in `runtime-abstraction-proposal.md` to be real. That is **not a full ElizaOS integration** — that is a **LangGraph "echo agent" dummy handler** that:
+Keep ElizaOS on the shelf as the next-in-line integration. The analysis above still stands — if ZeroClaw fails operationally, or if the marketplace product case for a character-first runtime strengthens (JAR-79), ElizaOS is the preferred successor. The `runtimes/elizaos/` Dockerfile and handler are ~2 engineer-weeks of work on top of the abstractions.
 
-- Declares `chatTransport: "http-stream"`.
-- Has no native UI (`nativeUi: undefined`).
-- Has no native canvas.
-- Has `modelSwitch: "hot"`.
-- Has no platform credentials.
-- Runs a trivial LangGraph server that just echoes.
+### Why we're dropping the "LangGraph echo dummy" idea
 
-It exists only to prove that a second runtime's handler + ingress + chat route works end-to-end with no OpenClaw branches. It takes ~1 engineering day after the abstraction PRs land. It is the fastest way to catch bugs before we invest in the ElizaOS handler.
+The echo dummy was a forcing function designed around the assumption that the real second runtime (ElizaOS) was too expensive to use for validation. That assumption is wrong if ZeroClaw is the pick — ZeroClaw **is** the forcing function, and it happens to also be the real second runtime. Keeping a separate dummy adapter would be two runtimes of similar shape (neither has a native UI, both use HTTP stream transport), which provides no extra signal.
+
+If the abstraction PRs land and we still want a trivial pass/fail test before booting ZeroClaw on a real cluster, we can land a tiny in-test `FakeRuntimeHandler` in the conformance test suite instead of a runtime image. That captures the same validation at a fraction of the cost.
 
 ### Follow-up ticket structure
 
-1. **`JAR-11x: LangGraph dummy adapter`** (S, after abstractions 2, 5, 6, 8 land) — the forcing function. Proves the abstraction.
-2. **`JAR-11x: ElizaOS runtime integration`** (L, after abstractions 1, 2, 5, 6, 8, 10 land) — the real second runtime.
-3. **One follow-up ticket per abstraction surface** in the companion proposal — see the blast-radius table there.
+1. **`JAR-117` Runtime abstraction program** (parent) — unchanged.
+2. **`JAR-118`-`JAR-121` Phase 1-4** — unchanged. These land first; ZeroClaw cannot boot without them.
+3. **`JAR-123` ZeroClaw runtime integration** (M, after Phase 4 lands) — rename and rescope. Work is operational: boot a pod, wire the ingress with a non-gateway-token auth strategy, wire chat through the adapter registry, hide irrelevant wizard steps (`hasSkills: false` / `hasSystemPrompt: false`), run an end-to-end smoke test.
+4. **`JAR-122` LangGraph echo** — **canceled.** The validation role folds into JAR-123 (ZeroClaw is the integration *and* the forcing function).
+5. **`JAR-124` ElizaOS runtime integration (runner-up)** — new ticket, low priority, sits in the backlog for after ZeroClaw ships.
 
 ## Out of scope
 
-- Picking the *third* runtime. Letta, Dify, and CrewAI are parked as future work.
-- Deciding whether the ElizaOS character-file marketplace gets its own top-level surface, or ships as a subset of the agent template marketplace.
-- LangGraph Server licensing negotiation. We use LangGraph only as a library, never the Server container, which dodges the non-commercial clause.
+- Picking the *third* runtime. Letta, Dify, CrewAI, and ElizaOS (as runner-up to ZeroClaw) are parked as future work.
+- Deciding whether a character-file marketplace (ElizaOS) gets its own top-level surface — deferred to the runner-up integration.
+- LangGraph Server licensing — LangGraph is now out of the shortlist since the echo dummy is dropped.
+- Auditing the ZeroClaw upstream (`theonlyhennygod/zeroclaw`) — the upstream license, release cadence, and maintainer health are a precondition of JAR-123, not of this evaluation.
 
 ## Candidate profiles (reference)
 
 All candidate profiles as of **April 2026**. Stars are approximate.
+
+### ZeroClaw
+- **Source:** `jarble-api-main/src/runtimes/handlers/zeroclaw.ts` (Jarble handler) wrapping upstream [`theonlyhennygod/zeroclaw`](https://github.com/theonlyhennygod/zeroclaw) Rust binary.
+- **Runtime image:** `runtimes/zeroclaw/Dockerfile` — debian-slim base, ~3.4 MB binary extracted from `ghcr.io/theonlyhennygod/zeroclaw:latest`.
+- **Native UI:** None (exposes only a Gateway API on port 3000).
+- **MCP:** Upstream status unclear — needs confirmation as part of JAR-123.
+- **License:** Upstream binary license — needs confirmation as part of JAR-123.
+- **Capabilities declared:** `needsLlm: true`, `hasPlatforms: true`, `hasSkills: false`, `hasSystemPrompt: false`.
+- **Env var shape:** `PROVIDER`, `ZEROCLAW_ALLOW_PUBLIC_BIND`, `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / etc. Notably different from OpenClaw's `LLM_*` prefix — exercises the secret-split abstraction (Surface 8).
+- **Health:** Dockerfile declares `HEALTHCHECK CMD zeroclaw doctor` (exec-based; needs HTTP probe for K8s).
 
 ### ElizaOS
 - **Latest:** `@elizaos/cli` v1.7.2 (Apr 2026). ([npm](https://www.npmjs.com/package/@elizaos/cli))
