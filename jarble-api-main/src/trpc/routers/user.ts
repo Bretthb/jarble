@@ -74,6 +74,7 @@ export const userRouter = router({
         .where(eq(users.id, ctx.user.id));
       return ctx.db.query.users.findFirst({
         where: eq(users.id, ctx.user.id),
+        columns: SAFE_PROFILE_COLUMNS,
       });
     }),
 
@@ -92,6 +93,7 @@ export const userRouter = router({
         .where(eq(users.id, ctx.user.id));
       return ctx.db.query.users.findFirst({
         where: eq(users.id, ctx.user.id),
+        columns: SAFE_PROFILE_COLUMNS,
       });
     }),
 

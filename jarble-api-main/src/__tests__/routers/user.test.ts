@@ -201,6 +201,15 @@ describe("user router", () => {
       expect(profile!.name).toBe("Persisted Name");
     });
 
+    it("should not leak internal identifiers in the return value (JAR-33)", async () => {
+      const result = await caller().user.updateProfile({ name: "Safe" });
+      expect(result).not.toHaveProperty("auth0Id");
+      expect(result).not.toHaveProperty("stripeCustomerId");
+      expect(result).not.toHaveProperty("pendingStripeSubscriptionId");
+      expect(result).not.toHaveProperty("freeDeploymentUsed");
+      expect(result).not.toHaveProperty("freeTrialExpiresAt");
+    });
+
     it("should reject empty name", async () => {
       await expect(caller().user.updateProfile({ name: "" })).rejects.toThrow();
     });
@@ -226,6 +235,18 @@ describe("user router", () => {
       });
       expect(result).toBeDefined();
       expect(result!.name).toBe("John Doe");
+    });
+
+    it("should not leak internal identifiers in the return value (JAR-33)", async () => {
+      const result = await caller().user.completeProfile({
+        firstName: "Jane",
+        lastName: "Safe",
+      });
+      expect(result).not.toHaveProperty("auth0Id");
+      expect(result).not.toHaveProperty("stripeCustomerId");
+      expect(result).not.toHaveProperty("pendingStripeSubscriptionId");
+      expect(result).not.toHaveProperty("freeDeploymentUsed");
+      expect(result).not.toHaveProperty("freeTrialExpiresAt");
     });
 
     it("should reject missing firstName", async () => {
