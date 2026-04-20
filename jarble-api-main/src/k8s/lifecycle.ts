@@ -5,6 +5,8 @@ import { createModuleLogger } from "../utils/logger.js";
 const log = createModuleLogger("k8s:lifecycle");
 import { coreApi, appsApi, networkingApi, customApi } from "./client.js";
 import { NAMESPACE, DEFAULT_IMAGE, RUNTIME_PORTS, RUNTIME_CLASS_MAP, RUNTIME_OVERHEAD, RUNTIME_NODE_SELECTOR, OPEN_WEBUI_IMAGE, OPEN_WEBUI_PORT, OPEN_WEBUI_CONTAINER_NAME } from "./constants.js";
+import { getHandlerOrNull } from "../runtimes/index.js";
+import type { RuntimeProbe } from "../runtimes/types.js";
 import type { DeploymentConfig, ManagedBy, IsolationLevel, DeploymentType } from "./constants.js";
 import { getDeploymentPodStatus } from "./status.js";
 import { createDeploymentConfigMap, deleteDeploymentConfigMap } from "./configmap.js";
@@ -419,6 +421,28 @@ async function createDeploymentLegacy(
   const hasConfigMap = configMapCreated;
   const gatewayPort = config.containerPort || RUNTIME_PORTS[config.runtime || "openclaw"] || 18789;
 
+  // JAR-119 Phase 2 — consult the runtime handler for custom probes.
+  // Handlers that don't implement getProbes() fall through to the default
+  // httpGet /healthz shape below, preserving OpenClaw's existing behavior.
+  const runtimeHandler = getHandlerOrNull(config.runtime || "openclaw");
+  const customProbes = runtimeHandler?.getProbes?.({ port: gatewayPort });
+  const defaultLivenessProbe: RuntimeProbe = {
+    httpGet: { path: "/healthz", port: gatewayPort },
+    initialDelaySeconds: 90,
+    periodSeconds: 30,
+    timeoutSeconds: 5,
+    failureThreshold: 3,
+  };
+  const defaultReadinessProbe: RuntimeProbe = {
+    httpGet: { path: "/healthz", port: gatewayPort },
+    initialDelaySeconds: 10,
+    periodSeconds: 5,
+    timeoutSeconds: 3,
+    failureThreshold: 3,
+  };
+  const livenessProbe = customProbes?.liveness ?? defaultLivenessProbe;
+  const readinessProbe = customProbes?.readiness ?? defaultReadinessProbe;
+
   // ── Resource requests based on deployment type ──────────────────────────
   // Agent type: Guaranteed QoS (requests = limits) for dedicated VPS nodes.
   // Container/website type: Burstable QoS - lower requests, higher limits for
@@ -515,26 +539,9 @@ async function createDeploymentLegacy(
               { name: "data", mountPath: "/data" },
               { name: "tmp", mountPath: "/tmp" },
             ],
-            livenessProbe: {
-              httpGet: {
-                path: "/healthz",
-                port: gatewayPort,
-              },
-              initialDelaySeconds: 90,
-              periodSeconds: 30,
-              timeoutSeconds: 5,
-              failureThreshold: 3,
-            },
-            readinessProbe: {
-              httpGet: {
-                path: "/healthz",
-                port: gatewayPort,
-              },
-              initialDelaySeconds: 10,
-              periodSeconds: 5,
-              timeoutSeconds: 3,
-              failureThreshold: 3,
-            },
+            livenessProbe,
+            readinessProbe,
+            ...(customProbes?.startup ? { startupProbe: customProbes.startup } : {}),
           },
           // ── Open WebUI sidecar ────────────────────────────────────────
           // Talks to OpenClaw over localhost — no proxy/mixed content issues.

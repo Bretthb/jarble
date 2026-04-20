@@ -151,6 +151,10 @@ const capabilities: RuntimeCapabilities = {
   hasPlatforms: true,
   hasSkills: true,
   hasSystemPrompt: true,
+  // JAR-119 Phase 2 — capability flags
+  nativeCanvas: true,
+  canvasProtocol: "jarble:ui_block",
+  modelSwitch: "restart",
 };
 
 const configFiles: ConfigFileSpec[] = [

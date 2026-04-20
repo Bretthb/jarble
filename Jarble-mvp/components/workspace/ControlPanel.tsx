@@ -21,9 +21,24 @@ import { nanoid } from "nanoid";
 interface ControlPanelProps {
   deploymentId: string;
   liveStatus: string;
+  /**
+   * postMessage protocol name the embedded iframe emits for canvas blocks.
+   * Defaults to OpenClaw's "jarble:ui_block" for backwards compatibility.
+   * Parent pages should pass the active deployment's runtime
+   * `capabilities.canvasProtocol` once JAR-100 wires runtime-awareness
+   * into the page. Runtimes that don't emit canvas blocks (nativeCanvas:
+   * false) can pass undefined — the listener becomes a no-op.
+   *
+   * Added under JAR-119 (Phase 2 of the runtime abstraction program).
+   */
+  canvasProtocol?: string;
 }
 
-export default function ControlPanel({ deploymentId, liveStatus }: ControlPanelProps) {
+export default function ControlPanel({
+  deploymentId,
+  liveStatus,
+  canvasProtocol = "jarble:ui_block",
+}: ControlPanelProps) {
   const { getAccessTokenSilently } = useAuth0();
   const [iframeSrc, setIframeSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -80,7 +95,7 @@ export default function ControlPanel({ deploymentId, liveStatus }: ControlPanelP
     function handleMessage(event: MessageEvent) {
       if (!event.data?.type) return;
 
-      if (event.data.type === "jarble:ui_block") {
+      if (canvasProtocol && event.data.type === canvasProtocol) {
         const block = event.data.block;
         if (!block?.component) return;
 
@@ -107,7 +122,7 @@ export default function ControlPanel({ deploymentId, liveStatus }: ControlPanelP
 
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, []);
+  }, [canvasProtocol]);
 
   // Handle canvas actions from rendered components (including edit sync)
   const handleCanvasAction = useCallback(

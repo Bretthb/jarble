@@ -36,7 +36,39 @@ const capabilities: RuntimeCapabilities = {
   hasPlatforms: true,
   hasSkills: false,
   hasSystemPrompt: false,
+  // JAR-119 Phase 2 — capability flags
+  // ZeroClaw does not emit canvas blocks; text-only chat in the workspace.
+  nativeCanvas: false,
+  // Changing PROVIDER / *_API_KEY env vars requires re-launching the
+  // gateway binary, so model swaps are restart-based in v1. A future
+  // patch could move LLM creds to a hot-reloadable config file.
+  modelSwitch: "restart",
 };
+
+// JAR-119 Phase 2 — probe override.
+// Upstream ZeroClaw only ships an exec-based health check (`zeroclaw doctor`)
+// and does not document an HTTP /healthz endpoint. Use a TCP-socket probe
+// against the gateway port — sufficient to verify the binary has finished
+// booting and the Axum listener is accepting connections. JAR-123 may
+// refine this once the real HTTP health path is confirmed upstream.
+function getProbes(ctx: { port: number }) {
+  return {
+    liveness: {
+      tcpSocket: { port: ctx.port },
+      initialDelaySeconds: 30,
+      periodSeconds: 30,
+      timeoutSeconds: 5,
+      failureThreshold: 3,
+    },
+    readiness: {
+      tcpSocket: { port: ctx.port },
+      initialDelaySeconds: 5,
+      periodSeconds: 5,
+      timeoutSeconds: 3,
+      failureThreshold: 3,
+    },
+  };
+}
 
 const configFiles: ConfigFileSpec[] = [
   { path: "config.toml", description: "Main configuration (TOML format)", isGlob: false },
@@ -47,6 +79,7 @@ export const zeroclawHandler: RuntimeHandler = {
   name: "ZeroClaw",
   capabilities,
   configFiles,
+  getProbes,
 
   renderConfigs(deployment: DeploymentFields): ConfigFile[] {
     log.debug({ deploymentId: deployment.name }, "renderConfigs");
