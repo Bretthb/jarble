@@ -165,6 +165,18 @@ const capabilities: RuntimeCapabilities = {
     authStrategy: "gateway-token",
     extraMiddlewares: ["jarble-strip-frame-deny@kubernetescrd"],
   },
+  // JAR-121 Phase 4 — chat transport + native UI
+  chatTransport: "openclaw-ws",
+  // OpenClaw's Control UI is embedded via the /admin/* reverse proxy
+  // with a URL-hash Bearer token. The inline iframe in app/d/[id]/page.tsx
+  // uses a cookie handoff — both modes must work simultaneously.
+  // NativeUiHost.tsx is responsible for supporting both.
+  nativeUi: {
+    mode: "iframe",
+    pathResolver: () => "/admin/",
+    authHandoff: "url-hash-token",
+    postMessageProtocol: "jarble:ui_block",
+  },
 };
 
 const configFiles: ConfigFileSpec[] = [

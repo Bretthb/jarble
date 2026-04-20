@@ -214,6 +214,59 @@ export interface RuntimeCapabilities {
     authStrategy: "gateway-token" | "bearer-header" | "none";
     extraMiddlewares?: string[];
   };
+
+  // ─── JAR-121 — Phase 4 capability additions ──────────────────────────
+  /**
+   * Primary chat transport the runtime speaks. Dispatched by the
+   * ChatAdapter registry at `src/chat/adapters/`.
+   *
+   * - `"openclaw-ws"` — OpenClaw's WS-first chain (WS gateway → HTTP
+   *   fallback → exec fallback with Ed25519 gateway token).
+   * - `"http-stream"` — Plain HTTP + SSE streaming, Bearer auth. Used
+   *   by ZeroClaw, LangGraph server, Dify, most modern agent runtimes.
+   * - `"none"` — Runtime does not accept chat over HTTP (e.g. a
+   *   messaging-only runtime). The workspace surfaces a "chat via
+   *   external platform" state.
+   */
+  chatTransport: "openclaw-ws" | "http-stream" | "none";
+
+  /**
+   * Whether the runtime ships its own web UI that the platform should
+   * iframe into the Workspace's Control Panel tab. Undefined means the
+   * Control Panel falls back to the text-only chat path.
+   *
+   * - `mode`: `"iframe"` embeds the runtime UI inline. `"redirect"`
+   *   opens it in a new tab. `"none"` disables the Control Panel tab
+   *   entirely.
+   * - `pathResolver(deployment)`: returns the URL path (relative to
+   *   the deployment's subdomain) where the native UI is served.
+   *   OpenClaw: `/admin/`. ZeroClaw: `/`.
+   * - `authHandoff`: how the parent hands an auth token to the iframe.
+   *   - `"url-hash-token"` — token passed in `#token=…` fragment
+   *     (OpenClaw's current flow).
+   *   - `"cookie"` — signed session cookie set by the parent page
+   *     (used by the inline Control Panel in `app/d/[id]/page.tsx`).
+   *   - `"bearer-header"` — token injected into an `Authorization:
+   *     Bearer` header on the first iframe request (needs a reverse
+   *     proxy; used by bearer-auth runtimes like ZeroClaw).
+   *   - `"none"` — no auth handoff; the runtime handles its own.
+   * - `postMessageProtocol`: optional — the `type` string the iframe
+   *   emits when posting canvas blocks to the parent. Wired to the
+   *   `canvasProtocol` capability (JAR-119).
+   *
+   * ## Important constraint — dual-handoff OpenClaw
+   *
+   * OpenClaw is rendered through TWO auth-handoff paths in production
+   * today (`ControlPanel.tsx` uses `url-hash-token`; the inline iframe
+   * in `app/d/[id]/page.tsx` uses `cookie`). `NativeUiHost` must
+   * support both modes at day one or one of the paths regresses.
+   */
+  nativeUi?: {
+    mode: "iframe" | "redirect" | "none";
+    pathResolver(deployment: DeploymentFields): string;
+    authHandoff: "url-hash-token" | "cookie" | "bearer-header" | "none";
+    postMessageProtocol?: string;
+  };
 }
 
 // ─── Runtime Handler Interface ────────────────────────────────────────

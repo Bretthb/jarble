@@ -119,6 +119,20 @@ describe("Runtime registry", () => {
       expect(typeof handler.topology.operatorGroupVersion).toBe("string");
     }
 
+    // JAR-121 Phase 4 — chat transport is required; nativeUi is optional.
+    expect(["openclaw-ws", "http-stream", "none"]).toContain(
+      handler.capabilities.chatTransport,
+    );
+    if (handler.capabilities.nativeUi !== undefined) {
+      expect(["iframe", "redirect", "none"]).toContain(
+        handler.capabilities.nativeUi.mode,
+      );
+      expect(typeof handler.capabilities.nativeUi.pathResolver).toBe("function");
+      expect(["url-hash-token", "cookie", "bearer-header", "none"]).toContain(
+        handler.capabilities.nativeUi.authHandoff,
+      );
+    }
+
     // Config file specs — should be an array (may be empty for runtimes
     // that don't render any files, but the property must exist)
     expect(Array.isArray(handler.configFiles)).toBe(true);
