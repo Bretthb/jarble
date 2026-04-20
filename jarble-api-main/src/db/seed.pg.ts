@@ -43,13 +43,17 @@ async function main() {
       {
         slug: "zeroclaw",
         name: "ZeroClaw",
-        description: "Lightweight zero-config chatbot for quick deployment",
+        // JAR-123 — updated with the actual shape from upstream. Rust
+        // gateway binary (~3.4 MB) with 22+ AI providers, SQLite memory,
+        // bundled React admin dashboard. No skills or system-prompt;
+        // lightweight / cost-optimized tier.
+        description: "Lightweight Rust runtime — 22+ AI providers, SQLite memory, bundled admin dashboard. Ideal for cost-sensitive deployments that don't need OpenClaw's skills marketplace.",
         category: "bot",
         dockerImage: "ghcr.io/jarble-ai/zeroclaw:latest",
-        cpuLimit: "2.0",
-        memoryMb: 2048,
-        storageMb: 30,
-        monthlyPriceCents: 2740,
+        cpuLimit: "1.0",
+        memoryMb: 1024,
+        storageMb: 20,
+        monthlyPriceCents: 1490,
       },
     ]);
     console.log("[seed] Seeded 2 runtimes.");
