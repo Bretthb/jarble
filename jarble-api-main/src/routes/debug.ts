@@ -35,7 +35,8 @@ debugRouter.get("/db", async (_req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ error: "Failed to query database", details: String(err) });
+    logger.error({ err }, "Debug /db failed");
+    res.status(500).json({ error: "Internal error" });
   }
 });
 
@@ -64,7 +65,8 @@ debugRouter.post("/deployment/:id/status", async (req, res) => {
       .where(eq(deploymentsTable.id, id));
     res.json({ success: true, id, status });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    logger.error({ err }, "Debug /deployment/:id/status failed");
+    res.status(500).json({ error: "Internal error" });
   }
 });
 
@@ -131,7 +133,8 @@ debugRouter.post("/deployment/:id/update-openclaw", async (req, res) => {
       note: "Restart the deployment to apply the update",
     });
   } catch (err) {
-    res.status(500).json({ error: "Update failed", details: String(err) });
+    logger.error({ err }, "Debug /deployment/:id/update-openclaw failed");
+    res.status(500).json({ error: "Internal error" });
   }
 });
 
@@ -170,7 +173,8 @@ debugRouter.post("/deployment/:id/restart", async (req, res) => {
     }).catch(() => {});
     res.json({ success: true, id, message: "Restart triggered" });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    logger.error({ err }, "Debug /deployment/:id/restart failed");
+    res.status(500).json({ error: "Internal error" });
   }
 });
 
@@ -235,7 +239,8 @@ debugRouter.post("/seed-deployment", async (req, res) => {
     logger.info({ auth0Id, deploymentId }, "Seeded dev deployment for authenticated user");
     res.json({ message: "Dev deployment created", deployment });
   } catch (err) {
-    res.status(500).json({ error: "Failed to seed deployment", details: String(err) });
+    logger.error({ err }, "Debug /seed-deployment failed");
+    res.status(500).json({ error: "Internal error" });
   }
 });
 
@@ -261,7 +266,7 @@ debugRouter.post("/deployment/:id/sync-config", async (req, res) => {
     res.json({ success: true, deploymentId: id, message: "Config sync triggered (running in background). Use POST /debug/deployment/:id/sync-config-await for synchronous result." });
   } catch (err) {
     logger.error({ err }, "Debug: configSync failed");
-    res.status(500).json({ error: "Config sync failed", details: String(err) });
+    res.status(500).json({ error: "Internal error" });
   }
 });
 
@@ -286,7 +291,7 @@ debugRouter.post("/deployment/:id/sync-config-await", async (req, res) => {
     res.json({ deploymentId: id, ...result });
   } catch (err) {
     logger.error({ err }, "Debug: configSync-await failed");
-    res.status(500).json({ error: "Config sync failed", details: String(err) });
+    res.status(500).json({ error: "Internal error" });
   }
 });
 
@@ -314,7 +319,7 @@ debugRouter.post("/deployment/:id/update-runtime", async (req, res) => {
     res.json({ success: true, deploymentId: id, ...result });
   } catch (err) {
     logger.error({ err }, "Debug: update-runtime failed");
-    res.status(500).json({ error: "Update runtime failed", details: String(err) });
+    res.status(500).json({ error: "Internal error" });
   }
 });
 
@@ -327,7 +332,7 @@ debugRouter.post("/update-all-runtimes", async (_req, res) => {
     res.json({ success: true, ...result });
   } catch (err) {
     logger.error({ err }, "Debug: update-all-runtimes failed");
-    res.status(500).json({ error: "Bulk runtime update failed", details: String(err) });
+    res.status(500).json({ error: "Internal error" });
   }
 });
 
@@ -434,7 +439,8 @@ debugRouter.post("/deployment/:id/chat", async (req, res) => {
       suggestions: result.suggestions,
     });
   } catch (err) {
-    res.status(500).json({ error: "Chat failed", details: String(err) });
+    logger.error({ err }, "Debug /deployment/:id/chat failed");
+    res.status(500).json({ error: "Internal error" });
   }
 });
 
@@ -498,7 +504,8 @@ debugRouter.get("/deployment/:id/config", async (req, res) => {
       });
     }
   } catch (err) {
-    res.status(500).json({ error: "Config read failed", details: String(err) });
+    logger.error({ err }, "Debug /deployment/:id/config failed");
+    res.status(500).json({ error: "Internal error" });
   }
 });
 
@@ -526,7 +533,8 @@ debugRouter.get("/deployment/:id/logs", async (req, res) => {
     const result = await k8s.getDeploymentLogs(id, tailLines, managedBy);
     res.json({ podName: result.podName, logs: result.logs, lineCount: result.logs.split("\n").length });
   } catch (err) {
-    res.status(500).json({ error: "Logs failed", details: String(err) });
+    logger.error({ err }, "Debug /deployment/:id/logs failed");
+    res.status(500).json({ error: "Internal error" });
   }
 });
 
@@ -548,7 +556,8 @@ debugRouter.post("/deployment/:id/theme", async (req, res) => {
 
     res.json({ success: true, message: "Theme updated", presets: THEME_PRESET_NAMES });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    logger.error({ err }, "Debug POST /deployment/:id/theme failed");
+    res.status(500).json({ error: "Internal error" });
   }
 });
 
@@ -569,7 +578,8 @@ debugRouter.get("/deployment/:id/theme", async (req, res) => {
       availablePresets: THEME_PRESET_NAMES,
     });
   } catch (err) {
-    res.status(500).json({ error: String(err) });
+    logger.error({ err }, "Debug GET /deployment/:id/theme failed");
+    res.status(500).json({ error: "Internal error" });
   }
 });
 

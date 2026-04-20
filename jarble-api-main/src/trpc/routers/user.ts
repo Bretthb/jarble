@@ -9,9 +9,33 @@ import { deleteAccount } from "../../services/accountDeletion.js";
 
 const { users, announcements } = tables;
 
+// Explicit allow-list of user columns exposed to clients. Excludes internal
+// identifiers (auth0Id), payment-system IDs (stripeCustomerId,
+// pendingStripeSubscriptionId), and internal tracking flags
+// (freeDeploymentUsed, freeTrialExpiresAt) per JAR-33.
+const SAFE_PROFILE_COLUMNS = {
+  id: true,
+  email: true,
+  name: true,
+  emailVerified: true,
+  role: true,
+  tosAcceptedAt: true,
+  tosVersion: true,
+  privacyAcceptedAt: true,
+  createdAt: true,
+  updatedAt: true,
+} as const;
+
 export const userRouter = router({
-  // Get current user from context
-  me: publicProcedure.query(({ ctx }) => ctx.user),
+  // Current user — filtered to safe fields only. protectedProcedure throws
+  // 401 for unauthenticated callers (was publicProcedure returning null).
+  me: protectedProcedure.query(({ ctx }) => ({
+    id: ctx.user.id,
+    email: ctx.user.email,
+    name: ctx.user.name,
+    emailVerified: ctx.user.emailVerified,
+    role: ctx.user.role,
+  })),
 
   // Most recent active in-window announcement, or null.
   // Public so unauthenticated pages can show critical banners.
@@ -30,10 +54,11 @@ export const userRouter = router({
     return row[0] ?? null;
   }),
 
-  // Get full profile from DB
+  // Profile from DB — explicit safe-column allow-list.
   getProfile: protectedProcedure.query(async ({ ctx }) => {
     return ctx.db.query.users.findFirst({
       where: eq(users.id, ctx.user.id),
+      columns: SAFE_PROFILE_COLUMNS,
     });
   }),
 

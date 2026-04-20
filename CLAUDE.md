@@ -13,6 +13,12 @@ This repo includes a **portable memory system** so Claude Code context travels w
 - **`scripts/setup.sh`** — Run `bash scripts/setup.sh` after cloning on a new machine to restore memory, install deps.
 - **Hooks** (`.claude/settings.json`): `SessionStart` restores committed memory → local; `Stop` copies local → committed and stages for git.
 
+## Secret Handling
+
+- **Never put secrets in `.claude/settings.json`** — it is committed to git. MCP server tokens, API keys, and any other credential goes in `.claude/settings.local.json` (gitignored) or an env var referenced via `${VAR_NAME}` in the server's `env` block. JAR-33 documents the incident that led to this rule: two live tokens (Sentry + Vercel) were committed and had to be rotated out-of-band.
+- A pre-commit scan-secrets hook (`.claude/hooks/scan-secrets.js`) blocks commits that add strings matching well-known token prefixes (`sntryu_`, `vcp_`, `sk-ant-api03-`, `sk_live_`, `whsec_`, `ghp_`, `gho_`, `xoxb-`, `AKIA`, PEM private-key headers, etc.). Escape hatch: `SKIP_SECRET_SCAN=1` for a single commit.
+- API secrets live in `jarble-api-main/.env` (dev) or Kubero/Coolify env config (prod) — never in source files. See `.claude/rules/env-config.md`.
+
 ## Project Overview
 
 > **Source of truth**: `PRODUCT.md` in the repo root. If anything here contradicts PRODUCT.md, PRODUCT.md wins.

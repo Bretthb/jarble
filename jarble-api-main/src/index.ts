@@ -241,8 +241,39 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
   }
 });
 
+// Belt-and-suspenders guard: if NODE_ENV is production, no /debug route
+// should be mounted on the app. The conditional above already handles this,
+// but a misrefactor could silently re-introduce debug routes. Failing fast
+// on startup is cheaper than shipping a security regression. (JAR-33)
+function assertNoDebugRoutesInProduction() {
+  if (env.NODE_ENV !== "production") return;
+  // Look for the actual debugRouter reference in the Express stack — not any
+  // path matching "/debug" (there's a deliberate 404 stub on that prefix in
+  // prod). The router can be nested inside a middleware chain via app.use,
+  // so check both the top-level handle and the inner router stack.
+  const stack = (app as any)?._router?.stack ?? [];
+  const hasDebug = stack.some((layer: any) => {
+    try {
+      if (layer?.handle === debugRouter) return true;
+      const inner = layer?.handle?.stack;
+      if (Array.isArray(inner)) {
+        return inner.some((l: any) => l?.handle === debugRouter);
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  });
+  if (hasDebug) {
+    logger.fatal("Debug routes are mounted in production — refusing to start");
+    process.exit(1);
+  }
+}
+
 // Start server
 async function start() {
+  assertNoDebugRoutesInProduction();
+
   // Initialize database (Postgres via Neon — schema managed by Drizzle migrations)
   await initDatabase();
 

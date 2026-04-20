@@ -96,6 +96,7 @@
       {
         "matcher": "Bash",
         "hooks": [
+          { "type": "command", "command": "node .claude/hooks/scan-secrets.js" },
           { "type": "command", "command": "node .claude/hooks/typecheck-pre-commit.js" }
         ]
       }
