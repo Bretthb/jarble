@@ -46,20 +46,23 @@ describe("zeroclawHandler metadata", () => {
   });
 
   it("declares correct capabilities", () => {
-    expect(zeroclawHandler.capabilities).toEqual({
-      needsLlm: true,
-      hasPlatforms: true,
-      hasSkills: false,
-      hasSystemPrompt: false,
-      // JAR-119 Phase 2
-      nativeCanvas: false,
-      modelSwitch: "restart",
-      // JAR-120 Phase 3
-      ingress: {
-        port: 3000,
-        authStrategy: "bearer-header",
-      },
+    const caps = zeroclawHandler.capabilities;
+    expect(caps.needsLlm).toBe(true);
+    expect(caps.hasPlatforms).toBe(true);
+    expect(caps.hasSkills).toBe(false);
+    expect(caps.hasSystemPrompt).toBe(false);
+    // JAR-119 Phase 2
+    expect(caps.nativeCanvas).toBe(false);
+    expect(caps.modelSwitch).toBe("restart");
+    // JAR-120 Phase 3
+    expect(caps.ingress).toEqual({
+      port: 3000,
+      authStrategy: "bearer-header",
     });
+    // JAR-121 Phase 4
+    expect(caps.chatTransport).toBe("http-stream");
+    expect(caps.nativeUi?.mode).toBe("iframe");
+    expect(caps.nativeUi?.authHandoff).toBe("bearer-header");
   });
 
   it("declares config file spec for config.toml", () => {

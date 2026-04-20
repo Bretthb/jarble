@@ -52,6 +52,19 @@ const capabilities: RuntimeCapabilities = {
     port: 3000,
     authStrategy: "bearer-header",
   },
+  // JAR-121 Phase 4 — chat transport + native UI
+  chatTransport: "http-stream",
+  // ZeroClaw ships a bundled React dashboard served by the Axum gateway
+  // (see zeroclaw-labs/zeroclaw README). Iframe with a Bearer-header
+  // handoff. The pairing-code → Bearer-token flow is a JAR-123 spike;
+  // until verified, NativeUiHost should gate the iframe behind a
+  // feature flag so ZeroClaw deployments fall through to text-only chat
+  // in v1.
+  nativeUi: {
+    mode: "iframe",
+    pathResolver: () => "/",
+    authHandoff: "bearer-header",
+  },
 };
 
 // JAR-119 Phase 2 — probe override.

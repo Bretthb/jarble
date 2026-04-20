@@ -81,22 +81,26 @@ describe("openclawHandler metadata", () => {
   });
 
   it("declares correct capabilities", () => {
-    expect(openclawHandler.capabilities).toEqual({
-      needsLlm: true,
-      hasPlatforms: true,
-      hasSkills: true,
-      hasSystemPrompt: true,
-      // JAR-119 Phase 2
-      nativeCanvas: true,
-      canvasProtocol: "jarble:ui_block",
-      modelSwitch: "restart",
-      // JAR-120 Phase 3
-      ingress: {
-        port: 18789,
-        authStrategy: "gateway-token",
-        extraMiddlewares: ["jarble-strip-frame-deny@kubernetescrd"],
-      },
+    const caps = openclawHandler.capabilities;
+    expect(caps.needsLlm).toBe(true);
+    expect(caps.hasPlatforms).toBe(true);
+    expect(caps.hasSkills).toBe(true);
+    expect(caps.hasSystemPrompt).toBe(true);
+    // JAR-119 Phase 2
+    expect(caps.nativeCanvas).toBe(true);
+    expect(caps.canvasProtocol).toBe("jarble:ui_block");
+    expect(caps.modelSwitch).toBe("restart");
+    // JAR-120 Phase 3
+    expect(caps.ingress).toEqual({
+      port: 18789,
+      authStrategy: "gateway-token",
+      extraMiddlewares: ["jarble-strip-frame-deny@kubernetescrd"],
     });
+    // JAR-121 Phase 4
+    expect(caps.chatTransport).toBe("openclaw-ws");
+    expect(caps.nativeUi?.mode).toBe("iframe");
+    expect(caps.nativeUi?.authHandoff).toBe("url-hash-token");
+    expect(caps.nativeUi?.postMessageProtocol).toBe("jarble:ui_block");
   });
 
   it("declares config file specs", () => {
