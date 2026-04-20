@@ -90,6 +90,12 @@ describe("openclawHandler metadata", () => {
       nativeCanvas: true,
       canvasProtocol: "jarble:ui_block",
       modelSwitch: "restart",
+      // JAR-120 Phase 3
+      ingress: {
+        port: 18789,
+        authStrategy: "gateway-token",
+        extraMiddlewares: ["jarble-strip-frame-deny@kubernetescrd"],
+      },
     });
   });
 

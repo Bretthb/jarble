@@ -155,6 +155,16 @@ const capabilities: RuntimeCapabilities = {
   nativeCanvas: true,
   canvasProtocol: "jarble:ui_block",
   modelSwitch: "restart",
+  // JAR-120 Phase 3 — ingress descriptor
+  // OpenClaw listens on 18789, auth is the Ed25519 gateway-token flow
+  // via the jarble-agent-forward-auth Traefik middleware. The strip-
+  // frame-deny middleware is needed so the Control Panel iframe can
+  // embed the UI without browser frame-ancestor blocks.
+  ingress: {
+    port: 18789,
+    authStrategy: "gateway-token",
+    extraMiddlewares: ["jarble-strip-frame-deny@kubernetescrd"],
+  },
 };
 
 const configFiles: ConfigFileSpec[] = [
@@ -175,6 +185,14 @@ export const openclawHandler: RuntimeHandler = {
   supportsNativeSubagents: true,
   capabilities,
   configFiles,
+  // JAR-120 Phase 3 — default topology. Per-deployment `managedBy`
+  // still overrides this (operator mode uses the OpenClawInstance CRD
+  // with /home/openclaw/.openclaw). See k8s/constants.ts.
+  topology: {
+    kind: "k8s-deployment",
+    containerName: "runtime",
+    pvcMountPath: "/data",
+  },
 
   renderConfigs(deployment: DeploymentFields): ConfigFile[] {
     log.debug({ deploymentId: deployment.name }, "renderConfigs");

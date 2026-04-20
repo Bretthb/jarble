@@ -595,9 +595,26 @@ async function createDeploymentLegacy(
 
   // ── Create Service + Ingress for direct subdomain access ────────────
   // Each deployment gets https://{id}.agents.jarble.ai via Traefik.
-  // The Control Panel and all OpenClaw features work natively — no proxy.
+  //
+  // JAR-120 — ingress shape (port + middleware list) is now declared on
+  // the runtime handler's `capabilities.ingress`. When the handler does
+  // not declare one, fall back to OpenClaw's historic defaults.
   const agentsDomain = process.env.AGENTS_DOMAIN || "agents.jarble.ai";
   const deploymentHost = `${deploymentId}.${agentsDomain}`;
+  const ingressCaps = runtimeHandler?.capabilities.ingress;
+  const servicePort = ingressCaps?.port ?? 18789;
+  const authMiddleware =
+    (ingressCaps?.authStrategy ?? "gateway-token") === "gateway-token"
+      ? "jarble-agent-forward-auth@kubernetescrd"
+      : (ingressCaps?.authStrategy ?? "gateway-token") === "bearer-header"
+        ? "jarble-bearer-forward-auth@kubernetescrd"
+        : null;
+  const extraMiddlewares = ingressCaps?.extraMiddlewares ?? [
+    "jarble-strip-frame-deny@kubernetescrd",
+  ];
+  const middlewareAnnotation = [authMiddleware, ...extraMiddlewares]
+    .filter((m): m is string => !!m)
+    .join(",");
 
   try {
     await coreApi.createNamespacedService(NAMESPACE, {
@@ -608,18 +625,17 @@ async function createDeploymentLegacy(
       },
       spec: {
         selector: { app: `dep-${deploymentId}` },
-        ports: [{ port: 18789, targetPort: 18789, name: "gateway" }],
+        ports: [{ port: servicePort, targetPort: servicePort, name: "gateway" }],
         type: "ClusterIP",
       },
     });
-    log.info({ deploymentId, host: deploymentHost }, "K8s: created Service");
+    log.info({ deploymentId, host: deploymentHost, port: servicePort }, "K8s: created Service");
   } catch (svcErr: any) {
     if (svcErr?.response?.statusCode !== 409) throw svcErr; // 409 = already exists
   }
 
-  // Ingress uses shared Traefik middlewares:
-  //   - agent-forward-auth: verifies signed cookie + injects gateway token
-  //   - strip-frame-deny: removes X-Frame-Options + adds upgrade-insecure-requests
+  // Ingress uses the Traefik middleware list declared by the runtime (or
+  // the default OpenClaw list when the runtime does not declare one).
   try {
     await networkingApi.createNamespacedIngress(NAMESPACE, {
       metadata: {
@@ -628,9 +644,9 @@ async function createDeploymentLegacy(
         annotations: {
           "cert-manager.io/cluster-issuer": "letsencrypt-prod",
           "traefik.ingress.kubernetes.io/router.tls": "true",
-          // agent-forward-auth: verifies signed cookie + injects gateway Authorization header
-          // strip-frame-deny: removes X-Frame-Options + adds upgrade-insecure-requests
-          "traefik.ingress.kubernetes.io/router.middlewares": "jarble-agent-forward-auth@kubernetescrd,jarble-strip-frame-deny@kubernetescrd",
+          ...(middlewareAnnotation
+            ? { "traefik.ingress.kubernetes.io/router.middlewares": middlewareAnnotation }
+            : {}),
         },
       },
       spec: {
@@ -646,14 +662,14 @@ async function createDeploymentLegacy(
               path: "/",
               pathType: "Prefix",
               backend: {
-                service: { name: `svc-${deploymentId}`, port: { number: 18789 } },
+                service: { name: `svc-${deploymentId}`, port: { number: servicePort } },
               },
             }],
           },
         }],
       },
     });
-    log.info({ deploymentId, host: deploymentHost }, "K8s: created Ingress");
+    log.info({ deploymentId, host: deploymentHost, authStrategy: ingressCaps?.authStrategy ?? "gateway-token" }, "K8s: created Ingress");
   } catch (ingErr: any) {
     if (ingErr?.response?.statusCode !== 409) throw ingErr;
   }

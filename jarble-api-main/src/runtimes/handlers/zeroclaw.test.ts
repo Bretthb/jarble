@@ -54,6 +54,11 @@ describe("zeroclawHandler metadata", () => {
       // JAR-119 Phase 2
       nativeCanvas: false,
       modelSwitch: "restart",
+      // JAR-120 Phase 3
+      ingress: {
+        port: 3000,
+        authStrategy: "bearer-header",
+      },
     });
   });
 
