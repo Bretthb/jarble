@@ -112,6 +112,51 @@ describe("Runtime registry", () => {
     }
   });
 
+  // JAR-118 — PVC layout contract. See src/runtimes/pvc-layout.md.
+  // Handlers may not write to reserved prefixes. secrets/* belongs to the K8s
+  // Secret mount; memory/* is runtime-writable only and a boot-time write
+  // would race against the running process.
+  const FORBIDDEN_PREFIXES = ["secrets/", "memory/", "/data/secrets/", "/data/memory/"];
+
+  it.each(slugs)(
+    "'%s' renderConfigs does not write to reserved prefixes (secrets/, memory/)",
+    (slug) => {
+      const handler = getHandler(slug);
+      const result = handler.renderConfigs(minimalDeployment(slug));
+      for (const file of result) {
+        for (const forbidden of FORBIDDEN_PREFIXES) {
+          expect(
+            file.path.startsWith(forbidden),
+            `handler ${slug} renderConfigs returned a path in reserved prefix ${forbidden}: ${file.path}`,
+          ).toBe(false);
+        }
+      }
+    },
+  );
+
+  // Negative case — proves the lint above actually fires on a bad handler.
+  // A real handler that returned `secrets/my-token.json` would violate the
+  // PVC contract; this mock verifies the assertion catches it.
+  it("reserved-prefix lint catches a bogus handler writing to secrets/", () => {
+    const bogusFiles = [
+      { path: "configs/ok.json", content: "{}" },
+      { path: "secrets/leak.json", content: "oops" },
+    ];
+    const violations = bogusFiles.filter((f) =>
+      FORBIDDEN_PREFIXES.some((prefix) => f.path.startsWith(prefix)),
+    );
+    expect(violations).toHaveLength(1);
+    expect(violations[0].path).toBe("secrets/leak.json");
+  });
+
+  it("reserved-prefix lint catches a bogus handler writing to memory/", () => {
+    const bogusFiles = [{ path: "memory/store.json", content: "{}" }];
+    const violations = bogusFiles.filter((f) =>
+      FORBIDDEN_PREFIXES.some((prefix) => f.path.startsWith(prefix)),
+    );
+    expect(violations).toHaveLength(1);
+  });
+
   it.each(slugs)("'%s' parseConfigs returns a ParsedDeploymentFields object", (slug) => {
     const handler = getHandler(slug);
     const result = handler.parseConfigs([]);
