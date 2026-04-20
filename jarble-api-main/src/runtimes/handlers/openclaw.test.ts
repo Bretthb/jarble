@@ -86,6 +86,10 @@ describe("openclawHandler metadata", () => {
       hasPlatforms: true,
       hasSkills: true,
       hasSystemPrompt: true,
+      // JAR-119 Phase 2
+      nativeCanvas: true,
+      canvasProtocol: "jarble:ui_block",
+      modelSwitch: "restart",
     });
   });
 

@@ -102,6 +102,17 @@ vi.mock("../runtimes/index.js", () => ({
     if (slug === "unknown-runtime") return null;
     return {
       slug,
+      // JAR-119 — configSync reads capabilities.modelSwitch to decide whether
+      // to escalate to Tier 3. Default to "restart" to match existing OpenClaw
+      // behavior; individual tests can override if they need "recreate".
+      capabilities: {
+        needsLlm: true,
+        hasPlatforms: true,
+        hasSkills: true,
+        hasSystemPrompt: true,
+        nativeCanvas: false,
+        modelSwitch: "restart" as const,
+      },
       renderConfigs: (...args: any[]) => mockRenderConfigs(...args),
       getSecretEntries: (...args: any[]) => mockGetSecretEntries(...args),
       parseConfigs: (...args: any[]) => mockParseConfigs(...args),

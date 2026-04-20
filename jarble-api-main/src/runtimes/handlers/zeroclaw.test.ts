@@ -51,6 +51,9 @@ describe("zeroclawHandler metadata", () => {
       hasPlatforms: true,
       hasSkills: false,
       hasSystemPrompt: false,
+      // JAR-119 Phase 2
+      nativeCanvas: false,
+      modelSwitch: "restart",
     });
   });
 

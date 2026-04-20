@@ -155,6 +155,39 @@ export interface RuntimeCapabilities {
   hasPlatforms: boolean;     // Has platform credentials (WhatsApp, Discord, etc.)
   hasSkills: boolean;        // Has a skills marketplace
   hasSystemPrompt: boolean;  // Uses a system prompt / personality config
+
+  // ─── JAR-119 — Phase 2 capability flags ─────────────────────────────
+  /**
+   * Whether the runtime emits canvas blocks natively (rich UI components
+   * rendered inline in chat). When false, the workspace falls through to
+   * a text-only rendering path for this runtime's chat stream.
+   * OpenClaw: true. ZeroClaw and most text-only runtimes: false.
+   */
+  nativeCanvas: boolean;
+
+  /**
+   * Optional canvas-block postMessage protocol name. If set, the workspace
+   * listens for `type === canvasProtocol` events on the runtime's iframe
+   * and dispatches them into the CanvasActionContext.
+   * OpenClaw: "jarble:ui_block". Other runtimes: typically undefined.
+   */
+  canvasProtocol?: string;
+
+  /**
+   * How the pod handles a change to provider / model / API key at runtime.
+   *   "hot"      — The runtime can swap models without a restart; the
+   *                API writes the new config and the runtime picks it up.
+   *   "restart"  — The pod must be rolled (scale 0 → 1) for the change
+   *                to take effect. This is the current OpenClaw behavior.
+   *   "recreate" — The pod must be fully torn down and re-created (e.g.
+   *                the model is baked into the image or into a PVC
+   *                initialization path that cannot be re-run cleanly).
+   *
+   * Dispatched by services/configSync.ts. The lifecycle layer uses this
+   * to decide whether to trigger a deployment restart or just write the
+   * new config.
+   */
+  modelSwitch: "hot" | "restart" | "recreate";
 }
 
 // ─── Runtime Handler Interface ────────────────────────────────────────
@@ -247,4 +280,51 @@ export interface RuntimeHandler {
    * ZeroClaw has no special requirements and always returns null.
    */
   validateCreate(input: Partial<DeploymentFields>): string | null;
+
+  /**
+   * Optional per-runtime K8s probe configuration.
+   *
+   * When undefined, the lifecycle layer uses its default probe shape
+   * (currently an `httpGet: /healthz` probe on the runtime container
+   * at the gateway port).
+   *
+   * When defined, the returned object's `liveness` / `readiness` /
+   * `startup` probes are used verbatim in the pod spec. Handlers that
+   * only want to change one probe can return just that key — the
+   * lifecycle layer falls back to the default for unset probes.
+   *
+   * The `ctx.port` argument is the gateway port the lifecycle layer
+   * computed from `RUNTIME_PORTS` / `config.containerPort`. Handlers
+   * should use it rather than hard-coding a port so port overrides
+   * continue to work.
+   *
+   * Runtime-agnostic probe shape (`RuntimeProbe`) keeps this module
+   * free of `@kubernetes/client-node` imports; the lifecycle layer
+   * coerces to `V1Probe` at the call site.
+   */
+  getProbes?(ctx: { port: number }): {
+    liveness?: RuntimeProbe;
+    readiness?: RuntimeProbe;
+    startup?: RuntimeProbe;
+  };
+}
+
+/**
+ * Runtime-agnostic K8s probe shape. Kept loose on purpose so this module
+ * doesn't depend on @kubernetes/client-node. The lifecycle layer coerces
+ * these into V1Probe at the call site (JAR-119).
+ */
+export interface RuntimeProbe {
+  httpGet?: {
+    path: string;
+    port: number | string;
+    scheme?: "HTTP" | "HTTPS";
+  };
+  exec?: { command: string[] };
+  tcpSocket?: { port: number | string };
+  initialDelaySeconds?: number;
+  periodSeconds?: number;
+  timeoutSeconds?: number;
+  failureThreshold?: number;
+  successThreshold?: number;
 }

@@ -576,6 +576,22 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<ConfigSyncRe
       log.info({ deploymentId }, "ConfigSync: agents.list detected in openclaw.json, escalating to Tier 2");
     }
 
+    // JAR-119 Phase 2 — dispatch on runtime capability.modelSwitch.
+    // A runtime declaring modelSwitch: "recreate" cannot handle in-place
+    // env-var updates (e.g. the model is baked into the image or into a
+    // PVC initialization path). Force Tier 3 (full pod recreate) by
+    // flagging both changed + removed. OpenClaw and ZeroClaw both declare
+    // "restart" today, so existing deployments are unaffected.
+    const runtimeHandlerForSync = getHandlerOrNull(deployment.runtime);
+    const modelSwitchMode = runtimeHandlerForSync?.capabilities?.modelSwitch;
+    if (modelSwitchMode === "recreate" && comparison.changed) {
+      log.info(
+        { deploymentId, runtime: deployment.runtime, modelSwitchMode },
+        "ConfigSync: runtime declares modelSwitch='recreate', escalating to Tier 3"
+      );
+      comparison.removed = true;
+    }
+
     if (!comparison.changed) {
       // ── Tier 1: File-only change (zero downtime) ──────────────────────
       // Secrets are unchanged - update the ConfigMap (source of truth for

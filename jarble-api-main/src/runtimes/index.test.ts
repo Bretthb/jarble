@@ -90,6 +90,15 @@ describe("Runtime registry", () => {
     expect(typeof handler.capabilities.hasSkills).toBe("boolean");
     expect(typeof handler.capabilities.hasSystemPrompt).toBe("boolean");
 
+    // JAR-119 Phase 2 — new capability flags must all be declared.
+    expect(typeof handler.capabilities.nativeCanvas).toBe("boolean");
+    expect(["hot", "restart", "recreate"]).toContain(
+      handler.capabilities.modelSwitch,
+    );
+    if (handler.capabilities.canvasProtocol !== undefined) {
+      expect(typeof handler.capabilities.canvasProtocol).toBe("string");
+    }
+
     // Config file specs — should be an array (may be empty for runtimes
     // that don't render any files, but the property must exist)
     expect(Array.isArray(handler.configFiles)).toBe(true);
@@ -181,6 +190,26 @@ describe("Runtime registry", () => {
     const handler = getHandler(slug);
     const result = handler.validateCreate(minimalDeployment(slug));
     expect(result === null || typeof result === "string").toBe(true);
+  });
+
+  // JAR-119 Phase 2 — optional getProbes hook.
+  it.each(slugs)("'%s' getProbes (if defined) returns a probe object", (slug) => {
+    const handler = getHandler(slug);
+    if (!handler.getProbes) return; // optional — default /healthz probes apply
+    const result = handler.getProbes({ port: 18789 });
+    expect(result).toBeDefined();
+    expect(typeof result).toBe("object");
+    // At least one probe must be returned; each probe must have exactly
+    // one of httpGet / exec / tcpSocket.
+    const probes = [result.liveness, result.readiness, result.startup].filter(
+      (p) => p !== undefined,
+    );
+    expect(probes.length).toBeGreaterThan(0);
+    for (const probe of probes) {
+      const hasExactlyOneAction =
+        [probe.httpGet, probe.exec, probe.tcpSocket].filter(Boolean).length === 1;
+      expect(hasExactlyOneAction).toBe(true);
+    }
   });
 });
 

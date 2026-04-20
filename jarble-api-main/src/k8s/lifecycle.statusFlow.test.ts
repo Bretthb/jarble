@@ -103,6 +103,13 @@ vi.mock("./operator.js", () => ({
   deleteOpenClawInstance: vi.fn().mockResolvedValue(undefined),
 }));
 
+// JAR-119 — lifecycle.ts now imports getHandlerOrNull to consult the runtime
+// handler for custom probes. Avoid pulling in the real runtime registry
+// (which triggers env loads) by mocking it out.
+vi.mock("../runtimes/index.js", () => ({
+  getHandlerOrNull: () => null,
+}));
+
 // Import AFTER vi.mock so the mocks are wired up first.
 import { createDeployment } from "./lifecycle.js";
 
