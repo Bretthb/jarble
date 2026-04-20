@@ -99,6 +99,26 @@ describe("Runtime registry", () => {
       expect(typeof handler.capabilities.canvasProtocol).toBe("string");
     }
 
+    // JAR-120 Phase 3 — ingress descriptor (optional) must have valid shape.
+    if (handler.capabilities.ingress !== undefined) {
+      expect(typeof handler.capabilities.ingress.port).toBe("number");
+      expect(handler.capabilities.ingress.port).toBeGreaterThan(0);
+      expect(["gateway-token", "bearer-header", "none"]).toContain(
+        handler.capabilities.ingress.authStrategy,
+      );
+    }
+
+    // JAR-120 Phase 3 — topology descriptor is required.
+    expect(handler.topology).toBeDefined();
+    expect(["k8s-deployment", "operator-crd"]).toContain(handler.topology.kind);
+    expect(typeof handler.topology.containerName).toBe("string");
+    expect(handler.topology.containerName.length).toBeGreaterThan(0);
+    expect(typeof handler.topology.pvcMountPath).toBe("string");
+    expect(handler.topology.pvcMountPath.startsWith("/")).toBe(true);
+    if (handler.topology.kind === "operator-crd") {
+      expect(typeof handler.topology.operatorGroupVersion).toBe("string");
+    }
+
     // Config file specs — should be an array (may be empty for runtimes
     // that don't render any files, but the property must exist)
     expect(Array.isArray(handler.configFiles)).toBe(true);

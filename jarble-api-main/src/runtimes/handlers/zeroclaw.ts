@@ -43,6 +43,15 @@ const capabilities: RuntimeCapabilities = {
   // gateway binary, so model swaps are restart-based in v1. A future
   // patch could move LLM creds to a hot-reloadable config file.
   modelSwitch: "restart",
+  // JAR-120 Phase 3 — ingress descriptor
+  // ZeroClaw's gateway listens on 3000 (our Dockerfile override; upstream
+  // default is 42617). Auth is a pairing-code → Bearer flow (JAR-123 spike
+  // will verify automation). No iframe-specific middleware needed yet
+  // since the Control Panel v1 for ZeroClaw will use text-only fallback.
+  ingress: {
+    port: 3000,
+    authStrategy: "bearer-header",
+  },
 };
 
 // JAR-119 Phase 2 — probe override.
@@ -80,6 +89,12 @@ export const zeroclawHandler: RuntimeHandler = {
   capabilities,
   configFiles,
   getProbes,
+  // JAR-120 Phase 3 — default topology for ZeroClaw.
+  topology: {
+    kind: "k8s-deployment",
+    containerName: "zeroclaw",
+    pvcMountPath: "/data",
+  },
 
   renderConfigs(deployment: DeploymentFields): ConfigFile[] {
     log.debug({ deploymentId: deployment.name }, "renderConfigs");

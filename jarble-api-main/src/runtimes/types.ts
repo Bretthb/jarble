@@ -188,6 +188,32 @@ export interface RuntimeCapabilities {
    * new config.
    */
   modelSwitch: "hot" | "restart" | "recreate";
+
+  // ─── JAR-120 — Phase 3 capability additions ──────────────────────────
+  /**
+   * How the platform should wire up ingress + auth for this runtime's
+   * per-deployment pod.
+   *
+   * - `port`: the HTTP port the gateway listens on inside the pod
+   *   (replaces the hard-coded 18789 in k8s/lifecycle.ts).
+   * - `authStrategy`: which Traefik forward-auth flow to attach.
+   *   - `"gateway-token"` — OpenClaw's Ed25519-signed cookie flow via
+   *     `jarble-agent-forward-auth@kubernetescrd` (current default).
+   *   - `"bearer-header"` — runtime accepts `Authorization: Bearer` and
+   *     the platform provisions a token at boot (e.g. ZeroClaw pairing).
+   *   - `"none"` — no platform-side auth; the runtime handles its own.
+   * - `extraMiddlewares`: additional Traefik middleware refs appended
+   *   after the auth strategy (e.g. `jarble-strip-frame-deny` for
+   *   runtimes that need iframe-friendly headers).
+   *
+   * Undefined means "use the current OpenClaw defaults" — this keeps
+   * every existing deployment working without a migration.
+   */
+  ingress?: {
+    port: number;
+    authStrategy: "gateway-token" | "bearer-header" | "none";
+    extraMiddlewares?: string[];
+  };
 }
 
 // ─── Runtime Handler Interface ────────────────────────────────────────
@@ -249,6 +275,24 @@ export interface RuntimeHandler {
   readonly configFiles: ConfigFileSpec[];
 
   /**
+   * JAR-120 — default deployment topology for this runtime.
+   *
+   * - `kind`: `"k8s-deployment"` (plain K8s Deployment + Service) or
+   *   `"operator-crd"` (a custom-resource-based deployment, e.g.
+   *   OpenClaw's OpenClawInstance CRD).
+   * - `operatorGroupVersion`: required when `kind === "operator-crd"`.
+   *   Format: `"group/version"`, e.g. `"openclaw.rocks/v1alpha1"`.
+   * - `containerName`: the container name inside the pod (used by
+   *   `kubectl exec`, log tailing, etc.).
+   * - `pvcMountPath`: where `/data` is mounted inside the pod.
+   *
+   * OpenClaw's existing legacy/operator branching is keyed on the
+   * per-deployment `managedBy` DB column — that column survives as an
+   * override. When unset, the K8s layer uses this `topology` default.
+   */
+  readonly topology: RuntimeTopology;
+
+  /**
    * Render DB fields into config files to write to the PVC.
    * Returns an array of files with their paths and contents.
    * Called on: deployment create, config update from frontend.
@@ -269,8 +313,47 @@ export interface RuntimeHandler {
    * ADDITIONAL entries specific to this runtime.
    *
    * Example: OpenClaw needs OPENROUTER_API_KEY, LLM_PROVIDER, LLM_MODEL.
+   *
+   * ## JAR-120 — split helpers (optional)
+   *
+   * `getSecretEntries` is the default aggregator. Handlers MAY also
+   * implement `getLlmSecrets` / `getRuntimeSecrets` / `getPlatformSecrets`
+   * as a structured split. When present, the K8s layer can compose the
+   * aggregate via the splits and / or inspect them in isolation.
+   *
+   * The split is useful for two cases:
+   *  1. Non-LLM runtimes returning `{}` from `getLlmSecrets` (so the
+   *     K8s Secret does not get `LLM_*` envs unnecessarily).
+   *  2. Platform-side audits (e.g. "how many runtimes use Anthropic?")
+   *     can inspect `getLlmSecrets` output without reading unrelated
+   *     gateway / platform credentials.
+   *
+   * When only `getSecretEntries` is implemented, the splits are treated
+   * as empty — existing OpenClaw behavior is preserved.
    */
   getSecretEntries(deployment: DeploymentFields): Record<string, string>;
+
+  /**
+   * Optional — LLM provider / model / API-key envs. When present, the
+   * K8s layer may compose the Secret from {llm, runtime, platform}
+   * splits rather than relying on the flat `getSecretEntries`.
+   * OpenClaw: OPENROUTER_API_KEY, LLM_PROVIDER, LLM_MODEL.
+   * Non-LLM runtimes: `{}`.
+   */
+  getLlmSecrets?(deployment: DeploymentFields): Record<string, string>;
+
+  /**
+   * Optional — runtime-internal envs that are not LLM and not platform
+   * credentials (e.g. OpenClaw's GATEWAY_TOKEN, ZeroClaw's PROVIDER).
+   */
+  getRuntimeSecrets?(deployment: DeploymentFields): Record<string, string>;
+
+  /**
+   * Optional — platform-credential envs (Discord / Telegram / WhatsApp
+   * tokens). OpenClaw maps these via `platformCredentials` on the
+   * deployment row. Runtimes without messaging can return `{}`.
+   */
+  getPlatformSecrets?(deployment: DeploymentFields): Record<string, string>;
 
   /**
    * Validate deployment input at creation time.
@@ -307,6 +390,18 @@ export interface RuntimeHandler {
     readiness?: RuntimeProbe;
     startup?: RuntimeProbe;
   };
+}
+
+/**
+ * Runtime deployment topology (JAR-120).
+ * Declarative shape the K8s layer dispatches on instead of the
+ * legacy per-deployment `managedBy` branch.
+ */
+export interface RuntimeTopology {
+  kind: "k8s-deployment" | "operator-crd";
+  operatorGroupVersion?: string;
+  containerName: string;
+  pvcMountPath: string;
 }
 
 /**
