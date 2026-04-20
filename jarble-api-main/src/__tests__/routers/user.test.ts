@@ -116,7 +116,9 @@ function caller() {
     name: "Test User",
     auth0Id: ctx.testAuth0Id,
     emailVerified: true,
-  });
+    // role is exposed via user.me (JAR-33 safe-field allow-list)
+    role: "user",
+  } as any);
 }
 
 function anonCaller() {
@@ -129,29 +131,54 @@ describe("user router", () => {
   // ── user.me ────────────────────────────────────────────────────────────────
 
   describe("me", () => {
-    it("should return the current user from context", async () => {
+    it("should return only safe fields from context", async () => {
       const result = await caller().user.me();
-      expect(result).toBeDefined();
-      expect(result!.id).toBe(ctx.testUserId);
-      expect(result!.email).toBe("test@jarble.ai");
+      expect(result).toEqual({
+        id: ctx.testUserId,
+        email: "test@jarble.ai",
+        name: "Test User",
+        emailVerified: true,
+        role: "user",
+      });
     });
 
-    it("should return null for anonymous user", async () => {
-      const result = await anonCaller().user.me();
-      expect(result).toBeNull();
+    it("should not leak internal identifiers (JAR-33)", async () => {
+      const result = await caller().user.me();
+      // The pre-JAR-33 implementation returned the full ctx.user object,
+      // which included auth0Id. That is no longer acceptable.
+      expect(result).not.toHaveProperty("auth0Id");
+      expect(result).not.toHaveProperty("stripeCustomerId");
+      expect(result).not.toHaveProperty("pendingStripeSubscriptionId");
+    });
+
+    it("should reject unauthenticated calls (JAR-33: was publicProcedure)", async () => {
+      // Behaviour change: previously returned null, now throws 401.
+      // Frontend grep confirms no consumer relied on the null case.
+      await expect(anonCaller().user.me()).rejects.toThrow();
     });
   });
 
   // ── user.getProfile ────────────────────────────────────────────────────────
 
   describe("getProfile", () => {
-    it("should return the full user profile from DB", async () => {
+    it("should return safe user profile columns", async () => {
       const result = await caller().user.getProfile();
       expect(result).toBeDefined();
       expect(result!.id).toBe(ctx.testUserId);
       expect(result!.email).toBe("test@jarble.ai");
       expect(result!.name).toBe("Test User");
-      expect(result!.auth0Id).toBe(ctx.testAuth0Id);
+    });
+
+    it("should not leak internal identifiers (JAR-33)", async () => {
+      const result = await caller().user.getProfile();
+      // Fields explicitly excluded from SAFE_PROFILE_COLUMNS. Drizzle's
+      // column allow-list means they are absent from the result object
+      // entirely, not just undefined.
+      expect(result).not.toHaveProperty("auth0Id");
+      expect(result).not.toHaveProperty("stripeCustomerId");
+      expect(result).not.toHaveProperty("pendingStripeSubscriptionId");
+      expect(result).not.toHaveProperty("freeDeploymentUsed");
+      expect(result).not.toHaveProperty("freeTrialExpiresAt");
     });
 
     it("should reject unauthenticated calls", async () => {
@@ -172,6 +199,15 @@ describe("user router", () => {
       await caller().user.updateProfile({ name: "Persisted Name" });
       const profile = await caller().user.getProfile();
       expect(profile!.name).toBe("Persisted Name");
+    });
+
+    it("should not leak internal identifiers in the return value (JAR-33)", async () => {
+      const result = await caller().user.updateProfile({ name: "Safe" });
+      expect(result).not.toHaveProperty("auth0Id");
+      expect(result).not.toHaveProperty("stripeCustomerId");
+      expect(result).not.toHaveProperty("pendingStripeSubscriptionId");
+      expect(result).not.toHaveProperty("freeDeploymentUsed");
+      expect(result).not.toHaveProperty("freeTrialExpiresAt");
     });
 
     it("should reject empty name", async () => {
@@ -199,6 +235,18 @@ describe("user router", () => {
       });
       expect(result).toBeDefined();
       expect(result!.name).toBe("John Doe");
+    });
+
+    it("should not leak internal identifiers in the return value (JAR-33)", async () => {
+      const result = await caller().user.completeProfile({
+        firstName: "Jane",
+        lastName: "Safe",
+      });
+      expect(result).not.toHaveProperty("auth0Id");
+      expect(result).not.toHaveProperty("stripeCustomerId");
+      expect(result).not.toHaveProperty("pendingStripeSubscriptionId");
+      expect(result).not.toHaveProperty("freeDeploymentUsed");
+      expect(result).not.toHaveProperty("freeTrialExpiresAt");
     });
 
     it("should reject missing firstName", async () => {
