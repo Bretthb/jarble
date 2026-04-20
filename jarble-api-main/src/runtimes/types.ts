@@ -177,10 +177,38 @@ export interface RuntimeHandler {
 
   /**
    * Whether this runtime supports native subagent execution.
+   *
    * When true, subagent config is rendered as runtime-native agent definitions
-   * (e.g., OpenClaw agents.list + sessions_spawn). The API skips the legacy
-   * collectLlmCompletion interception path for subagent delegations.
-   * When false/undefined, subagents use the legacy API-side LLM call path.
+   * and the API skips the legacy collectLlmCompletion interception path for
+   * subagent delegations. When false/undefined, subagents use the legacy
+   * API-side LLM call path.
+   *
+   * ## Contract for non-OpenClaw subagent models
+   *
+   * `DeploymentFields.subagents[]` is a platform-agnostic list of subagents
+   * with slug / name / description / systemPrompt / model / triggerType /
+   * triggerConfig / tools / source. A runtime may set
+   * `supportsNativeSubagents: true` as long as its `renderConfigs()`
+   * translates that list into whatever native shape the runtime expects.
+   * Examples:
+   *
+   * - **OpenClaw** — renders subagents into `agents.list` + `sessions_spawn`
+   *   MCP tool defs under `subagent-tools.json` (the reference implementation).
+   * - **CrewAI-style runtime** — would render subagents as a `Crew` YAML with
+   *   one `Agent` per entry, each with their own role + goal + tools.
+   * - **AutoGen-style runtime** — would render subagents as the participant
+   *   list of a `GroupChat` with system-prompt-per-agent.
+   * - **Character-based runtime (e.g. ElizaOS)** — would render subagents as
+   *   additional characters in the `character.json` multi-character setup.
+   *
+   * The flag is a declaration that the runtime handles subagent routing
+   * itself. The API layer does not care how the runtime implements it —
+   * it only stops intercepting delegation calls.
+   *
+   * When false or undefined, the API falls back to its own LLM-call path
+   * for each subagent, using `DeploymentFields.subagents[]` entries as
+   * prompts + tool lists. This is the default because not every runtime
+   * has a native multi-agent primitive.
    */
   readonly supportsNativeSubagents?: boolean;
 
