@@ -82,6 +82,16 @@ In `tamboAgent.ts`, blocks from `executeDelegation` are forwarded directly as `T
 **Why:** Confirmed Apr 2026 canvas forwarding PR review.
 **How to apply:** Any place that emits a TOOL_CALL event with `block.props` should call `resolveUIBlocks()` on the block first, or document that only built-in components are expected.
 
+**`user.me` and similar tRPC procedures returning raw DB rows must use an explicit column allow-list.**
+`protectedProcedure` with `({ ctx }) => ctx.user` or `findFirst({ where: ... })` (no `columns:`) returns every column the ORM mapped, including `auth0Id`, `stripeCustomerId`, `pendingStripeSubscriptionId`. Use a `SAFE_PROFILE_COLUMNS` const passed to `columns:` and hand-construct the returned object for in-memory shapes.
+**Why:** Confirmed JAR-33 security audit — `user.me` was `publicProcedure` returning the full `ctx.user` row.
+**How to apply:** Flag any `findFirst`/`findMany` in a tRPC router that lacks `columns:`, and any procedure that returns `ctx.user` directly.
+
+**`updateProfile` and `completeProfile` mutation return paths must also use `SAFE_PROFILE_COLUMNS`.**
+After the JAR-33 fix, `getProfile` and `me` were filtered but `updateProfile` and `completeProfile` still return unfiltered rows from `findFirst({ where: ... })`. These are protectedProcedures so the blast radius is per-user only, but the pattern is inconsistent — a future copy of this code in a less-restricted context would leak.
+**Why:** Noted during JAR-33 review Apr 2026.
+**How to apply:** After any `update(users).set(...)`, the return `findFirst` call must include `columns: SAFE_PROFILE_COLUMNS`.
+
 **MCP server tokens must never be committed to `.claude/settings.json`.**
 Claude Code's `.claude/settings.json` is explicitly un-gitignored (committed via `.gitignore` `!.claude/settings.json` exception). Any MCP server configured there with a hardcoded `--access-token` or `--bearer-token` arg will be committed. The Sentry DSN token (`sntryu_*`) and Vercel bearer token (`vcp_*`) were introduced in this file. Use `settings.local.json` (gitignored) for tokens, or pass via environment variables using the MCP server's `env` block.
 **Why:** Tokens in committed files are in git history forever even after removal.

@@ -63,12 +63,23 @@ const allowedOrigins = [
   ...env.ALLOWED_ORIGINS,
 ];
 
+// The API's own public origin. The admin-proxy serves the OpenClaw SPA
+// in an iframe whose origin IS api.jarble.ai; its `<script crossorigin>`
+// tags then fetch assets with `Origin: https://api.jarble.ai`. Without
+// this self-origin in the CORS allowlist, the browser blocks every asset
+// request and the Control UI never loads.
+const selfOriginRegex = /^https:\/\/api\.jarble\.ai$/;
+
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (like mobile apps or curl)
     if (!origin) return callback(null, true);
 
     if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else if (selfOriginRegex.test(origin)) {
+      // Allow same-origin: the admin-proxy iframe loads `<script crossorigin>`
+      // asset tags whose requests come with Origin: https://api.jarble.ai.
       callback(null, true);
     } else if (/^https:\/\/[a-zA-Z0-9_-]+\.agents\.jarble\.ai$/.test(origin)) {
       // Allow per-deployment agent subdomains (for cookie-based auth)
