@@ -441,6 +441,22 @@ function WorkspacePage({
 
           <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto scrollbar-none">
             <EssentialControls deploymentId={deploymentId} status={liveStatus} />
+            {/* Files is universal: the PVC is Jarble-layer storage and every
+                runtime reads from it, regardless of whether it ships its own UI. */}
+            <Button
+              variant={filesOpen ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => {
+                setFilesOpen((v) => {
+                  if (!v) { setHistoryOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
+                  return !v;
+                });
+              }}
+              className="h-8 w-8 p-0 shrink-0 hidden sm:flex"
+              title="Files"
+            >
+              <FolderOpen className="w-4 h-4" />
+            </Button>
             {!hasNativeUi && (
               <>
                 <div className="w-px h-5 bg-border/60 hidden sm:block" />
@@ -479,20 +495,6 @@ function WorkspacePage({
                   <MessageSquareText className="w-4 h-4" />
                 </Button>
                 {/* Team Sessions removed — now integrated into Conversation History panel */}
-                <Button
-                  variant={filesOpen ? "secondary" : "ghost"}
-                  size="sm"
-                  onClick={() => {
-                    setFilesOpen((v) => {
-                      if (!v) { setHistoryOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
-                      return !v;
-                    });
-                  }}
-                  className="h-8 w-8 p-0 shrink-0 hidden sm:flex"
-                  title="Files"
-                >
-                  <FolderOpen className="w-4 h-4" />
-                </Button>
                 <Button
                   variant={knowledgeOpen ? "secondary" : "ghost"}
                   size="sm"
