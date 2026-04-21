@@ -457,6 +457,22 @@ function WorkspacePage({
             >
               <FolderOpen className="w-4 h-4" />
             </Button>
+            {/* Knowledge Base is universal: RAG docs live on the PVC and
+                every runtime queries them regardless of its UI. */}
+            <Button
+              variant={knowledgeOpen ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() => {
+                setKnowledgeOpen((v) => {
+                  if (!v) { setFilesOpen(false); setHistoryOpen(false); setSubagentsOpen(false); }
+                  return !v;
+                });
+              }}
+              className="h-8 w-8 p-0 shrink-0 hidden sm:flex"
+              title="Knowledge Base"
+            >
+              <Brain className="w-4 h-4" />
+            </Button>
             {!hasNativeUi && (
               <>
                 <div className="w-px h-5 bg-border/60 hidden sm:block" />
@@ -495,20 +511,6 @@ function WorkspacePage({
                   <MessageSquareText className="w-4 h-4" />
                 </Button>
                 {/* Team Sessions removed — now integrated into Conversation History panel */}
-                <Button
-                  variant={knowledgeOpen ? "secondary" : "ghost"}
-                  size="sm"
-                  onClick={() => {
-                    setKnowledgeOpen((v) => {
-                      if (!v) { setFilesOpen(false); setHistoryOpen(false); setSubagentsOpen(false); }
-                      return !v;
-                    });
-                  }}
-                  className="h-8 w-8 p-0 shrink-0 hidden sm:flex"
-                  title="Knowledge Base"
-                >
-                  <Brain className="w-4 h-4" />
-                </Button>
                 <SubagentsBadgeButton
                   deploymentId={deploymentId}
                   isOpen={subagentsOpen}
