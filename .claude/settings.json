@@ -88,12 +88,6 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Edit|Write",
-        "hooks": [
-          { "type": "command", "command": "node .claude/hooks/block-lockfiles.js" }
-        ]
-      },
-      {
         "matcher": "Bash",
         "hooks": [
           { "type": "command", "command": "node .claude/hooks/scan-secrets.js" },
@@ -102,12 +96,6 @@
       }
     ],
     "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          { "type": "command", "command": "node .claude/hooks/format.js" }
-        ]
-      },
       {
         "matcher": "Edit|Write|Bash",
         "hooks": [
