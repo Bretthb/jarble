@@ -203,6 +203,14 @@ export default function DeploymentChatPage() {
     { enabled: isAuthenticated && !authLoading }
   );
 
+  const runtimeSlug = (deploymentQuery.data as any)?.runtime ?? "";
+  const capsQuery = trpc.runtimeCatalog.getCapabilities.useQuery(
+    { slug: runtimeSlug },
+    { enabled: !!runtimeSlug }
+  );
+  const hasNativeUi =
+    capsQuery.data?.capabilities?.nativeUi?.mode === "iframe";
+
   const { getStatus: getLiveStatus } = useStatusStream({
     enabled: isAuthenticated && !authLoading,
   });
@@ -310,6 +318,7 @@ export default function DeploymentChatPage() {
           liveStatus={liveStatus}
           themeConfig={(deployment as any).themeConfig}
           memoryScope={(deployment as any).memoryScope ?? "global"}
+          hasNativeUi={hasNativeUi}
           onRefetchDeployment={() => deploymentQuery.refetch()}
         />
       </DeploymentTamboProvider>
@@ -325,6 +334,7 @@ function WorkspacePage({
   liveStatus,
   themeConfig,
   memoryScope,
+  hasNativeUi,
   onRefetchDeployment,
 }: {
   deploymentId: string;
@@ -335,6 +345,10 @@ function WorkspacePage({
    *  CanvasWorkspace which renders the disclosure banner. Defaults
    *  to "global" if the deployment record predates the column. */
   memoryScope?: string | null;
+  /** JAR-128: when the runtime ships its own web UI (iframe nativeUi mode),
+   *  hide the Jarble chat/canvas/subagents/files/knowledge/history panels
+   *  and default to the Control Panel surface. */
+  hasNativeUi?: boolean;
   onRefetchDeployment?: () => void;
 }) {
   const router = useRouter();
@@ -346,7 +360,9 @@ function WorkspacePage({
   const [teamsOpen, setTeamsOpen] = useState(false);
   const [teamSessionsOpen, setTeamSessionsOpen] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
-  const [chatMode, setChatMode] = useState<"workspace" | "webui">("workspace");
+  const [chatMode, setChatMode] = useState<"workspace" | "webui">(
+    hasNativeUi ? "webui" : "workspace"
+  );
   // chatMode is declared here in WorkspacePage and passed to CanvasWorkspace
   const [liveThemeConfig, setLiveThemeConfig] = useState(themeConfig);
   // Track whether theme was set by SSE (takes priority over prop sync for 5s)
@@ -418,80 +434,84 @@ function WorkspacePage({
 
           <div className="flex items-center gap-1 sm:gap-2 overflow-x-auto scrollbar-none">
             <EssentialControls deploymentId={deploymentId} status={liveStatus} />
-            <div className="w-px h-5 bg-border/60 hidden sm:block" />
-            {/* Chat mode toggle: Workspace (Jarble canvas) vs Control Panel */}
-            <div className="flex items-center bg-muted rounded-md p-0.5 gap-0.5">
-              <Button
-                variant={chatMode === "workspace" ? "secondary" : "ghost"}
-                size="sm"
-                className="h-7 px-2 text-xs"
-                onClick={() => setChatMode("workspace")}
-              >
-                Workspace
-              </Button>
-              <Button
-                variant={chatMode === "webui" ? "secondary" : "ghost"}
-                size="sm"
-                className="h-7 px-2 text-xs"
-                onClick={() => setChatMode("webui")}
-              >
-                Control Panel
-              </Button>
-            </div>
-            <div className="w-px h-5 bg-border/60 hidden sm:block" />
-            <Button
-              variant={historyOpen ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => {
-                setHistoryOpen((v) => {
-                  if (!v) { setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
-                  return !v;
-                });
-              }}
-              className="h-8 w-8 p-0 shrink-0"
-              title="Conversation history"
-            >
-              <MessageSquareText className="w-4 h-4" />
-            </Button>
-            {/* Team Sessions removed — now integrated into Conversation History panel */}
-            <Button
-              variant={filesOpen ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => {
-                setFilesOpen((v) => {
-                  if (!v) { setHistoryOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
-                  return !v;
-                });
-              }}
-              className="h-8 w-8 p-0 shrink-0 hidden sm:flex"
-              title="Files"
-            >
-              <FolderOpen className="w-4 h-4" />
-            </Button>
-            <Button
-              variant={knowledgeOpen ? "secondary" : "ghost"}
-              size="sm"
-              onClick={() => {
-                setKnowledgeOpen((v) => {
-                  if (!v) { setFilesOpen(false); setHistoryOpen(false); setSubagentsOpen(false); }
-                  return !v;
-                });
-              }}
-              className="h-8 w-8 p-0 shrink-0 hidden sm:flex"
-              title="Knowledge Base"
-            >
-              <Brain className="w-4 h-4" />
-            </Button>
-            <SubagentsBadgeButton
-              deploymentId={deploymentId}
-              isOpen={subagentsOpen}
-              onClick={() => {
-                setSubagentsOpen((v) => {
-                  if (!v) { setFilesOpen(false); setKnowledgeOpen(false); setHistoryOpen(false); setTeamsOpen(false); }
-                  return !v;
-                });
-              }}
-            />
+            {!hasNativeUi && (
+              <>
+                <div className="w-px h-5 bg-border/60 hidden sm:block" />
+                {/* Chat mode toggle: Workspace (Jarble canvas) vs Control Panel */}
+                <div className="flex items-center bg-muted rounded-md p-0.5 gap-0.5">
+                  <Button
+                    variant={chatMode === "workspace" ? "secondary" : "ghost"}
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setChatMode("workspace")}
+                  >
+                    Workspace
+                  </Button>
+                  <Button
+                    variant={chatMode === "webui" ? "secondary" : "ghost"}
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setChatMode("webui")}
+                  >
+                    Control Panel
+                  </Button>
+                </div>
+                <div className="w-px h-5 bg-border/60 hidden sm:block" />
+                <Button
+                  variant={historyOpen ? "secondary" : "ghost"}
+                  size="sm"
+                  onClick={() => {
+                    setHistoryOpen((v) => {
+                      if (!v) { setFilesOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
+                      return !v;
+                    });
+                  }}
+                  className="h-8 w-8 p-0 shrink-0"
+                  title="Conversation history"
+                >
+                  <MessageSquareText className="w-4 h-4" />
+                </Button>
+                {/* Team Sessions removed — now integrated into Conversation History panel */}
+                <Button
+                  variant={filesOpen ? "secondary" : "ghost"}
+                  size="sm"
+                  onClick={() => {
+                    setFilesOpen((v) => {
+                      if (!v) { setHistoryOpen(false); setKnowledgeOpen(false); setSubagentsOpen(false); }
+                      return !v;
+                    });
+                  }}
+                  className="h-8 w-8 p-0 shrink-0 hidden sm:flex"
+                  title="Files"
+                >
+                  <FolderOpen className="w-4 h-4" />
+                </Button>
+                <Button
+                  variant={knowledgeOpen ? "secondary" : "ghost"}
+                  size="sm"
+                  onClick={() => {
+                    setKnowledgeOpen((v) => {
+                      if (!v) { setFilesOpen(false); setHistoryOpen(false); setSubagentsOpen(false); }
+                      return !v;
+                    });
+                  }}
+                  className="h-8 w-8 p-0 shrink-0 hidden sm:flex"
+                  title="Knowledge Base"
+                >
+                  <Brain className="w-4 h-4" />
+                </Button>
+                <SubagentsBadgeButton
+                  deploymentId={deploymentId}
+                  isOpen={subagentsOpen}
+                  onClick={() => {
+                    setSubagentsOpen((v) => {
+                      if (!v) { setFilesOpen(false); setKnowledgeOpen(false); setHistoryOpen(false); setTeamsOpen(false); }
+                      return !v;
+                    });
+                  }}
+                />
+              </>
+            )}
             <TeamsBadgeButton
               deploymentId={deploymentId}
               isOpen={teamsOpen}
