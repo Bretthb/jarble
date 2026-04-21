@@ -1153,10 +1153,17 @@ function CanvasWorkspace({
   );
 }
 
-// ── OpenClaw Control Panel — iframe via direct subdomain ─────────────────────
-// Each deployment gets https://{id}.agents.jarble.ai via Traefik ingress.
-// Auth: signed cookie acquired via /api/auth/agent-session before iframe loads.
-// Traefik forward auth verifies cookie + injects gateway token on every request.
+// ── OpenClaw Control Panel — iframe via adminProxy ───────────────────────────
+// Loads the pod's Control UI through the API proxy at
+// `/api/deployments/:id/admin/`. The adminProxy:
+//   - Authenticates the initial page load with the JWT (?token=)
+//   - Issues a scoped HttpOnly session cookie for sub-resource fetches
+//   - Rewrites in-page fetch() calls to pod-internal URLs back through the proxy
+// The direct-subdomain path (`{id}.agents.jarble.ai`) required a signed cookie
+// on `.agents.jarble.ai`, but cross-origin cookies set from `api.jarble.ai`
+// are rejected by RFC 6265 so the forward-auth check always 401'd.
+// The adminProxy path is same-origin (api.jarble.ai) end-to-end so the cookie
+// issue does not apply.
 
 function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
   const [iframeSrc, setIframeSrc] = useState<string | null>(null);
@@ -1166,44 +1173,18 @@ function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
     let cancelled = false;
     (async () => {
       try {
-        // Use the shared token getter (same one tRPC uses — handles refresh gracefully)
         const { getToken } = await import("@/lib/trpc-vanilla");
         const jwt = await getToken();
-
         if (!jwt) {
-          // No token available — try loading iframe with existing cookie
-          if (!cancelled) setIframeSrc(`https://${deploymentId}.agents.jarble.ai`);
+          if (!cancelled) setError("Not authenticated");
           return;
         }
 
-        // Acquire signed cookie for *.agents.jarble.ai
-        const sessionRes = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/auth/agent-session`,
-          {
-            method: "POST",
-            credentials: "include",
-            headers: {
-              Authorization: `Bearer ${jwt}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({ deploymentId }),
-          },
-        );
-
-        if (sessionRes.status === 403) {
-          const body = await sessionRes.json();
-          if (body.error === "mfa_required") {
-            if (!cancelled) setError("MFA verification required for agent access");
-            return;
-          }
-        }
-
-        // Get gateway token for WS auto-connect (HTTP auth is via cookie,
-        // but the SPA's WebSocket needs the token in the URL hash)
+        const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
         let gatewayToken = "";
         try {
           const tokenRes = await fetch(
-            `${process.env.NEXT_PUBLIC_API_URL}/api/deployments/${deploymentId}/admin-token`,
+            `${apiBase}/api/deployments/${deploymentId}/admin-token`,
             { headers: { Authorization: `Bearer ${jwt}` } },
           );
           if (tokenRes.ok) {
@@ -1212,9 +1193,15 @@ function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
           }
         } catch { /* non-fatal — SPA will show connect dialog */ }
 
+        const apiHost = apiBase.replace(/^https?:\/\//, "");
+        const wsProto = apiBase.startsWith("https") ? "wss" : "ws";
+        const gatewayWsUrl = `${wsProto}://${apiHost}/ws/admin?deploymentId=${encodeURIComponent(deploymentId)}`;
+
         if (!cancelled) {
           const hash = gatewayToken ? `#token=${gatewayToken}` : "";
-          setIframeSrc(`https://${deploymentId}.agents.jarble.ai${hash}`);
+          setIframeSrc(
+            `${apiBase}/api/deployments/${deploymentId}/admin/?token=${encodeURIComponent(jwt)}&gatewayUrl=${encodeURIComponent(gatewayWsUrl)}${hash}`,
+          );
         }
       } catch {
         if (!cancelled) setError("Could not load Control Panel");

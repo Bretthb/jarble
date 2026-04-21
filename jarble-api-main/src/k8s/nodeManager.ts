@@ -351,19 +351,33 @@ async function provisionNode(
     const sshKeyId = parseInt(process.env.HETZNER_SSH_KEY_ID || "0");
     const hasVolume = podStorageGb > 0;
 
-    // 1. Create block storage FIRST so it's available at boot for cloud-init to mount
+    // 1. Create block storage FIRST so it's available at boot for cloud-init to mount.
+    //
+    // Hetzner reports volume sizes in GiB but filesystem overhead (~0.5 GiB for
+    // ext4 journal + reserved blocks on a 20 GiB volume) plus Longhorn's own
+    // disk reservation (~2 GiB) shaves ~2.5 GiB off the usable-to-scheduler
+    // capacity. If we provision exactly `podStorageGb` the node ends up with
+    // insufficient Longhorn capacity to schedule a replica of that same size,
+    // and the PVC hangs forever in `LocalReplicaSchedulingFailure`. Add a
+    // headroom buffer that covers the worst-case overhead + a small safety
+    // margin. See JAR-127 post-mortem for the one-time prod incident.
+    const LONGHORN_BLOCK_VOLUME_OVERHEAD_GB = 5;
     let volumeId = 0;
     if (hasVolume) {
+      const volumeSizeGb = podStorageGb + LONGHORN_BLOCK_VOLUME_OVERHEAD_GB;
       const volumeRes = await hetznerRequest<any>("POST", "/volumes", {
         name: `${nodeName}-data`,
-        size: podStorageGb,
+        size: volumeSizeGb,
         location: LOCATION,
         format: "ext4",
         automount: false,
         labels: { cluster: "jarble", role: "longhorn-data", node: nodeName },
       });
       volumeId = volumeRes.volume.id;
-      logger.info({ nodeName, volumeId, sizeGb: podStorageGb }, "Block storage created");
+      logger.info(
+        { nodeName, volumeId, pvcGb: podStorageGb, volumeSizeGb },
+        "Block storage created",
+      );
 
       await db.update(managedNodes)
         .set({ hetznerVolumeId: volumeId })

@@ -29,7 +29,14 @@ const log = createModuleLogger("agent-auth");
 
 const COOKIE_NAME = "jarble_agent";
 const COOKIE_MAX_AGE = 3600; // 1 hour
-const COOKIE_DOMAIN = process.env.AGENTS_COOKIE_DOMAIN || ".agents.jarble.ai";
+// The cookie is issued by POST /agent-session served on `api.jarble.ai` but
+// must be presented back to `{id}.agents.jarble.ai`. Per RFC 6265 the Domain
+// attribute has to be a suffix of the response origin, so setting it to
+// `.agents.jarble.ai` from `api.jarble.ai` is silently dropped by the
+// browser. Using the shared parent `.jarble.ai` satisfies the RFC and the
+// cookie is still HttpOnly + Secure + HMAC-bound to a specific deployment,
+// so there is no meaningful leakage risk to other jarble.ai subdomains.
+const COOKIE_DOMAIN = process.env.AGENTS_COOKIE_DOMAIN || ".jarble.ai";
 
 // Signing secret — prefer dedicated AGENT_AUTH_SECRET, fall back to API_KEY_ENCRYPTION_KEY
 function getSigningSecret(): string {
