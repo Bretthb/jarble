@@ -299,6 +299,72 @@ describe("lifecycleJobs", () => {
     expect(jobs[0].attempts).toBe(1);
   });
 
+  // JAR-127 regression: the Postgres branch of claimJobs previously used
+  // `WHERE id = ANY(${ids})`. Drizzle expands a JS array into a tuple expression
+  // (`($1, $2, ...)`) rather than a Postgres array, so Postgres rejected the
+  // query with `op ANY/ALL (array) requires array on right side` and the worker
+  // never claimed any jobs. The fix switches to `IN (${sql.join(...)})`.
+  //
+  // The other tests in this file exercise only the SQLite branch via the
+  // in-memory test mirror, so they can't catch the Postgres SQL shape. This
+  // test forces the Postgres branch by temporarily flipping env vars and
+  // inspecting the compiled SQL via PgDialect.
+  it("claimJobs (Postgres path) compiles filter as IN (...), not ANY(...) — JAR-127", async () => {
+    const savedVitest = process.env.VITEST;
+    const savedNodeEnv = process.env.NODE_ENV;
+    delete process.env.VITEST;
+    process.env.NODE_ENV = "production";
+
+    const executedSqls: any[] = [];
+    const findManyWheres: any[] = [];
+    const tx = {
+      execute: vi.fn(async (chunk: any) => {
+        executedSqls.push(chunk);
+        if (executedSqls.length === 1) {
+          return { rows: [{ id: "job-1" }, { id: "job-2" }, { id: "job-3" }] };
+        }
+        return { rows: [] };
+      }),
+      query: {
+        lifecycleJobs: {
+          findMany: vi.fn(async (opts: { where: any }) => {
+            findManyWheres.push(opts.where);
+            return [];
+          }),
+        },
+      },
+    };
+    const fakeDb: any = {
+      transaction: vi.fn((fn: any) => fn(tx)),
+    };
+
+    try {
+      await processLifecycleJobs(fakeDb, 5);
+    } finally {
+      if (savedVitest === undefined) delete process.env.VITEST;
+      else process.env.VITEST = savedVitest;
+      if (savedNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = savedNodeEnv;
+    }
+
+    // Expect SELECT + UPDATE to have been issued against the fake tx.
+    expect(executedSqls).toHaveLength(2);
+    expect(findManyWheres).toHaveLength(1);
+
+    const { PgDialect } = await import("drizzle-orm/pg-core");
+    const dialect = new PgDialect();
+
+    const updateQ = dialect.sqlToQuery(executedSqls[1]);
+    expect(updateQ.sql).toMatch(/WHERE\s+id\s+IN\s*\(/i);
+    expect(updateQ.sql).not.toMatch(/ANY\s*\(/i);
+    expect(updateQ.params).toEqual(["job-1", "job-2", "job-3"]);
+
+    const whereQ = dialect.sqlToQuery(findManyWheres[0]);
+    expect(whereQ.sql).toMatch(/id\s+IN\s*\(/i);
+    expect(whereQ.sql).not.toMatch(/ANY\s*\(/i);
+    expect(whereQ.params).toEqual(["job-1", "job-2", "job-3"]);
+  });
+
   it("only processes pending jobs whose runAfter <= now", async () => {
     const depId = seedDeployment("creating");
     // Seed a row directly with a future runAfter.

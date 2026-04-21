@@ -175,15 +175,16 @@ async function claimJobs(dbInstance: any, limit: number): Promise<any[]> {
       FOR UPDATE SKIP LOCKED
     `);
     if (!rows || rows.length === 0) return [];
-    const ids = rows.map((r: any) => r.id);
+    const ids = rows.map((r: any) => r.id as string);
+    const idList = sql.join(ids.map((i: string) => sql`${i}`), sql`, `);
     await tx.execute(sql`
       UPDATE lifecycle_jobs
       SET status = 'running', updated_at = NOW()
-      WHERE id = ANY(${ids})
+      WHERE id IN (${idList})
     `);
     // Re-read full rows via Drizzle for typed access.
     const full = await tx.query.lifecycleJobs.findMany({
-      where: sql`id = ANY(${ids})`,
+      where: sql`id IN (${idList})`,
     });
     return full;
   });
