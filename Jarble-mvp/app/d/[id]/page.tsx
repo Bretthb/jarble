@@ -1226,11 +1226,12 @@ function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
 
         if (!cancelled) {
           const hash = gatewayToken ? `#token=${gatewayToken}` : "";
-          // Default to the chat surface — this is what a user opening /d/[id]
-          // actually wants. The admin dashboard (/admin/) is still reachable
-          // via the in-SPA nav if they need agent/settings/config tabs.
+          // Must load the SPA root (/admin/) so adminProxy injects its
+          // auto-connect <script> — the injection is gated on suffix === ""
+          // in jarble-api-main/src/routes/adminProxy.ts. Deep-linking to
+          // /admin/chat bypasses it and breaks WS auth.
           setIframeSrc(
-            `${apiBase}/api/deployments/${deploymentId}/admin/chat?session=main&token=${encodeURIComponent(jwt)}&gatewayUrl=${encodeURIComponent(gatewayWsUrl)}${hash}`,
+            `${apiBase}/api/deployments/${deploymentId}/admin/?token=${encodeURIComponent(jwt)}&gatewayUrl=${encodeURIComponent(gatewayWsUrl)}${hash}`,
           );
         }
       } catch {
