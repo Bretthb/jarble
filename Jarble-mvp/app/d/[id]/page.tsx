@@ -363,6 +363,13 @@ function WorkspacePage({
   const [chatMode, setChatMode] = useState<"workspace" | "webui">(
     hasNativeUi ? "webui" : "workspace"
   );
+  // hasNativeUi resolves asynchronously after the runtime-capabilities query
+  // settles. The useState initializer only runs on first mount, so we need to
+  // reflect the capability into chatMode once it arrives — otherwise the page
+  // stays on "workspace" (Jarble native chat) even when the toggle is hidden.
+  useEffect(() => {
+    if (hasNativeUi) setChatMode("webui");
+  }, [hasNativeUi]);
   // chatMode is declared here in WorkspacePage and passed to CanvasWorkspace
   const [liveThemeConfig, setLiveThemeConfig] = useState(themeConfig);
   // Track whether theme was set by SSE (takes priority over prop sync for 5s)
@@ -1219,8 +1226,11 @@ function OpenWebUIFrame({ deploymentId }: { deploymentId: string }) {
 
         if (!cancelled) {
           const hash = gatewayToken ? `#token=${gatewayToken}` : "";
+          // Default to the chat surface — this is what a user opening /d/[id]
+          // actually wants. The admin dashboard (/admin/) is still reachable
+          // via the in-SPA nav if they need agent/settings/config tabs.
           setIframeSrc(
-            `${apiBase}/api/deployments/${deploymentId}/admin/?token=${encodeURIComponent(jwt)}&gatewayUrl=${encodeURIComponent(gatewayWsUrl)}${hash}`,
+            `${apiBase}/api/deployments/${deploymentId}/admin/chat?session=main&token=${encodeURIComponent(jwt)}&gatewayUrl=${encodeURIComponent(gatewayWsUrl)}${hash}`,
           );
         }
       } catch {
