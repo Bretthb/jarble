@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
-// ── Mocks ────────────────────────────────────────────────────────────────────
+// ── Mocks ─────────────────────────────────────────────────────────────────
 
 // Mock logger
 vi.mock("../../utils/logger.js", () => ({
@@ -65,6 +65,14 @@ vi.mock("crypto", async () => {
 
 import { chatViaExec, chatViaHTTP } from "../openclawGateway.js";
 import { execInPod } from "../../k8s/exec.js";
+import {
+  trace,
+  propagation,
+  context as otelContext,
+} from "@opentelemetry/api";
+import { W3CTraceContextPropagator } from "@opentelemetry/core";
+import { BasicTracerProvider } from "@opentelemetry/sdk-trace-base";
+import { AsyncHooksContextManager } from "@opentelemetry/context-async-hooks";
 
 const mockedExec = vi.mocked(execInPod);
 
@@ -79,7 +87,7 @@ beforeEach(() => {
   mockExtractUIBlocks.mockReturnValue({ uiBlocks: [], cleanText: "" });
 });
 
-// ── chatViaExec ──────────────────────────────────────────────────────────────
+// ── chatViaExec ──────────────────────────────────────────────────────────
 
 describe("chatViaExec", () => {
   it("parses a valid JSON response from exec", async () => {
@@ -228,6 +236,94 @@ describe("chatViaExec", () => {
     ], undefined, 150_000);
   });
 
+  // JAR-51 Phase 2: when an OTel span is active on the calling context,
+  // chatViaExec must inject `env TRACEPARENT=00-{trace}-{span}-{flags}`
+  // into the kubectl exec command. This is the ONLY mechanism by which
+  // the pod-side otel-bridge.cjs can attach its child spans to the
+  // caller's trace — the exec spawn boundary has no other handoff. If
+  // this test fails, the entire cross-pod correlation story is broken.
+  //
+  // Setup is non-trivial because openclawGateway itself opens a new
+  // `jarble.delegation.exec` span via `tracer.startActiveSpan` before
+  // injecting headers. Without a real TracerProvider the inner span is
+  // a NonRecordingSpan with an invalid (zero) span context, and the
+  // W3C propagator silently skips injection. We need all three:
+  //
+  //   1. AsyncHooksContextManager — otherwise startActiveSpan cannot
+  //      actually set the span as active on the context, and
+  //      `otelContext.active()` returns ROOT_CONTEXT (no span) — then
+  //      propagation.inject sees no span and injects nothing.
+  //   2. BasicTracerProvider — otherwise startActiveSpan returns a
+  //      NonRecordingSpan with an invalid (zero) span context.
+  //   3. W3CTraceContextPropagator — otherwise `propagation.inject` is
+  //      a no-op NoopTextMapPropagator and leaves the carrier empty.
+  it("injects TRACEPARENT env var when an OTel span is active in the calling context", async () => {
+    const contextManager = new AsyncHooksContextManager();
+    contextManager.enable();
+    otelContext.setGlobalContextManager(contextManager);
+    const tracerProvider = new BasicTracerProvider();
+    trace.setGlobalTracerProvider(tracerProvider);
+    propagation.setGlobalPropagator(new W3CTraceContextPropagator());
+
+    mockedExec.mockResolvedValue(
+      JSON.stringify({ result: { payloads: [{ text: "ok" }] } }),
+    );
+    mockExtractAllUIBlocks.mockReturnValue({
+      cleanText: "ok",
+      uiBlocks: [],
+      uiUpdates: [],
+      componentDefs: [],
+    });
+
+    // Start a real root span on a tracer we own, capture its trace id,
+    // and run chatViaExec inside its active context. The delegation
+    // span openclawGateway creates inside chatViaExec will inherit our
+    // trace id, and `propagation.inject` will populate the carrier with
+    // a traceparent whose trace portion matches ours.
+    const rootTracer = tracerProvider.getTracer("test-root");
+    let capturedTraceId = "";
+    await rootTracer.startActiveSpan("test.root", async (rootSpan) => {
+      capturedTraceId = rootSpan.spanContext().traceId;
+      try {
+        await chatViaExec("pod-1", "session-1", "Hi");
+      } finally {
+        rootSpan.end();
+      }
+    });
+    // Sanity: basic tracer produces valid 32-char hex trace ids.
+    expect(capturedTraceId).toMatch(/^[a-f0-9]{32}$/);
+
+    expect(mockedExec).toHaveBeenCalledTimes(1);
+    const callArgs = mockedExec.mock.calls[0];
+    const execArgs = callArgs[1] as string[];
+    // env prefix must be at index 0
+    expect(execArgs[0]).toBe("env");
+    // Find the TRACEPARENT=... token
+    const traceparentToken = execArgs.find(
+      (a: string) => typeof a === "string" && a.startsWith("TRACEPARENT="),
+    );
+    expect(traceparentToken).toBeDefined();
+    // Must follow the W3C format: 00-{32 hex}-{16 hex}-{2 hex} AND
+    // must carry the trace id from the root span we started, proving
+    // the cross-context handoff is preserved end-to-end.
+    expect(traceparentToken).toMatch(
+      new RegExp(`^TRACEPARENT=00-${capturedTraceId}-[a-f0-9]{16}-0[01]$`),
+    );
+    // Session id must still be present after the traceparent
+    expect(execArgs).toContain("JARBLE_CURRENT_SESSION_ID=session-1");
+
+    // Tear down so subsequent tests don't see our delegate. Disable
+    // the context manager first so it stops hooking into async_hooks,
+    // then shutdown the provider with a timeout guard.
+    contextManager.disable();
+    otelContext.disable();
+    trace.disable();
+    await Promise.race([
+      tracerProvider.shutdown(),
+      new Promise((r) => setTimeout(r, 500)),
+    ]);
+  });
+
   it("propagates exec errors", async () => {
     mockedExec.mockRejectedValue(new Error("Pod not found"));
 
@@ -283,7 +379,7 @@ describe("chatViaExec", () => {
   });
 });
 
-// ── extractText (tested indirectly via chatViaExec) ──────────────────────────
+// ── extractText (tested indirectly via chatViaExec) ──────────────────────
 // extractText is not exported, but we can validate its behavior through chatViaExec.
 
 describe("extractText behavior (via chatViaExec)", () => {
@@ -305,7 +401,7 @@ describe("extractText behavior (via chatViaExec)", () => {
   });
 });
 
-// ── chatViaHTTP ─────────────────────────────────────────────────────────────
+// ── chatViaHTTP ────────────────────────────────────────────────────────────
 
 /** Helper: build a ReadableStream from SSE data lines */
 function buildSSEStream(chunks: string[]): ReadableStream<Uint8Array> {

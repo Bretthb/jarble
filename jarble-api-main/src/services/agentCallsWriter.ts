@@ -42,16 +42,23 @@ const genTraceId = customAlphabet(hexAlphabet, 32);
 const genSpanId = customAlphabet(hexAlphabet, 16);
 
 /**
- * Runaway cost circuit breaker (JAR-51 Phase 6).
+ * Runaway cost circuit breaker (JAR-51 Phase 2 + 6).
  *
  * Prevents a single chat turn from producing an unbounded number of
- * fractal delegation hops. Two safety rails:
+ * fractal delegation hops. Three safety rails:
  *
- *   1. MAX_SPANS_PER_TRACE — total agent_calls rows per trace_id.
+ *   1. MAX_DELEGATION_DEPTH — hardest, fastest cap. Bounds the fractal
+ *      recursion depth so a bot whose team cycles back to itself cannot
+ *      spiral through N pods. Default **6** per the observability plan
+ *      §5.4 (headroom for 4-level real deployments + 2 safety). This
+ *      is a LOCAL check — no DB round-trip, fires in O(1).
+ *      Override: JARBLE_MAX_DELEGATION_DEPTH (ceiling 10, no lower than 1)
+ *
+ *   2. MAX_SPANS_PER_TRACE — total agent_calls rows per trace_id.
  *      Default 50 (plenty of headroom for 4-level delegation trees).
  *      Override: JARBLE_MAX_SPANS_PER_TRACE
  *
- *   2. MAX_CREDITS_PER_TRACE_CENTS — cumulative credits_charged across
+ *   3. MAX_CREDITS_PER_TRACE_CENTS — cumulative credits_charged across
  *      all completed rows in a trace. Default 500 (= $5). When the
  *      running total exceeds this, the next startAgentCall is rejected
  *      with a bot-readable error.
@@ -59,11 +66,23 @@ const genSpanId = customAlphabet(hexAlphabet, 16);
  *
  * The cost check only fires for depth >= 1 (delegation hops), not
  * depth 0 chat_turns, so every root call gets to run at least once.
+ * The depth check fires for depth > MAX regardless of kind — once you
+ * are 7 hops deep you've already blown past the sane limit.
  *
- * Both checks are best-effort: the SELECT runs in parallel with the
+ * DB-backed checks are best-effort: the SELECT runs in parallel with the
  * critical path, and if the query fails we LET THE CALL THROUGH and
- * log a warning. Observability must never break the app.
+ * log a warning. Observability must never break the app. The depth
+ * check is local and always authoritative.
  */
+const MAX_DELEGATION_DEPTH = (() => {
+  const raw = process.env.JARBLE_MAX_DELEGATION_DEPTH;
+  const n = raw ? Number(raw) : NaN;
+  // Ceiling of 10 per plan §5.4 "safety floors — depth ≤ 10".
+  // Floor of 1 so the breaker can always fire on at least one hop.
+  if (Number.isFinite(n) && n >= 1 && n <= 10) return Math.floor(n);
+  return 6;
+})();
+
 const MAX_SPANS_PER_TRACE = (() => {
   const raw = process.env.JARBLE_MAX_SPANS_PER_TRACE;
   const n = raw ? Number(raw) : NaN;
@@ -78,15 +97,22 @@ const MAX_CREDITS_PER_TRACE_CENTS = (() => {
   return 500; // $5.00 per trace
 })();
 
+/** Read-only accessor so tests can assert the resolved depth cap. */
+export function getMaxDelegationDepth(): number {
+  return MAX_DELEGATION_DEPTH;
+}
+
 export class RunawayTraceError extends Error {
-  public readonly reason: "spans" | "credits";
+  public readonly reason: "spans" | "credits" | "depth";
   public readonly limit: number;
   public readonly actual: number;
-  constructor(reason: "spans" | "credits", limit: number, actual: number) {
+  constructor(reason: "spans" | "credits" | "depth", limit: number, actual: number) {
     super(
       reason === "spans"
         ? `Runaway delegation detected — this conversation has already produced ${actual} spans (limit: ${limit}). The call was blocked to prevent infinite loops. If this is unexpected, check for a bot delegating in a cycle.`
-        : `Runaway cost detected — this conversation has already charged ${actual} credit cents (limit: ${limit}). The call was blocked to prevent runaway cost. If you need a higher limit, increase JARBLE_MAX_CREDITS_PER_TRACE_CENTS.`,
+        : reason === "credits"
+          ? `Runaway cost detected — this conversation has already charged ${actual} credit cents (limit: ${limit}). The call was blocked to prevent runaway cost. If you need a higher limit, increase JARBLE_MAX_CREDITS_PER_TRACE_CENTS.`
+          : `Runaway delegation depth — this conversation has already delegated ${actual} levels deep (limit: ${limit}). Fractal delegation chains cannot exceed JARBLE_MAX_DELEGATION_DEPTH. Simplify the team topology or increase the cap (max 10).`,
     );
     this.name = "RunawayTraceError";
     this.reason = reason;
@@ -129,9 +155,23 @@ async function getTraceStats(traceId: string): Promise<{ spanCount: number; cred
 /**
  * Runaway circuit breaker check. Throws RunawayTraceError when tripped.
  * Only fires for non-zero depth so root calls always succeed.
+ *
+ * Order matters:
+ *   1. Depth check — local, O(1), no DB. Authoritative even when DB is wedged.
+ *   2. Span count — DB-backed, best-effort. Fails open on DB outage.
+ *   3. Credits   — DB-backed, best-effort. Fails open on DB outage.
  */
 async function checkRunawayLimits(traceId: string, depth: number): Promise<void> {
   if (depth <= 0) return;
+
+  // Local O(1) depth check — fires BEFORE any DB round-trip so it remains
+  // authoritative even when the DB is unreachable. A bot whose team cycles
+  // back to itself is bounded by this check alone, regardless of what the
+  // agent_calls table looks like.
+  if (depth > MAX_DELEGATION_DEPTH) {
+    throw new RunawayTraceError("depth", MAX_DELEGATION_DEPTH, depth);
+  }
+
   const { spanCount, creditsCents } = await getTraceStats(traceId);
   if (spanCount >= MAX_SPANS_PER_TRACE) {
     throw new RunawayTraceError("spans", MAX_SPANS_PER_TRACE, spanCount);

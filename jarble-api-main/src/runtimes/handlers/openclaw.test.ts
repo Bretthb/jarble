@@ -505,6 +505,91 @@ describe("openclawHandler.getSecretEntries", () => {
     expect(entries["OPENAI_API_KEY"]).toBeUndefined();
     expect(entries["GOOGLE_API_KEY"]).toBeUndefined();
   });
+
+  // ── JAR-51 Phase 2: OTel / Langfuse passthrough ───────────────────────────
+  //
+  // When the API process has Langfuse credentials, they must propagate to
+  // the pod's Kubernetes Secret so the pod-side otel-bridge.cjs can ship
+  // spans to the same collector. Without this, pod spans never reach
+  // Langfuse and the single-turn cross-pod trace breaks at the first
+  // delegation hop.
+
+  describe("JAR-51 OTel passthrough", () => {
+    const otelKeys = [
+      "LANGFUSE_PUBLIC_KEY",
+      "LANGFUSE_SECRET_KEY",
+      "LANGFUSE_BASE_URL",
+      "LANGFUSE_HOST",
+      "OTEL_EXPORTER_OTLP_ENDPOINT",
+      "OTEL_EXPORTER_OTLP_HEADERS",
+      "OTEL_EXPORTER",
+    ];
+
+    beforeEach(() => {
+      // Sterilize to prevent cross-test leakage. vitest's vi.stubEnv auto-
+      // unstubs between runs, but test order for `process.env` is not
+      // guaranteed in parallel mode so clear explicitly.
+      for (const k of otelKeys) {
+        delete process.env[k];
+      }
+    });
+
+    it("pipes LANGFUSE_PUBLIC_KEY / SECRET / BASE_URL from API process env to pod", () => {
+      process.env.LANGFUSE_PUBLIC_KEY = "pk-lf-test";
+      process.env.LANGFUSE_SECRET_KEY = "sk-lf-test";
+      process.env.LANGFUSE_BASE_URL = "https://cloud.langfuse.com";
+
+      const entries = openclawHandler.getSecretEntries(
+        makeDeployment({ id: "dep_xyz" })
+      );
+      expect(entries["LANGFUSE_PUBLIC_KEY"]).toBe("pk-lf-test");
+      expect(entries["LANGFUSE_SECRET_KEY"]).toBe("sk-lf-test");
+      expect(entries["LANGFUSE_BASE_URL"]).toBe("https://cloud.langfuse.com");
+      // Resource attrs must tag the deployment id so spans can be
+      // attributed back to the originating bot.
+      expect(entries["OTEL_RESOURCE_ATTRIBUTES"]).toContain("service.name=openclaw-runtime");
+      expect(entries["OTEL_RESOURCE_ATTRIBUTES"]).toContain("jarble.deployment.id=dep_xyz");
+    });
+
+    it("falls back to LANGFUSE_HOST when LANGFUSE_BASE_URL is unset", () => {
+      process.env.LANGFUSE_PUBLIC_KEY = "pk-lf-test";
+      process.env.LANGFUSE_SECRET_KEY = "sk-lf-test";
+      process.env.LANGFUSE_HOST = "https://us.cloud.langfuse.com";
+
+      const entries = openclawHandler.getSecretEntries(makeDeployment());
+      expect(entries["LANGFUSE_BASE_URL"]).toBe("https://us.cloud.langfuse.com");
+    });
+
+    it("pipes generic OTEL_EXPORTER_OTLP_ENDPOINT when no Langfuse creds", () => {
+      process.env.OTEL_EXPORTER_OTLP_ENDPOINT = "http://collector.internal:4318/v1/traces";
+      process.env.OTEL_EXPORTER_OTLP_HEADERS = "authorization=Bearer+tok";
+
+      const entries = openclawHandler.getSecretEntries(makeDeployment());
+      expect(entries["OTEL_EXPORTER_OTLP_ENDPOINT"]).toBe(
+        "http://collector.internal:4318/v1/traces"
+      );
+      expect(entries["OTEL_EXPORTER_OTLP_HEADERS"]).toBe("authorization=Bearer+tok");
+    });
+
+    it("omits all OTel entries when nothing is set on the API process env", () => {
+      const entries = openclawHandler.getSecretEntries(makeDeployment());
+      expect(entries["LANGFUSE_PUBLIC_KEY"]).toBeUndefined();
+      expect(entries["LANGFUSE_SECRET_KEY"]).toBeUndefined();
+      expect(entries["LANGFUSE_BASE_URL"]).toBeUndefined();
+      expect(entries["OTEL_EXPORTER_OTLP_ENDPOINT"]).toBeUndefined();
+      // No resource attrs either — the bridge won't initialize.
+      expect(entries["OTEL_RESOURCE_ATTRIBUTES"]).toBeUndefined();
+    });
+
+    it("ignores empty string LANGFUSE values (treat as unset)", () => {
+      process.env.LANGFUSE_PUBLIC_KEY = "";
+      process.env.LANGFUSE_SECRET_KEY = "";
+      const entries = openclawHandler.getSecretEntries(makeDeployment());
+      expect(entries["LANGFUSE_PUBLIC_KEY"]).toBeUndefined();
+      expect(entries["LANGFUSE_SECRET_KEY"]).toBeUndefined();
+      expect(entries["OTEL_RESOURCE_ATTRIBUTES"]).toBeUndefined();
+    });
+  });
 });
 
 // ── parseConfigs ─────────────────────────────────────────────────────────────

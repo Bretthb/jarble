@@ -3,6 +3,7 @@ import type { ManagedBy } from "../../k8s/constants.js";
 import { getContainerName } from "../../k8s/constants.js";
 import { extractUIBlocks } from "../../utils/uiBlockParser.js";
 import { logger } from "../../utils/logger.js";
+import { propagation, context as otelContext } from "@opentelemetry/api";
 import type { McpTool, ToolResult, ToolContext } from "../toolRegistry.js";
 
 export const chatWithBotTool: McpTool = {
@@ -45,7 +46,21 @@ export const chatWithBotTool: McpTool = {
 
     try {
       const sessionId = `jarble-web-${ctx.userId}`;
+
+      // JAR-51 Phase 2: inject W3C traceparent so in-pod OTel bridge can
+      // attach its spans under the same trace as the API caller.
+      const carrier: Record<string, string> = {};
+      propagation.inject(otelContext.active(), carrier);
+      const envPrefix: string[] = [];
+      if (carrier.traceparent) {
+        envPrefix.push("env", `TRACEPARENT=${carrier.traceparent}`);
+        if (carrier.tracestate) {
+          envPrefix.push(`TRACESTATE=${carrier.tracestate}`);
+        }
+      }
+
       const output = await execInPod(podName, [
+        ...envPrefix,
         "npx", "openclaw", "agent",
         "--message", message,
         "--session-id", sessionId,

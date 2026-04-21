@@ -40,7 +40,12 @@ vi.mock("../../db/index.js", () => {
   };
 });
 
-import { startAgentCall, finishAgentCall } from "../../services/agentCallsWriter.js";
+import {
+  startAgentCall,
+  finishAgentCall,
+  RunawayTraceError,
+  getMaxDelegationDepth,
+} from "../../services/agentCallsWriter.js";
 
 // Now that the writer module has been resolved, the mock context exists.
 const testDb = mocks.ctx.db;
@@ -410,6 +415,65 @@ describe("agentCallsWriter", () => {
       const actualRoots = rootsForTrace.filter((r: any) => r.parentSpanId === null);
       expect(actualRoots).toHaveLength(1);
       expect(actualRoots[0].id).toBe(root.callId);
+    });
+
+    it("runaway depth breaker throws RunawayTraceError at depth > MAX_DELEGATION_DEPTH", async () => {
+      // Default cap is 6. Depth 7 must trip the breaker in O(1) without
+      // needing any rows in the DB. This is the key property — the breaker
+      // is authoritative even when the DB is unreachable, because a bot
+      // cycling back to itself could race the insert-then-update window.
+      const cap = getMaxDelegationDepth();
+      expect(cap).toBe(6);
+
+      let caught: unknown = null;
+      try {
+        await startAgentCall({
+          kind: "delegation",
+          skillName: "delegate_to_self_forever",
+          callerDeploymentId: null,
+          calleeDeploymentId: null,
+          parentCallId: null,
+          parentSpanId: null,
+          traceId: "a".repeat(32),
+          depth: cap + 1,
+          userId: "user_1",
+        });
+      } catch (err) {
+        caught = err;
+      }
+
+      expect(caught).toBeInstanceOf(RunawayTraceError);
+      const runaway = caught as RunawayTraceError;
+      expect(runaway.reason).toBe("depth");
+      expect(runaway.limit).toBe(cap);
+      expect(runaway.actual).toBe(cap + 1);
+      // The breaker must fire BEFORE the DB insert — no row should exist
+      // for this trace, even though the insert is fire-and-forget.
+      const rows = await testDb
+        .select()
+        .from(agentCalls)
+        .where(eq(agentCalls.traceId, "a".repeat(32)));
+      expect(rows).toHaveLength(0);
+    });
+
+    it("depth = MAX_DELEGATION_DEPTH is allowed (inclusive, not exclusive)", async () => {
+      // depth == cap must NOT trip — we want exactly 6 hops to work, which
+      // is the headroom the plan intentionally reserves for real teams.
+      const cap = getMaxDelegationDepth();
+      const handle = await startAgentCall({
+        kind: "delegation",
+        skillName: "delegate_at_cap",
+        callerDeploymentId: null,
+        calleeDeploymentId: null,
+        parentCallId: null,
+        parentSpanId: null,
+        traceId: null,
+        depth: cap,
+        userId: "user_1",
+      });
+      expect(handle.depth).toBe(cap);
+      const row = await getRow(handle.callId);
+      expect(row).toBeDefined();
     });
 
     it("message_id attribute lookup via attributes JSON", async () => {
