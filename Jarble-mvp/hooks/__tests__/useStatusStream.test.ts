@@ -197,6 +197,32 @@ describe("useStatusStream", () => {
     expect(result.current.getStatus("dep-1")?.status).toBe("running");
   });
 
+  it('drops "not_found" entries from the initial snapshot (JAR-126)', async () => {
+    const useStatusStream = await importHook();
+    const { result } = renderHook(() => useStatusStream({ enabled: true }));
+
+    await act(async () => {
+      await vi.runAllTimersAsync();
+    });
+
+    // Server briefly sees no pod (stop→start transition) and includes a
+    // not_found entry in the snapshot. The client must NOT store it —
+    // otherwise the status badge renders the literal string "not_found".
+    const snapshot: DeploymentStatus[] = [
+      { deploymentId: "dep-running", status: "running" },
+      { deploymentId: "dep-transient", status: "not_found" },
+    ];
+
+    act(() => {
+      MockEventSource.instances[0]._triggerOpen();
+      MockEventSource.instances[0]._emit("snapshot", snapshot);
+    });
+
+    expect(result.current.getStatus("dep-running")?.status).toBe("running");
+    expect(result.current.getStatus("dep-transient")).toBeUndefined();
+    expect(result.current.statuses.size).toBe(1);
+  });
+
   it('removes deployment from map when status is "not_found"', async () => {
     const useStatusStream = await importHook();
     const { result } = renderHook(() => useStatusStream({ enabled: true }));

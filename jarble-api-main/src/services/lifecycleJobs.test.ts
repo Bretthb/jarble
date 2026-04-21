@@ -27,9 +27,11 @@ vi.mock("../k8s/constants.js", () => ({
   getPvcMountPath: () => "/data",
 }));
 
-// configSync is called at the end of a successful start job — stub it.
+// configSync is called at the end of a successful start/restart job — stub it
+// and keep a handle so we can assert invocations.
+const mockSyncConfigsToPvc = vi.fn().mockResolvedValue({ success: true, durationMs: 0 });
 vi.mock("./configSync.js", () => ({
-  syncConfigsToPvc: vi.fn().mockResolvedValue({ success: true, durationMs: 0 }),
+  syncConfigsToPvc: (...args: any[]) => mockSyncConfigsToPvc(...args),
 }));
 
 // Mock the default db/index to point at the test db tables (so that the
@@ -195,6 +197,45 @@ describe("lifecycleJobs", () => {
       where: eq(deploymentsTable.id, depId),
     });
     expect(dep?.status).toBe("running");
+  });
+
+  it("restart job syncs configs to the fresh pod on success (JAR-126)", async () => {
+    const depId = seedDeployment("restarting");
+    await enqueueLifecycleJob(testCtx.db, {
+      deploymentId: depId,
+      userId: testCtx.testUserId,
+      type: "restart",
+      payload: {
+        type: "restart",
+        managedBy: "legacy",
+        deployConfig: { name: "Test", runtime: "openclaw" },
+      },
+    });
+
+    await processLifecycleJobs(testCtx.db);
+    // Config sync is dispatched via safeFireAndForget, so give the microtask
+    // queue a tick to resolve before asserting.
+    await new Promise((r) => setImmediate(r));
+    expect(mockSyncConfigsToPvc).toHaveBeenCalledWith(depId);
+  });
+
+  it("restart job does NOT sync configs when pod never reaches ready (JAR-126)", async () => {
+    mockGetDeploymentPodStatus.mockResolvedValue({ status: "failed" });
+    const depId = seedDeployment("restarting");
+    await enqueueLifecycleJob(testCtx.db, {
+      deploymentId: depId,
+      userId: testCtx.testUserId,
+      type: "restart",
+      payload: {
+        type: "restart",
+        managedBy: "legacy",
+        deployConfig: { name: "Test", runtime: "openclaw" },
+      },
+    });
+
+    await processLifecycleJobs(testCtx.db);
+    await new Promise((r) => setImmediate(r));
+    expect(mockSyncConfigsToPvc).not.toHaveBeenCalled();
   });
 
   it("retries on transient error and bumps attempts", async () => {

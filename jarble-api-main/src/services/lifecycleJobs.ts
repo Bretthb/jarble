@@ -339,6 +339,15 @@ async function runJob(dbInstance: any, job: any): Promise<void> {
     await dbInstance.update(deployments)
       .set({ status: ready ? "running" : "failed" })
       .where(and(eq(deployments.id, deploymentId), eq(deployments.status, "restarting")));
+    // JAR-126: mirror the start path — push the latest configs to the fresh
+    // pod's PVC so restart actually surfaces config changes made since the
+    // pod last booted (system prompt edits, MCP server updates, etc.).
+    if (ready) {
+      safeFireAndForget(syncConfigsToPvc(deploymentId), {
+        operation: "syncConfigsToPvc",
+        deploymentId,
+      });
+    }
     log.info({ deploymentId, ready }, "restart job completed");
     return;
   }

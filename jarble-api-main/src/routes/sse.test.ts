@@ -527,6 +527,53 @@ describe("status stream (/status/stream)", () => {
     req.emit("close");
   });
 
+  it("masks not_found cache to DB status for transitional rows in the snapshot (JAR-126)", async () => {
+    const req = createMockReq({}, {}, { authorization: "Bearer t" });
+    const res = createMockRes();
+    mockDb.query.deployments.findMany.mockResolvedValue([
+      { id: "dep-creating", status: "creating" },
+    ] as any);
+    // Cache briefly reports no pod (Stop→Start race) — must NOT leak to the client.
+    mockStatusSubscribe.mockResolvedValue({
+      deploymentId: "dep-creating",
+      status: "not_found",
+    });
+
+    await handler(req, res);
+
+    const snapshotCall = res.write.mock.calls.find(
+      (call: any) => typeof call[0] === "string" && call[0].includes("event: snapshot"),
+    );
+    expect(snapshotCall).toBeTruthy();
+    expect(snapshotCall[0]).toContain('"status":"creating"');
+    expect(snapshotCall[0]).not.toContain('"status":"not_found"');
+
+    req.emit("close");
+  });
+
+  it("preserves cache status in snapshot for running/failed rows", async () => {
+    const req = createMockReq({}, {}, { authorization: "Bearer t" });
+    const res = createMockRes();
+    mockDb.query.deployments.findMany.mockResolvedValue([
+      { id: "dep-running", status: "running" },
+    ] as any);
+    // Pod genuinely absent even though DB says running — client should see the
+    // real K8s state so the reconciler / user sees the discrepancy.
+    mockStatusSubscribe.mockResolvedValue({
+      deploymentId: "dep-running",
+      status: "not_found",
+    });
+
+    await handler(req, res);
+
+    const snapshotCall = res.write.mock.calls.find(
+      (call: any) => typeof call[0] === "string" && call[0].includes("event: snapshot"),
+    );
+    expect(snapshotCall[0]).toContain('"status":"not_found"');
+
+    req.emit("close");
+  });
+
   it("cleans up on client disconnect", async () => {
     const req = createMockReq({}, {}, { authorization: "Bearer t" });
     const res = createMockRes();

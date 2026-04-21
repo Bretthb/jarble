@@ -509,6 +509,15 @@ sseRouter.get("/status/stream", async (req, res) => {
             }
           }
 
+          // JAR-126: K8s can briefly report "not_found" during a Stop→Start
+          // transition (old pod gone, new pod not yet scheduled). The DB is
+          // already in the correct transitional state (creating/restarting/
+          // stopping/stopped) — emit that instead so the client doesn't render
+          // the raw "not_found" string in the status badge.
+          if (cached.status === "not_found" && dbStatus !== "running" && dbStatus !== "failed") {
+            return { deploymentId: dep.id, status: dbStatus };
+          }
+
           return cached;
         })
       );
@@ -550,7 +559,13 @@ sseRouter.get("/status/stream", async (req, res) => {
             if (isTransitional || dep.status === "running" || dep.status === "failed") {
               subscribedIds.push(dep.id);
               const cached = await statusCacheSubscribe(dep.id, onStatusChange);
-              const serialized = JSON.stringify(cached);
+              // JAR-126: same not_found masking as the initial snapshot path —
+              // during transitions the K8s cache can briefly see no pods.
+              const effective = cached.status === "not_found"
+                && dep.status !== "running" && dep.status !== "failed"
+                ? { deploymentId: dep.id, status: dep.status }
+                : cached;
+              const serialized = JSON.stringify(effective);
               if (lastKnown.get(dep.id) !== serialized) {
                 lastKnown.set(dep.id, serialized);
                 res.write(`data: ${serialized}\n\n`);

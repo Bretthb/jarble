@@ -67,13 +67,21 @@ export function useStatusStream({
           }
         };
 
-        // Handle initial snapshot
+        // Handle initial snapshot. Drop any "not_found" entries — the server
+        // emits that when K8s returns no pods, but a pod briefly missing during
+        // a Stop→Start transition must NOT render as the literal string
+        // "not_found" in the status badge. The Dashboard falls back to the DB
+        // status (from the tRPC list query) when no live entry exists. (JAR-126)
         es.addEventListener("snapshot", (event) => {
           if (cancelled) return;
           try {
             const data: DeploymentStatus[] = JSON.parse(event.data);
             setStatuses(
-              new Map(data.map((s) => [s.deploymentId, s]))
+              new Map(
+                data
+                  .filter((s) => s.status !== "not_found")
+                  .map((s) => [s.deploymentId, s])
+              )
             );
           } catch {
             // Ignore parse errors

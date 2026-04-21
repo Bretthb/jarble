@@ -17,6 +17,10 @@ export async function getDeploymentPodStatus(
   deploymentId: string,
   managedBy: ManagedBy = "legacy"
 ): Promise<DeploymentPodStatus> {
+  // JAR-126: a transient K8s API failure must not look identical to
+  // "pod actually gone" — retry once before falling through to not_found.
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
   try {
     const labelSelector = podLabelSelector(deploymentId, managedBy);
     const targetContainer = getContainerName(managedBy);
@@ -80,9 +84,16 @@ export async function getDeploymentPodStatus(
       phase,
     };
   } catch (err) {
-    log.error({ deploymentId, err }, "Failed to get pod status");
-    return { status: "not_found" };
+    lastErr = err;
+    if (attempt === 0) {
+      log.warn({ deploymentId, err }, "Pod status lookup failed, retrying once");
+      await new Promise((r) => setTimeout(r, 250));
+      continue;
+    }
   }
+  }
+  log.error({ deploymentId, err: lastErr }, "Failed to get pod status after retry");
+  return { status: "not_found" };
 }
 
 // ── Storage Usage ──────────────────────────────────────────────────
