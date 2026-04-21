@@ -187,6 +187,9 @@ interface DelegationTraceEntry {
 
 flowChatRouter.post("/:flowId/chat", async (req, res) => {
   let user: Awaited<ReturnType<typeof authenticateRequest>> = null;
+  // Hoisted so the outer catch can call it on unhandled errors.
+  // Assigned once the root agent_call row is created inside the try block.
+  let finishFlowRootRef: ((status: "completed" | "failed", extra?: { errorMessage?: string; attributes?: Record<string, unknown> }) => Promise<void>) | null = null;
 
   try {
     // 1. Authenticate
@@ -395,6 +398,8 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
       agentCallEvents.off("orchestration:step:start", onOrchestrationStart);
       agentCallEvents.off("orchestration:step:end", onOrchestrationEnd);
       releaseConnection(user!.id);
+      // Safety net: close root agent_call row if stream ends before explicit finish
+      if (finishFlowRootRef) void finishFlowRootRef("completed");
     };
 
     req.on("close", () => {
@@ -477,6 +482,79 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     // Generate a trace ID for the entire flow chat turn so budget checks
     // and OTel spans can stitch all delegation hops into one trace.
     const flowTraceId = nanoid(32);
+
+    // ── Root agent_calls row for the flow-chat turn ────────────────────
+    // Mirrors tamboAgent.ts: every chat turn gets a root span so that
+    // delegation hops can chain via `parent_call_id` and the full tree
+    // is reconstructable from agent_calls rows. Without this row,
+    // delegations from flowChat land with `parent_call_id = NULL` and the
+    // tree is broken (see fractal-vision-gap-audit.md Piece 2).
+    const { startAgentCall: startFlowRootCall, finishAgentCall: finishFlowRootCall, RunawayTraceError } =
+      await import("../services/agentCallsWriter.js");
+    let rootAgentCall: {
+      callId: string;
+      traceId: string;
+      spanId: string;
+      parentCallId: string | null;
+      parentSpanId: string | null;
+      depth: number;
+      startedAt: number;
+    };
+    try {
+      rootAgentCall = await startFlowRootCall({
+        kind: "chat_turn",
+        skillName: "__flow_chat_turn__",
+        callerDeploymentId: null, // user is the caller
+        calleeDeploymentId: entryNode.deploymentId!,
+        parentCallId: null,
+        parentSpanId: null,
+        traceId: null, // writer generates one
+        depth: 0,
+        userId: user!.id,
+        orgId: (entryDeployment as any).orgId ?? null,
+        sessionId: `flow-${flowId}-${user!.id}${conversationId ? `-${conversationId}` : ""}`,
+        spanName: "jarble.flow_chat.turn",
+        requestBody: userMessage,
+        attributes: { flowId, entryNodeId: entryNode.id, messageLength: userMessage.length },
+      });
+    } catch (err) {
+      if (err instanceof RunawayTraceError) throw err;
+      log.warn(
+        { err: err instanceof Error ? err.message : err, flowId },
+        "startFlowRootCall failed non-fatally — proceeding with synthetic handle",
+      );
+      rootAgentCall = {
+        callId: `acl_synth_${nanoid(8)}`,
+        traceId: flowTraceId,
+        spanId: "0000000000000000",
+        parentCallId: null,
+        parentSpanId: null,
+        depth: 0,
+        startedAt: Date.now(),
+      };
+    }
+    let rootCallFinished = false;
+    const finishFlowRoot = async (
+      status: "completed" | "failed",
+      extra?: { errorMessage?: string; attributes?: Record<string, unknown> },
+    ) => {
+      if (rootCallFinished) return;
+      rootCallFinished = true;
+      try {
+        await finishFlowRootCall({
+          call: rootAgentCall,
+          status,
+          responseBody: "",
+          creditsCharged: 0,
+          errorMessage: extra?.errorMessage,
+          attributes: extra?.attributes,
+        });
+      } catch {
+        // Non-fatal — audit failures must not break the chat path
+      }
+    };
+    finishFlowRootRef = finishFlowRoot;
+
     // Phase 2 group-chat: tag the entry bot's message with its role +
     // deployment ID so the client renders it with the coordinator's avatar.
     const entryRole = entryNode.role || entryNode.label || "Coordinator";
@@ -498,6 +576,7 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
       });
       sendEvent(res, { type: TEXT_MESSAGE_END, messageId });
       sendEvent(res, { type: RUN_FINISHED, runId, threadId });
+      void finishFlowRoot("failed", { errorMessage: "No pod found for entry bot" });
       res.end();
       return;
     }
@@ -541,6 +620,9 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
       }
       sendEvent(res, { type: TEXT_MESSAGE_END, messageId });
       sendEvent(res, { type: RUN_FINISHED, runId, threadId });
+      void finishFlowRoot("failed", {
+        errorMessage: abortController.signal.aborted ? "Request cancelled" : "Entry bot chat failed",
+      });
       res.end();
       return;
     }
@@ -596,6 +678,8 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             targetDeploymentId: job.tool.targetDeploymentId,
             targetRole: job.targetNode?.role || job.targetNode?.label || "Unknown",
             task: job.call.task.slice(0, 200),
+            parentStepId: rootAgentCall.callId,
+            depth: 1,
           },
         });
       }
@@ -626,10 +710,11 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             userId: user!.id,
             sourceDeploymentId: entryNode.deploymentId!,
             toolName: call.toolName,
-            parentCallId: null,
+            parentCallId: rootAgentCall.callId,
+            parentSpanId: rootAgentCall.spanId,
+            traceId: rootAgentCall.traceId,
             ancestorDeploymentIds: [entryNode.deploymentId!],
             flowId,
-            traceId: flowTraceId,
           });
           return { result, error: null };
         } catch (err) {
@@ -654,7 +739,8 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
         sendEvent(res, { type: CUSTOM, name: "jarble.flow.delegation.end",
           value: { toolName: call.toolName, targetNodeId: tool.targetNodeId, targetDeploymentId: tool.targetDeploymentId,
             success: !!delegationResult, durationMs: delegationResult?.durationMs ?? 0, creditsUsed: delegationResult?.creditsUsed ?? 0,
-            error: safeDelegationError, responsePreview: delegationResult?.response?.slice(0, 300) ?? "", uiBlockCount: delegationResult?.uiBlocks?.length ?? 0 } });
+            error: safeDelegationError, responsePreview: delegationResult?.response?.slice(0, 300) ?? "", uiBlockCount: delegationResult?.uiBlocks?.length ?? 0,
+            parentStepId: rootAgentCall.callId, depth: 1 } });
 
         // Harvest the block type list from the raw delegation result. This
         // feeds the synthesis prompt when fullResponse is empty so the
@@ -1076,6 +1162,12 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     })();
 
     // Finish
+    void finishFlowRoot("completed", {
+      attributes: {
+        delegationCount: delegationTrace.length,
+        totalCredits: delegationTrace.reduce((s, d) => s + d.creditsUsed, 0) + 1,
+      },
+    });
     sendEvent(res, { type: RUN_FINISHED, runId, threadId });
     res.end();
 
@@ -1091,6 +1183,14 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     );
   } catch (err) {
     log.error({ err }, "Flow chat route error");
+    // Best-effort root call finalization on unhandled errors — the
+    // ref is null if the error occurred before the root call was created
+    // (e.g. auth failure, DB lookup failure).
+    if (finishFlowRootRef) {
+      void finishFlowRootRef("failed", {
+        errorMessage: err instanceof Error ? err.message : "Flow chat route error",
+      });
+    }
     if (user) releaseConnection(user.id);
     if (!res.headersSent) {
       res.status(500).json({ error: "Internal server error" });

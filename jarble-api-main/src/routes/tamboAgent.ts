@@ -1068,6 +1068,8 @@ tamboAgentRouter.post("/", async (req, res) => {
                 targetDeploymentId: job.tool.targetDeploymentId,
                 targetRole: job.roleName,
                 task: job.call.task.slice(0, 200),
+                parentStepId: rootAgentCall.callId,
+                depth: 1,
               },
             });
           }
@@ -1148,6 +1150,8 @@ tamboAgentRouter.post("/", async (req, res) => {
                   success: true,
                   durationMs: delegationResult.durationMs,
                   creditsUsed: delegationResult.creditsUsed,
+                  parentStepId: rootAgentCall.callId,
+                  depth: 1,
                 },
               });
 
@@ -1237,6 +1241,8 @@ tamboAgentRouter.post("/", async (req, res) => {
                   targetDeploymentId: job.tool.targetDeploymentId,
                   success: false,
                   error: entry.reason,
+                  parentStepId: rootAgentCall.callId,
+                  depth: 1,
                 },
               });
 
