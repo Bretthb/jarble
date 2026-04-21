@@ -48,6 +48,7 @@ import {
   type ComponentDefinition,
 } from "../utils/componentResolver.js";
 import { classifyError } from "../utils/chatErrors.js";
+import { normalizeMemoryScope, renderMemoryStateLine, injectMemoryStateLine } from "../utils/memoryScope.js";
 import { decryptApiKey } from "../utils/encryption.js";
 import { getOpenRouterCreditStatus } from "../utils/openrouter.js";
 import { generateSuggestions } from "../services/suggestions.js";
@@ -792,6 +793,17 @@ tamboAgentRouter.post("/", async (req, res) => {
   } catch (err) {
     // Non-fatal - bot works without team context
     log.debug({ deploymentId, err: err instanceof Error ? err.message : String(err) }, "Failed to load team context");
+  }
+
+  // ── Memory scope disclosure (per-turn) ─────────────────────────────────────
+  // Inject a "Memory: <mode>" line (and "Session: <id>" for session mode) into
+  // the [CANVAS_STATE] block so the bot knows the memory scope on every turn.
+  // See docs/audits/memory-scoping-decision.md — this is the per-turn signal
+  // that complements the soul.md section rendered by openclaw.ts.
+  {
+    const scope = normalizeMemoryScope(deployment.memoryScope);
+    const memoryLine = renderMemoryStateLine(scope, sessionKey);
+    messageWithVision = injectMemoryStateLine(messageWithVision, memoryLine);
   }
 
   // ── Reasoning / Thinking ──────────────────────────────────────────────────

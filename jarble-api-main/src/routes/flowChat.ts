@@ -54,6 +54,7 @@ import {
   TEXT_MESSAGE_END,
 } from "../utils/eventTypes.js";
 import { agentCallEvents } from "../utils/agentCallEvents.js";
+import { normalizeMemoryScope, renderMemoryStateLine, injectMemoryStateLine } from "../utils/memoryScope.js";
 
 const log = createModuleLogger("flow-chat");
 
@@ -465,13 +466,25 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     // The strong header tag is a band-aid until chatViaExec gains a real system
     // prompt channel — without it the bot tends to treat the prompt as
     // conversational context and ignore the delegation contract.
-    const entryMessage =
+    let entryMessage =
       delegationTools.length > 0
         ? `[FLOW SYSTEM INSTRUCTIONS — AUTHORITATIVE]\n${augmentedPrompt}\n[/FLOW SYSTEM INSTRUCTIONS]\n\nUser message:\n${userMessage}`
         : userMessage;
 
     // 8. Send message to entry bot
     const sessionKey = `flow-${flowId}-${user.id}${conversationId ? `-${conversationId}` : ""}`;
+
+    // ── Memory scope disclosure (per-turn) ─────────────────────────────────
+    // Prepends a [CANVAS_STATE] block (or merges into one if already present).
+    // When delegation tools are active, entryMessage begins with
+    // [FLOW SYSTEM INSTRUCTIONS]; the [CANVAS_STATE] ends up at position 0,
+    // matching the specialist message format in flowDelegation.ts.
+    // See docs/audits/memory-scoping-decision.md.
+    {
+      const scope = normalizeMemoryScope(entryDeployment.memoryScope);
+      const memoryLine = renderMemoryStateLine(scope, sessionKey);
+      entryMessage = injectMemoryStateLine(entryMessage, memoryLine);
+    }
 
     const messageId = nanoid();
     // Generate a trace ID for the entire flow chat turn so budget checks
