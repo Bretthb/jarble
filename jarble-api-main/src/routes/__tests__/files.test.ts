@@ -182,15 +182,26 @@ describe("files routes", () => {
       expect(data.error).toContain("traversal");
     });
 
-    it("rejects protected directories", async () => {
+    it("allows listing previously protected directories in read-only mode (JAR-128)", async () => {
       mockAuth();
       mockDeployment();
+      mockPod();
+
+      (execInPod as ReturnType<typeof vi.fn>).mockResolvedValue(
+        [
+          "total 4",
+          "drwxr-xr-x 2 root root 4096 2024-01-15 10:30 _cacache",
+        ].join("\n")
+      );
 
       const res = await fetch(
-        `${baseUrl}/api/deployments/dep-1/files/list?path=/data/.npm/cache`,
+        `${baseUrl}/api/deployments/dep-1/files/list?path=/data/.npm`,
         { headers: AUTH_HEADER }
       );
-      expect(res.status).toBe(400);
+      expect(res.status).toBe(200);
+      const data = await jsonBody(res);
+      expect(data.entries).toHaveLength(1);
+      expect(data.entries[0].name).toBe("_cacache");
     });
   });
 
@@ -262,6 +273,21 @@ describe("files routes", () => {
       expect(res.status).toBe(200);
       const data = await jsonBody(res);
       expect(data.ok).toBe(true);
+    });
+
+    it("still rejects writes into protected directories (JAR-128)", async () => {
+      mockAuth();
+      mockDeployment();
+      mockPod();
+
+      const res = await fetch(`${baseUrl}/api/deployments/dep-1/files/mkdir`, {
+        method: "POST",
+        headers: { ...AUTH_HEADER, "Content-Type": "application/json" },
+        body: JSON.stringify({ path: "/data/.npm/evil" }),
+      });
+      expect(res.status).toBe(400);
+      const data = await jsonBody(res);
+      expect(data.error).toContain(".npm");
     });
   });
 

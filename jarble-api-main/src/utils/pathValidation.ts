@@ -12,17 +12,27 @@ export interface PathValidationResult {
   error?: string;
 }
 
+export interface ValidateFilePathOptions {
+  /**
+   * When true, allow paths under PROTECTED_DIRS. Use only for read operations
+   * (list, download) where we expose the full PVC tree for inspection but
+   * still want to block writes into runtime/cache/npm dirs. Defaults to false.
+   */
+  readOnly?: boolean;
+}
+
 /**
  * Validate and resolve a user-supplied file path against the PVC mount.
  *
  * - Rejects path traversal (..)
  * - Rejects null bytes and control characters
- * - Blocks access to protected directories
+ * - Blocks access to protected directories (unless opts.readOnly is true)
  * - Returns the resolved absolute path on the pod
  */
 export function validateFilePath(
   requestedPath: string,
-  pvcMountPath: string
+  pvcMountPath: string,
+  opts: ValidateFilePathOptions = {}
 ): PathValidationResult {
   if (!requestedPath) {
     return { valid: false, resolvedPath: "", error: "No path provided." };
@@ -57,15 +67,19 @@ export function validateFilePath(
     };
   }
 
-  // Block protected directories
-  const relativePath = resolved.slice(pvcMountPath.length + 1);
-  const firstSegment = relativePath.split("/")[0];
-  if (PROTECTED_DIRS.includes(firstSegment)) {
-    return {
-      valid: false,
-      resolvedPath: "",
-      error: `Access to ${firstSegment}/ is not allowed.`,
-    };
+  // Block protected directories for write operations. Reads are allowed so
+  // users can browse the full PVC tree (node_modules, npm cache, etc.) to
+  // inspect runtime state — see JAR-128.
+  if (!opts.readOnly) {
+    const relativePath = resolved.slice(pvcMountPath.length + 1);
+    const firstSegment = relativePath.split("/")[0];
+    if (PROTECTED_DIRS.includes(firstSegment)) {
+      return {
+        valid: false,
+        resolvedPath: "",
+        error: `Access to ${firstSegment}/ is not allowed.`,
+      };
+    }
   }
 
   return { valid: true, resolvedPath: resolved };

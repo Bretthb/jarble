@@ -123,7 +123,7 @@ filesRouter.get("/:id/files/list", async (req, res) => {
     const { managedBy, pvcMount, containerName } = getDeploymentMode(deployment);
     const requestedPath = (req.query.path as string) || pvcMount;
 
-    const validation = validateFilePath(requestedPath, pvcMount);
+    const validation = validateFilePath(requestedPath, pvcMount, { readOnly: true });
     if (!validation.valid) { res.status(400).json({ error: validation.error }); return; }
 
     const podName = await findPodForDeployment(deploymentId, { managedBy });
@@ -345,7 +345,7 @@ filesRouter.get("/:id/files/download", async (req, res) => {
     const filePath = req.query.path as string;
     if (!filePath) { res.status(400).json({ error: "Missing path parameter" }); return; }
 
-    const validation = validateFilePath(filePath, pvcMount);
+    const validation = validateFilePath(filePath, pvcMount, { readOnly: true });
     if (!validation.valid) { res.status(400).json({ error: validation.error }); return; }
 
     const podName = await findPodForDeployment(deploymentId, { managedBy });
@@ -432,7 +432,7 @@ filesRouter.post("/:id/files/download-archive", async (req, res) => {
     // Validate all paths
     const validatedPaths: string[] = [];
     for (const p of paths) {
-      const v = validateFilePath(p, pvcMount);
+      const v = validateFilePath(p, pvcMount, { readOnly: true });
       if (!v.valid) {
         res.status(400).json({ error: `Invalid path "${p}": ${v.error}` });
         return;
