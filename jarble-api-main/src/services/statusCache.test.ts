@@ -5,9 +5,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 // Mock K8s status module
 const mockGetDeploymentPodStatus = vi.fn();
+const mockGetDeploymentMetrics = vi.fn();
 
 vi.mock("../k8s/status.js", () => ({
   getDeploymentPodStatus: (...args: any[]) => mockGetDeploymentPodStatus(...args),
+}));
+
+vi.mock("../k8s/metrics.js", () => ({
+  getDeploymentMetrics: (...args: any[]) => mockGetDeploymentMetrics(...args),
 }));
 
 // Mock logger
@@ -52,6 +57,7 @@ describe("statusCache", () => {
       restarts: 0,
       error: undefined,
     });
+    mockGetDeploymentMetrics.mockResolvedValue(null);
     await reimportModule();
   });
 
@@ -118,6 +124,44 @@ describe("statusCache", () => {
       expect(cb).toHaveBeenCalledWith(
         expect.objectContaining({ status: "failed", error: "CrashLoop" })
       );
+    });
+
+    it("merges resource metrics into cached status when available (JAR-60)", async () => {
+      mockGetDeploymentPodStatus.mockResolvedValue({
+        status: "running",
+        restarts: 1,
+        error: undefined,
+      });
+      mockGetDeploymentMetrics.mockResolvedValue({
+        nodeName: "jarble-agent-1",
+        cpuUsageMillicores: 42,
+        cpuLimitMillicores: 1000,
+        memoryUsageMb: 128,
+        memoryLimitMb: 512,
+        uptimeSeconds: 3600,
+        restarts: 1,
+      });
+
+      const cb = vi.fn();
+      const status = await subscribe("dep-metrics", cb);
+
+      expect(status.nodeName).toBe("jarble-agent-1");
+      expect(status.cpuUsageMillicores).toBe(42);
+      expect(status.cpuLimitMillicores).toBe(1000);
+      expect(status.memoryUsageMb).toBe(128);
+      expect(status.memoryLimitMb).toBe(512);
+      expect(status.uptimeSeconds).toBe(3600);
+      expect(mockGetDeploymentMetrics).toHaveBeenCalledWith("dep-metrics");
+    });
+
+    it("omits metric fields when getDeploymentMetrics returns null (JAR-60)", async () => {
+      mockGetDeploymentMetrics.mockResolvedValue(null);
+      const cb = vi.fn();
+      const status = await subscribe("dep-no-metrics", cb);
+
+      expect(status.cpuUsageMillicores).toBeUndefined();
+      expect(status.memoryUsageMb).toBeUndefined();
+      expect(status.nodeName).toBeUndefined();
     });
   });
 

@@ -13,6 +13,7 @@
 
 import { createModuleLogger } from "../utils/logger.js";
 import { getDeploymentPodStatus, type DeploymentPodStatus } from "../k8s/status.js";
+import { getDeploymentMetrics } from "../k8s/metrics.js";
 
 const log = createModuleLogger("statusCache");
 
@@ -23,6 +24,45 @@ export interface CachedStatus {
   status: DeploymentPodStatus["status"];
   restarts?: number;
   error?: string;
+  // Resource metrics — populated when the pod is running. Absent (undefined)
+  // when the pod isn't running or the metrics-server query fails.
+  nodeName?: string | null;
+  cpuUsageMillicores?: number | null;
+  cpuLimitMillicores?: number | null;
+  memoryUsageMb?: number | null;
+  memoryLimitMb?: number | null;
+  uptimeSeconds?: number | null;
+}
+
+async function buildCachedStatus(deploymentId: string): Promise<CachedStatus> {
+  // Fetch pod status and metrics in parallel. getDeploymentMetrics returns
+  // null when the pod isn't running or metrics-server is unavailable (the
+  // latter is handled by an internal circuit breaker), so we merge it in
+  // defensively.
+  const [podStatus, metrics] = await Promise.all([
+    getDeploymentPodStatus(deploymentId),
+    getDeploymentMetrics(deploymentId),
+  ]);
+
+  const base: CachedStatus = {
+    deploymentId,
+    status: podStatus.status,
+    restarts: podStatus.restarts,
+    error: podStatus.error,
+  };
+
+  if (metrics) {
+    base.nodeName = metrics.nodeName;
+    base.cpuUsageMillicores = metrics.cpuUsageMillicores;
+    base.cpuLimitMillicores = metrics.cpuLimitMillicores;
+    base.memoryUsageMb = metrics.memoryUsageMb;
+    base.memoryLimitMb = metrics.memoryLimitMb;
+    base.uptimeSeconds = metrics.uptimeSeconds;
+    // Prefer metrics.restarts if the pod status call didn't return one.
+    if (base.restarts == null) base.restarts = metrics.restarts;
+  }
+
+  return base;
 }
 
 export type StatusChangeCallback = (status: CachedStatus) => void;
@@ -74,13 +114,7 @@ async function pollAll(): Promise<void> {
   const results = await Promise.allSettled(
     entries.map(async ([deploymentId, entry]) => {
       try {
-        const podStatus = await getDeploymentPodStatus(deploymentId);
-        const newStatus: CachedStatus = {
-          deploymentId,
-          status: podStatus.status,
-          restarts: podStatus.restarts,
-          error: podStatus.error,
-        };
+        const newStatus = await buildCachedStatus(deploymentId);
 
         const oldSerialized = serializeStatus(entry.lastStatus);
         const newSerialized = serializeStatus(newStatus);
@@ -127,13 +161,7 @@ export async function subscribe(
   }
 
   // First subscriber for this deployment - fetch initial status from K8s
-  const podStatus = await getDeploymentPodStatus(deploymentId);
-  const initialStatus: CachedStatus = {
-    deploymentId,
-    status: podStatus.status,
-    restarts: podStatus.restarts,
-    error: podStatus.error,
-  };
+  const initialStatus = await buildCachedStatus(deploymentId);
 
   entry = {
     lastStatus: initialStatus,
