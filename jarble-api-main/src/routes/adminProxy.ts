@@ -216,12 +216,37 @@ adminProxyRouter.all("/:id/admin/*", async (req: Request, res: Response) => {
     if (typeof val === "string") upstream.searchParams.set(key, val);
   }
 
+  // Forward the HTTP method + body. express.json() has already consumed the
+  // raw body stream by the time we get here, so req.body is a parsed JS
+  // object (or string/Buffer for non-JSON content types) — we re-serialize
+  // it on the way out. Without this, POST/PUT/PATCH from the Control UI's
+  // Update button would reach the pod as bodyless GETs and silently no-op.
+  const method = req.method.toUpperCase();
+  const isBodyMethod = method !== "GET" && method !== "HEAD";
+  const forwardedHeaders: Record<string, string> = {
+    "Authorization": `Bearer ${podAddr.gatewayToken}`,
+    "Accept": req.headers.accept || "*/*",
+  };
+  let forwardedBody: string | Buffer | undefined;
+  if (isBodyMethod) {
+    const reqContentType = req.headers["content-type"];
+    if (Buffer.isBuffer(req.body) && req.body.length > 0) {
+      forwardedBody = req.body;
+      if (reqContentType) forwardedHeaders["Content-Type"] = reqContentType;
+    } else if (typeof req.body === "string" && req.body.length > 0) {
+      forwardedBody = req.body;
+      if (reqContentType) forwardedHeaders["Content-Type"] = reqContentType;
+    } else if (req.body && typeof req.body === "object" && Object.keys(req.body).length > 0) {
+      forwardedBody = JSON.stringify(req.body);
+      forwardedHeaders["Content-Type"] = reqContentType || "application/json";
+    }
+  }
+
   try {
     const proxyRes = await fetch(upstream.toString(), {
-      headers: {
-        "Authorization": `Bearer ${podAddr.gatewayToken}`,
-        "Accept": req.headers.accept || "*/*",
-      },
+      method,
+      headers: forwardedHeaders,
+      body: forwardedBody,
       signal: AbortSignal.timeout(30_000),
     });
 
