@@ -1014,6 +1014,11 @@ export const organizations = sqliteTable("organizations", {
   slug: text("slug").notNull().unique(),
   ownerId: text("owner_id").notNull().references(() => users.id),
   avatarUrl: text("avatar_url"),
+  // Mirror of schema.pg.ts — used by org billing procedures (setupBilling,
+  // createBillingPortal, getBilling) and by the /checkout route to decide
+  // whether to bill an org or a personal user.
+  stripeCustomerId: text("stripe_customer_id"),
+  billingEmail: text("billing_email"),
   createdAt: text("created_at").notNull().$defaultFn(now),
   updatedAt: text("updated_at").notNull().$defaultFn(now),
 });
