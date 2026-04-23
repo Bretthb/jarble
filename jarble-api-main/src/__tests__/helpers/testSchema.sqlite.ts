@@ -82,6 +82,7 @@ export const deployments = sqliteTable("deployments", {
   bio: text("bio"),  // Public description of what this bot does
   showcasePrompts: text("showcase_prompts"),  // JSON array of example prompts
   orgId: text("org_id"),  // null = personal deployment, non-null = org-owned
+  visibility: text("visibility").default("all"),  // "all" = every org member sees it, "admin" = owner + admin only
   // JAR memory-scoping: foundation column (see schema.pg.ts for details)
   memoryScope: text("memory_scope").notNull().default("global"),
   maxBudgetCents: integer("max_budget_cents"),

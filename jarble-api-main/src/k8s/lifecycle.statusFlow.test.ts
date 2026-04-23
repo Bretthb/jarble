@@ -173,6 +173,7 @@ const CREATE_TABLES_SQL = `
     bio TEXT,
     showcase_prompts TEXT,
     org_id TEXT,
+    visibility TEXT DEFAULT 'all',
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
