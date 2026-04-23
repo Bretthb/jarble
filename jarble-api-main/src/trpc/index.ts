@@ -2,7 +2,6 @@ import { router } from "./middleware.js";
 import { userRouter } from "./routers/user.js";
 import { deploymentRouter } from "./routers/deployment.js";
 import { runtimeCatalogRouter } from "./routers/runtimeCatalog.js";
-import { templateRouter } from "./routers/template.js";
 import { openrouterRouter } from "./routers/openrouter.js";
 import { platformCredentialsRouter } from "./routers/platformCredentials.js";
 import { deploymentSecretsRouter } from "./routers/deploymentSecrets.js";
@@ -18,7 +17,6 @@ export const appRouter = router({
   user: userRouter,
   deployment: deploymentRouter,
   runtimeCatalog: runtimeCatalogRouter,
-  template: templateRouter,
   openrouter: openrouterRouter,
   platformCredentials: platformCredentialsRouter,
   deploymentSecrets: deploymentSecretsRouter,
