@@ -16,6 +16,7 @@
 import type { RuntimeHandler } from "./types.js";
 import { openclawHandler } from "./handlers/openclaw.js";
 import { zeroclawHandler } from "./handlers/zeroclaw.js";
+import { echoHandler } from "./handlers/echo.js";
 import { logger } from "../utils/logger.js";
 
 // ─── Registry ─────────────────────────────────────────────────────────
@@ -23,6 +24,7 @@ import { logger } from "../utils/logger.js";
 const HANDLERS: Record<string, RuntimeHandler> = {
   [openclawHandler.slug]: openclawHandler,
   [zeroclawHandler.slug]: zeroclawHandler,
+  [echoHandler.slug]: echoHandler,
 };
 
 /**
