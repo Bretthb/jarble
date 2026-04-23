@@ -1,8 +1,42 @@
-// TODO: All tests in this file hang due to rAF typewriter animation creating
-// infinite loops with synchronous mock. Needs async rAF mock architecture.
-// The actual useCanvasChat hook works correctly in production.
+/**
+ * useCanvasChat core tests.
+ *
+ * rAF mocking note:
+ * The hook uses a rAF-based typewriter reveal (see scheduleTypewriter). A naïve
+ * mock that invokes the callback synchronously corrupts `rafIdRef.current`:
+ * the callback runs, sets the ref to null, and then the outer assignment
+ * `rafIdRef.current = requestAnimationFrame(tick)` overwrites null with the
+ * mock's return value, leaving a non-null id after the typewriter has already
+ * finished. That then causes the finally-block `await new Promise(...)` wait
+ * to hang forever (the done-callback was already consumed). installAsyncRAFMock
+ * below queues callbacks on microtasks instead, matching real rAF semantics
+ * (returns id *before* the callback runs) while staying deterministic — the
+ * microtask queue drains between each `await` inside the stream loop.
+ */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
+
+// ── Async rAF mock ──────────────────────────────────────────────────────────
+// Mirrors real requestAnimationFrame: returns an id synchronously, defers the
+// callback. Used by beforeEach in each suite below.
+function installAsyncRAFMock() {
+  let nextId = 1;
+  const pending = new Map<number, FrameRequestCallback>();
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+    const id = nextId++;
+    pending.set(id, cb);
+    queueMicrotask(() => {
+      if (pending.has(id)) {
+        pending.delete(id);
+        cb(performance.now());
+      }
+    });
+    return id;
+  });
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+    pending.delete(id);
+  });
+}
 
 // ── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -24,6 +58,7 @@ vi.mock("@/lib/trpc", () => ({
     deployment: {
       syncChatSession: { useMutation: () => ({ mutateAsync: vi.fn(), isPending: false }) },
       listChatSessions: { useQuery: () => ({ data: undefined, isLoading: false }) },
+      getChatMessages: { useQuery: () => ({ data: undefined, isLoading: false, refetch: vi.fn() }) },
     },
     useUtils: () => ({}),
   },
@@ -95,7 +130,7 @@ function makeState(cards: any[] = []): CanvasState {
 
 // ── Tests ───────────────────────────────────────────────────────────────────
 
-describe.skip("useCanvasChat", () => {
+describe("useCanvasChat", () => {
   let dispatch: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
@@ -105,12 +140,7 @@ describe.skip("useCanvasChat", () => {
     localStorage.clear();
     // Reset fetch to avoid leaking between tests
     (global as any).fetch = undefined;
-    // Mock requestAnimationFrame for rAF-based text throttle
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
-      cb(0);
-      return 0;
-    });
-    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    installAsyncRAFMock();
   });
 
   afterEach(() => {
