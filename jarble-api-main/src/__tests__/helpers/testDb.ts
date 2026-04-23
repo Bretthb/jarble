@@ -732,6 +732,8 @@ const CREATE_TABLES_SQL = `
     slug TEXT NOT NULL UNIQUE,
     owner_id TEXT NOT NULL REFERENCES users(id),
     avatar_url TEXT,
+    stripe_customer_id TEXT,
+    billing_email TEXT,
     created_at TEXT DEFAULT (datetime('now')) NOT NULL,
     updated_at TEXT DEFAULT (datetime('now')) NOT NULL
   );
