@@ -15,6 +15,7 @@
 import { db, tables } from "../db/index.js";
 import { eq, and, inArray } from "drizzle-orm";
 import { createModuleLogger } from "../utils/logger.js";
+import { getHandlerOrNull } from "../runtimes/index.js";
 
 const log = createModuleLogger("deploymentCapabilities");
 
@@ -75,9 +76,15 @@ function deriveSubagentTags(
   return [];
 }
 
-/** Detect runtime-level capability flags. */
+/**
+ * Detect runtime-level capability flags via the RuntimeHandler registry.
+ * Previously hardcoded `runtime === "openclaw"`; routing through the
+ * handler lets new runtimes opt in by declaring
+ * `supportsNativeSubagents: true` on their handler (JAR-99 remediation).
+ */
 function detectSupportsSubagents(runtime: string): boolean {
-  return runtime === "openclaw";
+  const handler = getHandlerOrNull(runtime);
+  return handler?.supportsNativeSubagents === true;
 }
 
 /**
