@@ -24,12 +24,24 @@ vi.mock("@/components/canvas/CanvasRenderer", () => ({
   ),
 }));
 
-// Mock lucide-react's X icon so we can locate it without loading all icons.
-vi.mock("lucide-react", () => ({
-  X: ({ className }: { className?: string }) => (
-    <span className={className} data-testid="icon-x" />
-  ),
-}));
+// Mock lucide-react icons so we can locate them without loading all icons.
+// Stubs mirror the icons imported by TeamChatCanvasCard.
+vi.mock("lucide-react", () => {
+  const makeIcon = (testId: string) =>
+    ({ className }: { className?: string }) =>
+      <span className={className} data-testid={testId} />;
+  return {
+    X: makeIcon("icon-x"),
+    BarChart3: makeIcon("icon-bar-chart-3"),
+    Table2: makeIcon("icon-table-2"),
+    Code2: makeIcon("icon-code-2"),
+    Image: makeIcon("icon-image"),
+    Activity: makeIcon("icon-activity"),
+    LayoutGrid: makeIcon("icon-layout-grid"),
+    Layers: makeIcon("icon-layers"),
+    ExternalLink: makeIcon("icon-external-link"),
+  };
+});
 
 import TeamChatCanvasCard, {
   type TeamCanvasCardData,
