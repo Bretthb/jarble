@@ -11,7 +11,10 @@ import { env } from "./utils/env.js";
 import { initDatabase } from "./db/init.js";
 import { isStripeConfigured } from "./services/stripe.js";
 import { startStorageEnforcement } from "./services/storageEnforcement.js";
-import { startSubscriptionEnforcement } from "./services/subscriptionEnforcement.js";
+// Subscription enforcement (services/subscriptionEnforcement.ts) is intentionally
+// NOT wired up at startup yet. It will stop deployments whose Stripe subscription
+// lapses, which is gated on full billing rollout. When billing ships, import
+// `startSubscriptionEnforcement` here and invoke it alongside the others below.
 import { startStatusReconciler } from "./services/statusReconciler.js";
 import { startLifecycleWorker } from "./services/lifecycleJobs.js";
 import { startWebhookCleanup } from "./services/webhookCleanup.js";
@@ -290,7 +293,7 @@ async function start() {
 
   // Start periodic enforcement services
   startStorageEnforcement();
-  // startSubscriptionEnforcement(); // Disabled until Stripe is fully configured
+  // subscriptionEnforcement deliberately NOT started — see import-site comment.
   startStatusReconciler();  // Syncs DB status with K8s reality (fixes "stuck at creating")
   startLifecycleWorker();   // JAR-86: picks up durable deploy/start/restart jobs from lifecycle_jobs
   startWebhookCleanup();      // Purges processedWebhookEvents older than 30 days (every 24h)

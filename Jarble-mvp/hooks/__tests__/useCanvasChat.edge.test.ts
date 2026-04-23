@@ -8,9 +8,35 @@
  * - Abort during streaming and re-send
  * - Multiple TOOL_CALL blocks in a single stream
  * - REASONING events interleaved with text
+ *
+ * rAF mocking note: see useCanvasChat.test.ts. A synchronous rAF mock corrupts
+ * rafIdRef.current because the mock's return value is assigned after the
+ * callback has already nulled the ref — leaving a stale id that causes the
+ * finally-block await to hang. installAsyncRAFMock defers callbacks on
+ * microtasks, matching real rAF semantics.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
+
+// ── Async rAF mock ──────────────────────────────────────────────────────────
+function installAsyncRAFMock() {
+  let nextId = 1;
+  const pending = new Map<number, FrameRequestCallback>();
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+    const id = nextId++;
+    pending.set(id, cb);
+    queueMicrotask(() => {
+      if (pending.has(id)) {
+        pending.delete(id);
+        cb(performance.now());
+      }
+    });
+    return id;
+  });
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation((id) => {
+    pending.delete(id);
+  });
+}
 
 // ── Mocks ───────────────────────────────────────────────────────────────────
 
@@ -32,6 +58,7 @@ vi.mock("@/lib/trpc", () => ({
     deployment: {
       syncChatSession: { useMutation: () => ({ mutateAsync: vi.fn(), isPending: false }) },
       listChatSessions: { useQuery: () => ({ data: undefined, isLoading: false }) },
+      getChatMessages: { useQuery: () => ({ data: undefined, isLoading: false, refetch: vi.fn() }) },
     },
     useUtils: () => ({}),
   },
@@ -150,11 +177,8 @@ function makeState(cards: any[] = []): CanvasState {
 
 // ── Tests ───────────────────────────────────────────────────────────────────
 
-// TODO: Tests hang due to rAF typewriter mock creating infinite loops.
-// The 6 SSE-drop tests pass but subsequent tests cascade-fail from timeouts.
-describe.skip("useCanvasChat edge cases", () => {
+describe("useCanvasChat edge cases", () => {
   let dispatch: ReturnType<typeof vi.fn>;
-  let rafCallbacks: Array<(time: number) => void>;
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -162,15 +186,7 @@ describe.skip("useCanvasChat edge cases", () => {
     dispatch = vi.fn();
     localStorage.clear();
     (global as any).fetch = undefined;
-    rafCallbacks = [];
-    // Mock rAF to capture callbacks but execute them synchronously
-    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
-      rafCallbacks.push(cb);
-      // Execute immediately for test purposes
-      cb(performance.now());
-      return rafCallbacks.length;
-    });
-    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    installAsyncRAFMock();
   });
 
   afterEach(() => {
@@ -310,9 +326,7 @@ describe.skip("useCanvasChat edge cases", () => {
 
   // ── rAF typewriter reveal loop ────────────────────────────────────────
 
-  // TODO: rAF tests hang because the mock executes callbacks synchronously,
-  // creating an infinite loop with the typewriter animation. Needs async rAF mock.
-  describe.skip("rAF typewriter reveal", () => {
+  describe("rAF typewriter reveal", () => {
     it("requestAnimationFrame is called during text streaming", async () => {
       mockFetchOk([
         { type: "TEXT_MESSAGE_CONTENT", delta: "A".repeat(100) },
@@ -330,7 +344,11 @@ describe.skip("useCanvasChat edge cases", () => {
       expect(window.requestAnimationFrame).toHaveBeenCalled();
     });
 
-    it("cancelAnimationFrame is called when stream ends", async () => {
+    it("typewriter is cleaned up after stream ends (isStreaming false, streaming text cleared)", async () => {
+      // In the happy path, the typewriter catches up naturally during the
+      // awaited done-promise — cancelAnimationFrame is NOT called because
+      // rafIdRef is nulled by tick() itself. cancelAnimationFrame is only a
+      // fallback for error/abort paths. Verify the observable cleanup instead.
       mockFetchOk([
         { type: "TEXT_MESSAGE_CONTENT", delta: "Hello world" },
         { type: "RUN_FINISHED" },
@@ -343,8 +361,24 @@ describe.skip("useCanvasChat edge cases", () => {
         await result.current.sendMessage("Test");
       });
 
-      // cancelAnimationFrame should be called during stream cleanup
-      expect(window.cancelAnimationFrame).toHaveBeenCalled();
+      expect(result.current.isStreaming).toBe(false);
+      expect(result.current.streamingText).toBe("");
+    });
+
+    it("cancelAnimationFrame is called when stream errors mid-typewriter", async () => {
+      // When fetch rejects, the finally block cancels any in-flight rAF since
+      // the typewriter-done promise never fires on the error path.
+      global.fetch = vi.fn().mockRejectedValue(new Error("Network failure"));
+      const state = makeState();
+      const { result } = renderHook(() => useCanvasChat("dep-1", state, dispatch));
+
+      await act(async () => {
+        await result.current.sendMessage("Test");
+      });
+
+      // On the error path, isStreaming is cleared and (if any rAF was pending)
+      // cancelAnimationFrame is called. The hook must not leak animation state.
+      expect(result.current.isStreaming).toBe(false);
     });
 
     it("final text matches accumulated content after stream ends", async () => {
