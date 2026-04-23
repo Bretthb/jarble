@@ -87,7 +87,7 @@ cd Jarble-mvp && pnpm run dev
 
 ## tRPC Router Structure
 16 routers with 90+ procedures at `/trpc`:
-`user`, `deployment`, `runtimeCatalog`, `openrouter`, `billing`, `platformCredentials`, `template`, `marketplace` (components), `services` (service marketplace + hosted dashboard), `flows` (flow CRUD + execution), `admin`, `apiKeys`, `skills`, `subagents`, `org` (organizations)
+`user`, `deployment`, `runtimeCatalog`, `openrouter`, `billing`, `platformCredentials`, `deploymentSecrets`, `flows` (flow CRUD + execution), `admin`, `apiKeys`, `skills`, `subagents`, `org` (organizations)
 
 ## Organizations
 Individual-first model: users sign up as individuals, then create/join unlimited orgs. Deployments have an optional `orgId` — null means personal mode.
