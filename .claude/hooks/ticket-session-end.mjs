@@ -57,19 +57,25 @@ async function main() {
   const prUrl = sh(`gh pr list --head "${branch}" --json url --jq ".[0].url // \\"\\""`) || "";
   const handle = inferHandle(repoRoot) || (sh("git config user.email").split("@")[0] || "");
 
-  // Token cost (best effort)
+  // Token cost (best effort). JAR-97: log failures to stderr instead of
+  // silently eating them so the session comment's missing footer isn't a
+  // mystery when debugging later.
   let tokens = null;
   try {
     const mod = await import(join(repoRoot, "scripts", "linear", "token-cost.mjs"));
     tokens = mod.summarizeTranscript(transcriptPath);
-  } catch {}
+  } catch (err) {
+    console.error(`[ticket-session-end] token-cost.mjs failed:`, err?.message || err);
+  }
 
   // Branch health vs develop — lets the updater agent nudge for rebase if needed.
   let branchStatus = null;
   try {
     const mod = await import(join(repoRoot, "scripts", "linear", "branch-status.mjs"));
     branchStatus = mod.branchHealth("HEAD");
-  } catch {}
+  } catch (err) {
+    console.error(`[ticket-session-end] branch-status.mjs failed:`, err?.message || err);
+  }
 
   const payload = {
     issueId,
