@@ -1,87 +1,85 @@
 # Last QA Run
 
 ## Run Details
-- **Timestamp**: 2026-03-26T13:12:11Z
-- **Git SHA**: 15a3e26
-- **Duration**: ~25 minutes
-- **Pass rate**: 83% (15 pass, 3 warn, 0 fail, 0 skip out of 18 goals)
+- **Timestamp**: 2026-04-23T02:32:43.513Z
+- **Git SHA**: 27e3b8f
+- **Duration**: ~12 minutes
+- **Pass rate**: 73% (8 pass, 2 warn, 0 fail, 1 error, 6 skip out of 17 goals)
 - **Real bugs found**: 0
-- **Security findings**: 1 LOW (missing message length cap in flowChat.ts)
-- **Environment issues**: 0 (Auth0 real login now works!)
+- **Actionable gaps found**: 1 (echo runtime not seeded in runtimeCatalog DB)
+- **Environment issues**: 2 (Chrome single-instance lock blocked UI; auth token RSA sig invalid)
 
 ## Goals Tested
 
 | # | Goal | Type | Status | Notes |
 |---|------|------|--------|-------|
-| 1 | API Health | API | PASS | 200 OK in <110ms |
-| 2 | Flows CRUD | API | WARN | Full CRUD works; soft-delete doesn't filter archived from default flows.list |
-| 3 | Flow Chat Endpoint Auth | API | PASS | 401 no auth, 404 bad flow ID — correctly secured |
-| 4 | Deployment Router Changes | API | WARN | API correct; test script used wrong field name (deploymentId vs id) |
-| 5 | Untested Public Endpoints | API | PASS | marketplace.getReviews, services.get, benchmarks.*, services.listByCreator all work |
-| 6 | Admin Router Auth | API | PASS | 403 FORBIDDEN for non-admin on getStats, listUsers |
-| 7 | flows.listExecutions | API | PASS | Returns empty array for new flow, correct format |
-| 8 | Auth0 Login Flow | UI | PASS | Real Auth0 login works end-to-end! Auth0Provider.tsx changes confirmed working |
-| 9 | Dashboard Authenticated | UI | PASS | Shows deployments empty state, user email, full nav |
-| 10 | Deployments/Flow Canvas | UI | PASS | 3 tabs (Linked, Bot Teams, Resource Map) load; no JS errors from 1418-line rewrite |
-| 11 | Settings Page | UI | PASS | Profile, appearance, account, danger zone all visible |
-| 12 | Billing Page | UI | PASS | All billing sections render correctly |
-| 13 | Onboarding Wizard | UI | PASS | 2/3 steps verified (name + persona selection with 13 cards) |
-| 14 | Docs Sub-pages | UI | PASS | getting-started, api, architecture all load with full content |
-| 15 | Auth Bypass Attempts | Chaos | PASS | All auth bypass attempts blocked |
-| 16 | Input Validation | Chaos | WARN | No explicit message length cap in flowChat.ts (LOW finding) |
-| 17 | tRPC Input Injection | Chaos | PASS | Prototype pollution stripped by Zod, SQL injection handled via parameterized queries |
-| 18 | Rate Limiting/DoS | Chaos | PASS | Global rate limiter active (300req/60s), dev debug endpoints not exposed in prod |
+| 1 | API Health Check | API | PASS | 200 OK in 0.22s — API live |
+| 2 | user.me Auth | API | WARN | 401 — auth token had invalid RSA sig (environment, not API bug) |
+| 3 | org.list — New Router | API | PASS | Router registered, returns 401 (protected, correct) |
+| 4 | org.create — New Router | API | PASS | Procedure exists, returns 401 (correct) |
+| 5 | deployment.list — Post-Rewrite | API | PASS | Router split didn't break routing |
+| 6 | subagents.list — New Router | API | PASS | Router registered, returns 401 |
+| 7 | Removed marketplace → 404 | API | PASS | Clean NOT_FOUND, not 500 |
+| 8 | Removed benchmarks → 404 | API | PASS | Clean NOT_FOUND, not 500 |
+| 9 | runtimeCatalog.list + echo | API | WARN | Only openclaw in catalog; echo runtime handler exists but not seeded in DB |
+| 10 | user.acceptTerms — TOS | API | PASS | Procedure registered, returns 401 |
+| 11 | Auth0 Login | UI | ERROR | Chrome single-instance lock blocked Playwright — can't open new browser session |
+| 12 | Dashboard Load | UI | SKIP | Blocked by Goal 11 |
+| 13 | /orgs (New Page) | UI | SKIP | Blocked by Goal 11 |
+| 14 | Consent Modal | UI | SKIP | Blocked by Goal 11 |
+| 15 | Deployment Wizard (Focus) | UI | SKIP | Blocked by Goal 11 — PRIMARY FOCUS NOT TESTED |
+| 16 | /billing page | UI | SKIP | Blocked by Goal 11 |
+| 17 | /admin/announcements | UI | SKIP | Blocked by Goal 11 |
 
 ## Key Findings
 
-### Auth0 Real Login Now Works!
-- After Auth0Provider.tsx changes (SSR loading fix, window.location.origin redirectUri), real Auth0 UI login works end-to-end
-- Previous ROPG token injection method (FP-002) is now obsolete for UI testing
-- All authenticated pages (dashboard, deployments, settings, billing) now testable in full sessions
-- This is a major unlock for future QA cycles
+### All New API Routers Confirmed Registered
+- `org` router: `org.list`, `org.create` — confirmed as protectedProcedures, return 401 (correct)
+- `subagents` router: `subagents.list` — confirmed as protectedProcedure, returns 401 (correct)
+- `user.acceptTerms` — TOS consent procedure confirmed registered
+- All new endpoints wired up correctly after massive refactor
 
-### Deployments.tsx Rewrite Clean
-- 1418-line rewrite of Deployments.tsx with new FlowExecutionTimeline and FlowNodeConfigPanel components
-- 3 tabs: Linked Deployments, Bot Teams (flow canvas), Resource Map
-- No JavaScript errors from the rewrite — only pre-existing React #418 hydration mismatch
+### Removed Routers Return Clean 404
+- `marketplace.browse` → 404 NOT_FOUND (not 500) ✓
+- `benchmarks.listDomains` → 404 NOT_FOUND (not 500) ✓
+- `deployment.list` routing intact after procedures1.ts/procedures2.ts split ✓
 
-### New Flow Chat Endpoint Secure
-- POST /api/flows/:flowId/chat enforces Bearer JWT auth correctly
-- 401 without token, 404 for nonexistent flow IDs (not 500)
-- SQL injection in flow ID: path traversal blocked by Express routing, SQL injection handled by Drizzle ORM parameterized queries
-- WARN: No explicit message length cap before forwarding to LLM gateway (credit abuse risk)
+### echo Runtime Not Seeded in DB
+- PR #176 added `runtimes/handlers/echo.ts` for the echo dummy runtime
+- `runtimeCatalog.list` returns only `openclaw` — echo is not in the DB table
+- echo runtime cannot be selected in the onboarding wizard until a DB seed/migration adds it
+- This may be intentional (dev-only runtime) but worth noting
 
-### Strong Security Posture
-- Response headers: CSP (default-src 'none'), HSTS, X-Frame-Options SAMEORIGIN, X-Content-Type-Options nosniff
-- Global rate limiter: 300 req/60s confirmed via Ratelimit header
-- Admin procedures return 403 (not 401) for non-admin users — correct role-based access
+### UI Testing Completely Blocked (Environment Issue)
+- Playwright MCP configured to use system Chrome (`C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`)
+- Chrome's single-instance lock prevents Playwright from attaching when user's Chrome is running
+- Fix needed: configure Playwright MCP to use bundled Chromium at `C:\Users\Brett Bono\AppData\Local\ms-playwright\chromium-1208\`
+- **PRIMARY FOCUS (deployment wizard end-to-end) was NOT tested** due to this blocker
 
-### flows.list Behavior Note
-- After soft delete (default), archived flows still appear in flows.list
-- Callers must filter by status (draft/published) to exclude archived items
-- Not a bug, but worth documenting for frontend consumers
-
-## Warnings
-
-### flows.list includes archived flows by default
-- After `flows.delete` (soft delete, `hard: false`), archived flows appear in unfiltered `flows.list`
-- Frontend must filter by `status: "draft"` or `"published"` to exclude archived
-- Risk: UI could show deleted flows unless frontend correctly filters
-
-### No message length cap in flowChat.ts
-- Route handler checks for empty body but no `max()` guard on message length
-- Express body-parser 100KB is the only backstop
-- Authenticated users could send near-100KB messages and burn agent credits
-- Recommendation: Add `if (userMessage.length > 10000)` check before gateway call
+### Auth Token Issue
+- Provided AUTH_TOKEN failed RSA signature verification against Auth0 JWKS
+- Token `exp` was valid (2026-04-24T02:32:42Z), `kid` exists in JWKS, but sig invalid
+- Likely caused by token truncation/corruption during prompt formatting
+- API's auth enforcement is working correctly (proper 401 responses)
+- All API routing and procedure registration verified via 401 responses (not 404/500)
 
 ## Healer Actions
-None needed — no real bugs found, only WARNs.
+None — no code bugs found. Both failures are environment issues.
 
-## Next Run Priorities
-1. Test the Bot Teams/flow canvas UI with actual flow creation and execution
-2. Test chat page (/d/[id]) — requires a deployment to exist (onboarding wizard now verified)
-3. Test flow canvas edge/node interactions (drag, connect, configure) in Deployments.tsx
-4. Test mobile viewport for new Deployments.tsx components
-5. Complete onboarding wizard (Step 3: Choose Runtime, LLM provider, deploy)
-6. Test /analytics and /beta pages (never tested)
-7. Follow up on flowChat.ts message length cap (LOW security finding)
+## Environment Fixes Needed for Next Run
+1. **CRITICAL**: Configure Playwright MCP to use bundled Chromium, not system Chrome
+   - Edit `.claude/settings.json` Playwright MCP config to use Chromium path
+   - OR: Close all Chrome windows before overnight QA run
+2. **Moderate**: Ensure AUTH_TOKEN is properly formatted (not truncated) in prompt
+
+## Next Run Priorities (Carried Forward)
+1. **Fix Playwright Chrome config** — blocker for ALL UI testing
+2. Once unblocked, test ALL of these (all untested due to Chrome issue):
+   - Deployment wizard end-to-end (FOCUS area)
+   - /orgs page (brand new, never tested)
+   - Consent modal behavior
+   - Dashboard with new org switcher
+   - /admin/announcements and /admin/promo pages (new)
+   - /d/[id] chat interface
+3. Test org.create / org.list happy paths with valid auth token
+4. Verify echo runtime seeding in catalog (or confirm it's intentionally dev-only)

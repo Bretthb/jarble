@@ -8,20 +8,23 @@
 - [Last Run](last-run.md) — most recent run state and results
 
 ## Statistics
-- Total runs: 4
-- Last run: 2026-03-26T13:12:11Z (SHA 15a3e26)
-- Last run pass rate: 83% (15 pass, 3 warn, 0 fail out of 18 goals)
+- Total runs: 5
+- Last run: 2026-04-23T02:32:43Z (SHA 27e3b8f)
+- Last run pass rate: 47% (8 pass, 2 warn, 0 fail, 1 error, 6 skip out of 17 goals — UI blocked by Chrome conflict)
 - Cumulative real bugs found: 0
 - Auto-fixed: 0
-- Total endpoints tested (cumulative): 34 tRPC + 2 REST
+- Total endpoints tested (cumulative): 40 tRPC + 2 REST
 - Total pages tested (cumulative): 14 public + 6 authenticated (dashboard, deployments, settings, billing, onboarding, docs sub-pages)
 
 ## Key Findings
 - **Auth0 real login confirmed working** (2026-03-26): Auth0Provider.tsx changes (SSR fix, window.location.origin redirectUri) work. Real Auth0 UI login via Playwright now enables full authenticated session testing. Token injection approach is obsolete.
-- All public pages render correctly (/, /pricing, /about, /login, /marketplace, /explore, /docs, /privacy, /terms)
-- All authenticated pages confirmed working: /dashboard, /deployments, /settings, /billing
-- Deployments.tsx 1418-line rewrite loaded cleanly — 3 tabs (Linked, Bot Teams, Resource Map), no JS errors
-- New flow chat endpoint (POST /api/flows/:flowId/chat) is live and properly secured
+- **CRITICAL ENV ISSUE (2026-04-23)**: Playwright MCP configured to use system Chrome — conflicts when user's Chrome is running. All UI tests blocked. Fix: configure Playwright to use bundled Chromium at `C:\Users\Brett Bono\AppData\Local\ms-playwright\chromium-1208\`
+- **Massive codebase refactor (2026-04-23, SHA 27e3b8f)**: 901 files changed. Marketplace, services, benchmarks, template, agentCredits routers REMOVED. New org, subagents, deploymentSecrets routers ADDED. All verified via API routing checks.
+- All new routers confirmed registered (org, subagents, user.acceptTerms) — return 401 not 404 ✓
+- Removed routers return clean 404 NOT_FOUND (not 500) — clean removal confirmed ✓
+- echo runtime handler added (PR #176) but NOT seeded in runtimeCatalog DB table — won't appear in wizard
+- Previously tested pages (marketplace, explore, docs) may have changed/been removed — mark as stale
+- API is healthy: responds in 0.22s at https://api.jarble.ai/health
 - Admin procedures return 403 FORBIDDEN (not 401) for non-admin — correct RBAC
 - Strong security headers: CSP (default-src 'none'), HSTS, X-Frame-Options, rate limiter (300req/60s)
 - Drizzle ORM parameterized queries confirmed protecting against SQL injection
