@@ -161,29 +161,16 @@ async function hetznerRequest<T>(method: string, path: string, body?: unknown): 
   return res.json() as Promise<T>;
 }
 
-// ── Next Available IP ───────────────────────────────────────────────────
-
-async function getNextNodeIp(): Promise<string> {
-  const usedIps = new Set(["10.0.1.1", "10.0.1.10", "10.0.1.20", "10.0.1.21"]);
-
-  const existing = await db.select({ nodeIp: managedNodes.nodeIp })
-    .from(managedNodes)
-    .where(inArray(managedNodes.status, ["provisioning", "joining", "ready", "draining", "deleting"]));
-
-  for (const row of existing) {
-    usedIps.add(row.nodeIp);
-  }
-
-  for (let i = 30; i < 254; i++) {
-    const ip = `10.0.1.${i}`;
-    if (!usedIps.has(ip)) return ip;
-  }
-  throw new Error("No available IPs in subnet");
-}
-
 // ── Cloud-init ──────────────────────────────────────────────────────────
 
-function buildCloudInit(nodeIp: string, hasVolume: boolean): string {
+/**
+ * Name of the Hetzner private-network interface on our cpx* worker images.
+ * Exported so tests can assert against it. If the image ever stops using
+ * predictable "enp7s0" naming this is the single place to retarget.
+ */
+export const PRIVATE_NET_IFACE = "enp7s0";
+
+function buildCloudInit(hasVolume: boolean): string {
   const k3sToken = process.env.K3S_JOIN_TOKEN;
   if (!k3sToken) throw new Error("K3S_JOIN_TOKEN not set");
 
@@ -272,14 +259,33 @@ if command -v ip6tables-save >/dev/null 2>&1; then
 fi
 systemctl enable netfilter-persistent || true
 ${volumeMount}
+# Discover the Hetzner private-network IP assigned to this VM by DHCP.
+# We must NOT hardcode an IP upstream: the control-plane API routes kubectl-exec
+# upgrades to the InternalIP K3s reports, so two nodes reporting the same
+# --node-ip break exec entirely. See JAR-130 for the prod incident.
+echo "Waiting for ${PRIVATE_NET_IFACE} to acquire an IPv4 address..."
+NODE_IP=""
+for i in $(seq 1 30); do
+  NODE_IP=$(ip -4 -o addr show "${PRIVATE_NET_IFACE}" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+  if [ -n "$NODE_IP" ]; then
+    echo "Discovered node IP: $NODE_IP (attempt $i)"
+    break
+  fi
+  sleep 2
+done
+if [ -z "$NODE_IP" ]; then
+  echo "ERROR: ${PRIVATE_NET_IFACE} never came up with an IPv4 address after 60s" >&2
+  exit 1
+fi
+
 # Join K3s cluster
 curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${K3S_VERSION}" sh -s - agent \\
   --server "https://${MASTER_PRIVATE_IP}:6443" \\
   --token "${k3sToken}" \\
-  --node-ip "${nodeIp}" \\
-  --flannel-iface "enp7s0"
+  --node-ip "$NODE_IP" \\
+  --flannel-iface "${PRIVATE_NET_IFACE}"
 
-echo "K3s agent joined" > /var/log/k3s-setup.log
+echo "K3s agent joined with InternalIP $NODE_IP" > /var/log/k3s-setup.log
 `;
 }
 
@@ -314,16 +320,16 @@ async function provisionNode(
     : `${NODE_NAME_PREFIX}-${nanoid()}`;
   const nodeId = `node_${nanoid()}`;
 
-  let nodeIp: string;
-  try {
-    nodeIp = await getNextNodeIp();
-  } catch (err) {
-    provisioning = false;
-    throw err;
-  }
+  // The real node IP is assigned by Hetzner DHCP and reported back by K3s
+  // after the join completes. JAR-130: we used to pre-pick an IP here and
+  // bake it into cloud-init, but Hetzner-assigned NIC IPs drifted from the
+  // pre-picked value and two nodes ended up reporting the same --node-ip,
+  // which broke kubectl exec. Persist a placeholder and reconcile from the
+  // K8s node status once it's live.
+  const NODE_IP_PENDING = "pending";
 
   logger.info({
-    nodeName, nodeIp, serverType: serverType.name,
+    nodeName, serverType: serverType.name,
     podCpu: podCpuCores, podMem: podMemGb, podStorage: podStorageGb,
     cost: `$${(serverType.monthlyCents / 100).toFixed(2)}/mo`,
   }, "Scale UP: provisioning server for pending pod");
@@ -334,7 +340,7 @@ async function provisionNode(
     hetznerServerId: -(Math.floor(Math.random() * 2000000000) + 1),
     hetznerVolumeId: 0,
     nodeName,
-    nodeIp,
+    nodeIp: NODE_IP_PENDING,
     serverType: serverType.name,
     status: "provisioning",
     monthlyCostCents: serverType.monthlyCents,
@@ -403,7 +409,7 @@ async function provisionNode(
       ssh_keys: [sshKeyId],
       firewalls: firewallsToAttach,
       networks: [networkId],
-      user_data: buildCloudInit(nodeIp, hasVolume),
+      user_data: buildCloudInit(hasVolume),
       labels: { cluster: "jarble", role: "agent", managed: "true" },
       public_net: { enable_ipv4: true, enable_ipv6: true },
       ...(volumeId ? { volumes: [volumeId] } : {}),
@@ -428,16 +434,19 @@ async function provisionNode(
       if (s.server.status === "running") break;
       await new Promise((r) => setTimeout(r, 5000));
     }
-    logger.info({ nodeName, nodeIp }, "Server running");
+    logger.info({ nodeName }, "Server running");
 
     await db.update(managedNodes)
       .set({ status: "joining" })
       .where(eq(managedNodes.id, nodeId));
 
-    // 5. Wait for K3s node to join
+    // 5. Wait for K3s node to join and capture its real InternalIP so we can
+    //    persist it back into the DB. Previously we treated the pre-picked IP
+    //    as authoritative, which masked the duplicate-IP bug behind JAR-130.
     logger.info({ nodeName }, "Waiting for K3s agent to join...");
     const deadline = Date.now() + NODE_JOIN_TIMEOUT_MS;
     let joined = false;
+    let joinedNodeIp: string | null = null;
     while (Date.now() < deadline) {
       try {
         const { body: nodeList } = await coreApi.listNode();
@@ -446,6 +455,10 @@ async function provisionNode(
           const ready = node.status?.conditions?.find((c: any) => c.type === "Ready");
           if (ready?.status === "True") {
             joined = true;
+            const internal = (node.status?.addresses || []).find(
+              (a: any) => a.type === "InternalIP",
+            );
+            joinedNodeIp = internal?.address || null;
             break;
           }
         }
@@ -455,6 +468,19 @@ async function provisionNode(
 
     if (!joined) {
       throw new Error(`Node ${nodeName} did not join K3s within ${NODE_JOIN_TIMEOUT_MS / 1000}s`);
+    }
+
+    // Reconcile: persist the K8s-reported InternalIP into the DB so callers
+    // that read managed_nodes see reality, not a stale placeholder.
+    if (joinedNodeIp) {
+      await db.update(managedNodes)
+        .set({ nodeIp: joinedNodeIp })
+        .where(eq(managedNodes.id, nodeId));
+      logger.info({ nodeName, nodeIp: joinedNodeIp },
+        "Reconciled managed_nodes.nodeIp from K8s InternalIP");
+    } else {
+      logger.warn({ nodeName },
+        "K3s agent joined but no InternalIP was reported - managed_nodes.nodeIp left as 'pending'");
     }
 
     // Label the node so we can identify auto-scaled nodes and correlate with DB rows
