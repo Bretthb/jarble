@@ -55,8 +55,25 @@ async function main() {
         storageMb: 20,
         monthlyPriceCents: 1490,
       },
+      {
+        // JAR-101 — dummy "echo" runtime used as the plug-and-play
+        // validation. Deliberately trivial (no LLM, no platforms, no
+        // system prompt). The handler lives at runtimes/handlers/echo.ts;
+        // the actual echo server image is a follow-up. Hidden-by-default
+        // in the wizard via a non-zero isActive could be added later if
+        // needed; for now leaving active so it is visible for QA.
+        slug: "echo",
+        name: "Echo (dev)",
+        description: "No-op echo runtime — for platform validation only. Accepts a message and streams back a fixed response. Not intended for end-user deployments.",
+        category: "bot",
+        dockerImage: "ghcr.io/jarble-ai/echo:latest",
+        cpuLimit: "0.25",
+        memoryMb: 128,
+        storageMb: 5,
+        monthlyPriceCents: 0,
+      },
     ]);
-    console.log("[seed] Seeded 2 runtimes.");
+    console.log("[seed] Seeded 3 runtimes.");
   }
 
   // ── Skills Catalog ──────────────────────────────────────────────────
