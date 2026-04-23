@@ -36,7 +36,7 @@ The invoking hook passes you a single argument: the absolute path to a JSON payl
 
 ## Compose the comment
 
-Use this exact structure. Omit any section that has no content — never emit empty headers.
+Use this exact structure. Omit any OPTIONAL section that has no content — never emit empty headers. **Mermaid, Branch status, and the Tokens footer are always rendered** when their rules below apply (they have explicit "not available" placeholders so a future reader knows they were considered, not forgotten).
 
 ```md
 ### Session <YYYY-MM-DD HH:MM> — @<handle>
@@ -63,16 +63,13 @@ _(list up to 25; if more, append `…and N more`)_
 **PR**: <prUrl> (only include the line if prUrl is set)
 
 **Branch status**
-- <N> ahead of `develop`, <M> behind.
-- Rebase nudge — emit only if `branchStatus.needsRebase` is true. Exact wording:
-  - If behind ≥ 20 and no conflict: `Branch is <M> commits behind develop — consider rebasing to keep the merge clean.`
-  - If `conflictsWithBase` is true: `Branch would conflict with develop on: <file list>. Rebase and resolve before opening / updating the PR.`
+- <always rendered — see rules below>
 
 **Build**
 - API typecheck: pass | fail | not run this session
 - Frontend typecheck: pass | fail | not run this session
 
-_Tokens: <formatted via scripts/linear/token-cost.mjs formatFooter>_
+_Tokens: <always rendered — see rules below>_
 ```
 
 ### Mermaid rules
@@ -80,8 +77,20 @@ _Tokens: <formatted via scripts/linear/token-cost.mjs formatFooter>_
 - Use `flowchart LR` or `flowchart TD`.
 - One node per touched module/file (group by directory if >12 distinct files).
 - Draw edges where data or calls flow between them — infer from imports, tRPC procedure names, component hierarchy, etc.
-- Never include more than 12 nodes. Skip the mermaid block entirely if nothing structural changed (e.g. session only edited `README.md`).
+- Never include more than 12 nodes.
+- **Always render a diagram when there is any code diff.** A reader should be able to see the shape of the change at a glance. If the diff is a single file, a single-node graph is fine (`flowchart LR; A["path/to/file.ts"]`). If it's two files with an import relationship, draw the edge. Only skip the block entirely if the session produced zero code diff (e.g. the session only updated a memory file).
 - Never use emoji in mermaid labels.
+
+### Branch status rules
+
+The Branch status section is **always rendered** when the section header appears. The body depends on `payload.branchStatus`:
+
+- If `branchStatus` is null (the Stop hook could not compute it), emit a single line: `_Branch status not available — see Stop hook log._`
+- Otherwise, emit:
+  - `<N> ahead of \`<base>\`, <M> behind.`
+  - A rebase nudge line, emitted **only** if `branchStatus.needsRebase` is true. Exact wording:
+    - If behind ≥ 20 and no conflict: `Branch is <M> commits behind <base> — consider rebasing to keep the merge clean.`
+    - If `conflictsWithBase` is true: `Branch would conflict with <base> on: <file list>. Rebase and resolve before opening / updating the PR.`
 
 ### Acceptance criteria update
 
@@ -98,7 +107,9 @@ Infer from `sessionEvents` and `commits`:
 
 ### Token/cost footer
 
-Import `formatFooter` from `scripts/linear/token-cost.mjs` and pass `{ totals: payload.tokens, handle: payload.handle, runtimeMs: payload.endedAt - payload.startedAt }`. If the function returns an empty string, skip the footer line.
+Import `formatFooter` from `scripts/linear/token-cost.mjs` and pass `{ totals: payload.tokens, handle: payload.handle, runtimeMs: payload.endedAt - payload.startedAt }`.
+
+The footer line is **always rendered** when the template placeholder appears. If `formatFooter` returns a non-empty string, use it verbatim. If it returns an empty string (because `payload.tokens` was null or zero), emit the placeholder: `_Tokens: not available — session ran outside Claude Code /exit, or token summary failed to load._`. Never silently drop the line.
 
 ## Post the comment
 
