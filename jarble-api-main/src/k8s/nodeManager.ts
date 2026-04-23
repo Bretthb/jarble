@@ -263,18 +263,23 @@ ${volumeMount}
 # We must NOT hardcode an IP upstream: the control-plane API routes kubectl-exec
 # upgrades to the InternalIP K3s reports, so two nodes reporting the same
 # --node-ip break exec entirely. See JAR-130 for the prod incident.
-echo "Waiting for ${PRIVATE_NET_IFACE} to acquire an IPv4 address..."
+echo "Waiting for ${PRIVATE_NET_IFACE} to acquire a Hetzner private-network IPv4 address..."
 NODE_IP=""
 for i in $(seq 1 30); do
-  NODE_IP=$(ip -4 -o addr show "${PRIVATE_NET_IFACE}" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
-  if [ -n "$NODE_IP" ]; then
+  CANDIDATE=$(ip -4 -o addr show "${PRIVATE_NET_IFACE}" 2>/dev/null | awk '{print $4}' | cut -d/ -f1 | head -1)
+  # Hetzner private networks use 10.0.0.0/8. Reject link-local 169.254.x.x
+  # and any other fallback address that could briefly sit on the NIC before
+  # DHCP settles — registering K3s with one of those would be unreachable
+  # from the control plane.
+  if [ -n "$CANDIDATE" ] && echo "$CANDIDATE" | grep -qE '^10\.'; then
+    NODE_IP="$CANDIDATE"
     echo "Discovered node IP: $NODE_IP (attempt $i)"
     break
   fi
   sleep 2
 done
 if [ -z "$NODE_IP" ]; then
-  echo "ERROR: ${PRIVATE_NET_IFACE} never came up with an IPv4 address after 60s" >&2
+  echo "ERROR: ${PRIVATE_NET_IFACE} never came up with a 10.0.0.0/8 address after 60s" >&2
   exit 1
 fi
 
@@ -443,6 +448,10 @@ async function provisionNode(
     // 5. Wait for K3s node to join and capture its real InternalIP so we can
     //    persist it back into the DB. Previously we treated the pre-picked IP
     //    as authoritative, which masked the duplicate-IP bug behind JAR-130.
+    //    Only flip `joined` once BOTH Ready=True and an InternalIP are
+    //    present — in theory Ready implies addresses are populated, but a
+    //    ready row with `nodeIp="pending"` is the one failure mode we must
+    //    not ship into the DB.
     logger.info({ nodeName }, "Waiting for K3s agent to join...");
     const deadline = Date.now() + NODE_JOIN_TIMEOUT_MS;
     let joined = false;
@@ -454,34 +463,34 @@ async function provisionNode(
         if (node) {
           const ready = node.status?.conditions?.find((c: any) => c.type === "Ready");
           if (ready?.status === "True") {
-            joined = true;
             const internal = (node.status?.addresses || []).find(
               (a: any) => a.type === "InternalIP",
             );
-            joinedNodeIp = internal?.address || null;
-            break;
+            if (internal?.address) {
+              joined = true;
+              joinedNodeIp = internal.address;
+              break;
+            }
+            // Ready but no InternalIP yet — keep polling. Retry on the next
+            // 10s tick. In the vanishingly rare case this persists until the
+            // deadline, the outer throw will fire and provision cleanup runs.
           }
         }
       } catch {}
       await new Promise((r) => setTimeout(r, 10_000));
     }
 
-    if (!joined) {
-      throw new Error(`Node ${nodeName} did not join K3s within ${NODE_JOIN_TIMEOUT_MS / 1000}s`);
+    if (!joined || !joinedNodeIp) {
+      throw new Error(`Node ${nodeName} did not join K3s within ${NODE_JOIN_TIMEOUT_MS / 1000}s (or joined without an InternalIP)`);
     }
 
     // Reconcile: persist the K8s-reported InternalIP into the DB so callers
     // that read managed_nodes see reality, not a stale placeholder.
-    if (joinedNodeIp) {
-      await db.update(managedNodes)
-        .set({ nodeIp: joinedNodeIp })
-        .where(eq(managedNodes.id, nodeId));
-      logger.info({ nodeName, nodeIp: joinedNodeIp },
-        "Reconciled managed_nodes.nodeIp from K8s InternalIP");
-    } else {
-      logger.warn({ nodeName },
-        "K3s agent joined but no InternalIP was reported - managed_nodes.nodeIp left as 'pending'");
-    }
+    await db.update(managedNodes)
+      .set({ nodeIp: joinedNodeIp })
+      .where(eq(managedNodes.id, nodeId));
+    logger.info({ nodeName, nodeIp: joinedNodeIp },
+      "Reconciled managed_nodes.nodeIp from K8s InternalIP");
 
     // Label the node so we can identify auto-scaled nodes and correlate with DB rows
     try {
