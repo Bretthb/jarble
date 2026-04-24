@@ -77,12 +77,20 @@ const envSchema = z.object({
 
 export const env = envSchema.parse(process.env);
 
-// Enforce critical env vars in production - fail fast at startup
+// Enforce critical env vars in production - fail fast at startup.
+//
+// JAR-89 §2: AUTH0_DOMAIN and OPENROUTER_API_KEY default to "test.auth0.com"
+// and "sk-test-key" respectively so local dev boots without a .env. In prod
+// those defaults would silently reject every JWT ("invalid issuer") or make
+// every LLM call 401 without a clear signal about the misconfig. Fail loud
+// at startup instead.
 if (env.NODE_ENV === "production") {
   const missing: string[] = [];
   if (!env.API_KEY_ENCRYPTION_KEY) missing.push("API_KEY_ENCRYPTION_KEY");
   if (!env.STRIPE_WEBHOOK_SECRET) missing.push("STRIPE_WEBHOOK_SECRET");
   if (!env.AUTH0_M2M_SECRET) missing.push("AUTH0_M2M_SECRET");
+  if (env.AUTH0_DOMAIN === "test.auth0.com") missing.push("AUTH0_DOMAIN (still set to the dev default 'test.auth0.com')");
+  if (env.OPENROUTER_API_KEY === "sk-test-key") missing.push("OPENROUTER_API_KEY (still set to the dev default 'sk-test-key')");
   if (missing.length > 0) {
     throw new Error(`Missing required production env vars: ${missing.join(", ")}`);
   }
