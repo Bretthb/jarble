@@ -274,8 +274,15 @@ adminProxyRouter.all("/:id/admin/*", async (req: Request, res: Response) => {
     if (isHtml) {
       let html = body.toString("utf-8");
 
-      // Escape the gateway token for safe JS string embedding
-      const escapedToken = podAddr.gatewayToken.replace(/[\\'"]/g, "\\$&");
+      // JAR-89 §5 — the previous hand-rolled escape only handled \ ' ", which
+      // misses `</script>` (breaks out of the script tag), backticks, and
+      // template-literal `$` sequences. Use the standard safe-script-injection
+      // pattern: JSON.stringify for full JS-string safety, then replace any
+      // raw `<` with < so `</script>` cannot terminate the script tag
+      // regardless of the token's content. The replacement produces a
+      // properly-quoted JS string literal ready to embed anywhere the SPA
+      // reads it.
+      const tokenJsLiteral = JSON.stringify(podAddr.gatewayToken).replace(/</g, "\\u003c");
 
       const autoConnectScript = `<script>
 // Jarble Control UI Bridge — runs in <head> before SPA module scripts.
@@ -298,7 +305,7 @@ adminProxyRouter.all("/:id/admin/*", async (req: Request, res: Response) => {
     pageUrl.searchParams.set('gatewayUrl', wsUrl);
     window.history.replaceState({}, '', pageUrl.toString());
     if (!window.location.hash || !window.location.hash.includes('token=')) {
-      window.location.hash = 'token=${escapedToken}';
+      window.location.hash = 'token=' + ${tokenJsLiteral};
     }
   } catch(e) {}
 
