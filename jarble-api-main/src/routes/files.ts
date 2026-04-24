@@ -24,6 +24,7 @@ import { verifyToken, getUserFromToken } from "../services/auth.js";
 import {
   findPodForDeployment,
   execInPod,
+  execInPodWithStdin,
 } from "../k8s/index.js";
 import { getPvcMountPath, getContainerName } from "../k8s/constants.js";
 import type { ManagedBy } from "../k8s/constants.js";
@@ -270,19 +271,24 @@ filesRouter.post("/:id/files/upload", uploadLimiter, async (req, res) => {
           const dir = escaped.substring(0, escaped.lastIndexOf("/"));
           const timeout = dynamicTimeout(content.length);
 
-          // Atomic write: pipe to .tmp then mv
-          await execInPod(
+          // JAR-89 §4: atomic write via stdin pipe. The old path did
+          //   echo '<base64>' | base64 -d > tmp && mv tmp final
+          // which trips the Windows CreateProcess arg-length ceiling on
+          // files that encode above ~32 KB. Piping via stdin removes the
+          // arg-length risk entirely; the shell script still does the
+          // mkdir + tmp-file + mv for atomicity.
+          // Pass the Buffer directly — files can be binary (PDFs, images)
+          // so utf-8 round-tripping would corrupt the content.
+          await execInPodWithStdin(
             podName,
-            ["sh", "-c", `mkdir -p '${escapeShellPath(dir)}'`],
-            containerName
-          );
-
-          // Base64 encode for safe transfer through shell
-          const b64 = content.toString("base64");
-          await execInPod(
-            podName,
-            ["sh", "-c", `echo '${b64}' | base64 -d > '${tmpPath}' && mv '${tmpPath}' '${escaped}'`],
-            containerName
+            [
+              "sh",
+              "-c",
+              `mkdir -p '${escapeShellPath(dir)}' && cat > '${tmpPath}' && mv '${tmpPath}' '${escaped}'`,
+            ],
+            content,
+            timeout,
+            containerName,
           );
 
           log.info({ deploymentId, path: validation.resolvedPath, size: content.length }, "File uploaded");

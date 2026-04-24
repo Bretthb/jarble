@@ -14,7 +14,7 @@ import { Router } from "express";
 import { eq, and } from "drizzle-orm";
 import { db, tables } from "../db/index.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
-import { findPodForDeployment, execInPod } from "../k8s/index.js";
+import { findPodForDeployment, execInPod, execInPodWithStdin } from "../k8s/index.js";
 import { createModuleLogger } from "../utils/logger.js";
 
 const log = createModuleLogger("canvasFiles");
@@ -66,12 +66,17 @@ canvasFilesRouter.post("/:id/component-state/save", async (req, res) => {
     const mount = getPvcMountPath(managedBy);
     const container = getContainerName(managedBy);
     const filePath = `${mount}/${STATE_DIR}/${safeCardId}.json`;
-    const b64 = Buffer.from(JSON.stringify(state)).toString("base64");
+    const body = JSON.stringify(state);
 
-    await execInPod(podName, [
-      "sh", "-c",
-      `mkdir -p '${mount}/${STATE_DIR}' && echo '${b64}' | base64 -d > '${escapeShellValue(filePath)}'`,
-    ], container);
+    // JAR-89 §4: pipe the JSON via stdin instead of `echo '<b64>' | base64 -d`.
+    // Avoids the shell-arg-length ceiling and the base64 round-trip.
+    await execInPodWithStdin(
+      podName,
+      ["sh", "-c", `mkdir -p '${escapeShellValue(`${mount}/${STATE_DIR}`)}' && cat > '${escapeShellValue(filePath)}'`],
+      body,
+      30_000,
+      container,
+    );
 
     res.json({ success: true });
   } catch (err) {

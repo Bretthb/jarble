@@ -19,7 +19,7 @@ import { Router } from "express";
 import { eq, and } from "drizzle-orm";
 import { db, tables } from "../db/index.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
-import { findPodForDeployment, execInPod } from "../k8s/index.js";
+import { findPodForDeployment, execInPod, execInPodWithStdin } from "../k8s/index.js";
 import { createModuleLogger } from "../utils/logger.js";
 
 const log = createModuleLogger("artifact");
@@ -100,19 +100,22 @@ async function execRead(
   }
 }
 
-/** Exec write: base64-encode content and pipe into the target file */
+/**
+ * Exec write: pipe content into the target file via stdin.
+ * JAR-89 §4 — previously base64-encoded via shell arg; stdin pipe avoids
+ * the round-trip and the implicit shell-arg length ceiling.
+ */
 async function execWrite(
   podName: string,
   filePath: string,
   content: string
 ): Promise<void> {
-  const b64 = Buffer.from(content).toString("base64");
   const dir = filePath.substring(0, filePath.lastIndexOf("/"));
-  await execInPod(podName, [
-    "sh",
-    "-c",
-    `mkdir -p '${dir}' && echo '${b64}' | base64 -d > '${filePath}'`,
-  ]);
+  await execInPodWithStdin(
+    podName,
+    ["sh", "-c", `mkdir -p '${dir}' && cat > '${filePath}'`],
+    content,
+  );
 }
 
 // ── Routes ───────────────────────────────────────────────────────────────────
