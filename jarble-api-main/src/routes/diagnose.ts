@@ -21,6 +21,7 @@ import {
 } from "../k8s/index.js";
 import type { ManagedBy } from "../k8s/constants.js";
 import { getContainerName, getContainerHome } from "../k8s/constants.js";
+import { runOpenClawDiagnostics } from "../runtimes/handlers/openclaw.diagnostics.js";
 
 export const diagnoseRouter = Router();
 
@@ -235,178 +236,40 @@ diagnoseRouter.get("/:id/diagnose", async (req, res) => {
     ...(deployment.llmApiKey ? {} : { suggestion: "Add an LLM API key in settings" }),
   });
 
-  // 6. OpenClaw In-Pod Diagnostics (exec into pod if running)
-  if (podRunning) {
+  // 6. In-Pod Diagnostics (exec into pod if running).
+  //
+  // JAR-99 LOW #3: the ~160 lines of OpenClaw-specific probes + parsers
+  // that used to live here were extracted into runOpenClawDiagnostics.
+  // For OpenClaw deployments we still import the helper directly because
+  // the auto-remediation path below needs the raw `gatewayDown` and
+  // `podModel` signals that aren't part of the generic `runDiagnostics`
+  // handler contract. Other runtimes fall through this block entirely
+  // — they can opt in later with their own helper or a full
+  // `handler.runDiagnostics` that owns both probes and remediation.
+  if (podRunning && deployment.runtime === "openclaw") {
     const managedBy = ((deployment as any).managedBy ?? "legacy") as ManagedBy;
     try {
       const podName = await findPodForDeployment(deploymentId, { managedBy });
       if (podName) {
         const containerName = getContainerName(managedBy);
-        const home = getContainerHome(managedBy);
-        const pvcMount = managedBy === "operator" ? `${home}/.openclaw` : "/data";
+        const { checks: probeChecks, gatewayDown, podModel } = await runOpenClawDiagnostics({ podName, managedBy });
 
-        // Run OpenClaw CLI diagnostics + system checks in a single exec.
-        // The HTTP health check is authoritative - process/port checks are informational only.
-        const script = [
-          `echo "===HTTP_HEALTH==="`,
-          `curl -s -o /dev/null -w "%{http_code}" http://localhost:18789/ 2>/dev/null || echo "CURL_FAILED"`,
-          `echo "===PROCESS==="`,
-          `ps aux 2>/dev/null | head -20 || echo "NO_PS"`,
-          `echo "===VERSION==="`,
-          `cat /opt/openclaw/package.json 2>/dev/null || echo "NO_VERSION"`,
-          `echo "===CONFIG==="`,
-          `cat ${home}/.openclaw/openclaw.json 2>/dev/null || echo "NO_CONFIG"`,
-          `echo "===PID==="`,
-          `cat ${pvcMount}/.openclaw.pid 2>/dev/null || echo "NO_PID"`,
-          `echo "===HELP==="`,
-          `npx openclaw --help 2>&1 | head -30 || echo "NO_HELP"`,
-          `echo "===DOCTOR==="`,
-          `npx openclaw doctor 2>&1 || echo "NO_DOCTOR"`,
-          `echo "===DONE==="`,
-        ].join(" && ");
-
-        const raw = await withTimeout(
-          execInPod(podName, ["sh", "-c", script], containerName, 30_000),
-          35_000,
-        );
-
-        // Parse sections
-        const section = (tag: string) => {
-          const start = raw.indexOf(`===${tag}===`);
-          const end = raw.indexOf("===", start + tag.length + 6);
-          if (start === -1) return "";
-          return raw.slice(start + tag.length + 6, end === -1 ? undefined : end).trim();
-        };
-
-        // HTTP health check - authoritative gateway liveness signal
-        const httpHealth = section("HTTP_HEALTH");
-        const httpOk = httpHealth === "200";
-        const curlMissing = httpHealth === "CURL_FAILED" || !httpHealth;
-        if (httpOk) {
-          checks.push({
-            name: "Gateway HTTP",
-            status: "ok",
-            detail: "Gateway responded HTTP 200 on port 18789",
-          });
-        } else if (curlMissing) {
-          checks.push({
-            name: "Gateway HTTP",
-            status: "warning",
-            detail: "curl not available in container - falling back to process detection",
-          });
-        } else {
-          checks.push({
-            name: "Gateway HTTP",
-            status: "error",
-            detail: `Gateway HTTP check returned ${httpHealth}`,
-          });
-        }
-
-        // Process list - informational only (not used for restart decisions)
-        const proc = section("PROCESS");
-        if (proc && proc !== "NO_PS") {
-          checks.push({ name: "Process List", status: "ok", detail: proc.split("\n").slice(0, 3).join("; ") });
-        } else {
-          checks.push({ name: "Process List", status: "warning", detail: "ps not available in container" });
-        }
-
-        // OpenClaw version detection
-        const versionRaw = section("VERSION");
-        if (versionRaw && versionRaw !== "NO_VERSION") {
-          try {
-            const pkg = JSON.parse(versionRaw);
-            checks.push({
-              name: "OpenClaw Version",
-              status: "ok",
-              detail: `${pkg.name ?? "openclaw"}@${pkg.version ?? "unknown"}`,
-            });
-          } catch {
-            checks.push({ name: "OpenClaw Version", status: "warning", detail: "package.json exists but malformed" });
-          }
-        } else {
-          checks.push({ name: "OpenClaw Version", status: "warning", detail: "Version not detected (no /opt/openclaw/package.json)" });
-        }
-
-        // Determine gateway liveness for auto-remediation:
-        // - If HTTP check succeeded → gateway is alive (regardless of process/port detection)
-        // - If curl was missing → fall back to process-based heuristic
-        // - If HTTP check failed with a non-200 status → gateway is down
-        let gatewayDown: boolean;
-        if (httpOk) {
-          gatewayDown = false;
-        } else if (curlMissing) {
-          // Fallback: check if any recognizable process is running
-          const hasProcess = proc && proc !== "NO_PS" && /node|openclaw|gateway/i.test(proc);
-          gatewayDown = !hasProcess;
-        } else {
-          // HTTP returned a non-200 code - gateway is down
-          gatewayDown = true;
-        }
-
-        // Config
-        const config = section("CONFIG");
-        if (config === "NO_CONFIG" || !config) {
-          checks.push({
-            name: "OpenClaw Config",
-            status: "error",
-            detail: "openclaw.json not found on pod",
-            suggestion: "Config sync may have failed - restart will re-init",
-          });
-        } else {
-          try {
-            const parsed = JSON.parse(config);
-            const podModel = parsed.agents?.defaults?.model?.primary || parsed.agent?.model || "not set";
+        // Merge probe checks, then apply model-mismatch warning on top of
+        // the handler's neutral "Pod model: X" entry — DB/model comparison
+        // is route-owned because the handler doesn't know the DB row.
+        for (const check of probeChecks) {
+          if (check.name === "OpenClaw Config" && check.status === "ok" && podModel) {
             const dbModel = (deployment as any).llmModel || "not set";
-            // Strip provider prefix (e.g., "anthropic/claude-sonnet-4-20250514" → "claude-sonnet-4-20250514")
             const normalizedPodModel = podModel.includes("/") ? podModel.split("/").slice(1).join("/") : podModel;
             const modelMatch = normalizedPodModel === dbModel || podModel === dbModel;
             checks.push({
-              name: "OpenClaw Config",
+              ...check,
               status: modelMatch ? "ok" : "warning",
               detail: `Pod model: ${podModel}${!modelMatch ? ` (DB: ${dbModel})` : ""}`,
               ...(!modelMatch ? { suggestion: "Model mismatch - restart to apply DB config" } : {}),
             });
-          } catch {
-            checks.push({ name: "OpenClaw Config", status: "warning", detail: "Config exists but malformed" });
-          }
-        }
-
-        // Hot reload support
-        const pid = section("PID");
-        checks.push({
-          name: "Hot Reload",
-          status: pid && pid !== "NO_PID" ? "ok" : "warning",
-          detail: pid && pid !== "NO_PID"
-            ? `Supported (PID: ${pid})`
-            : "Not supported (old image)",
-        });
-
-        // OpenClaw CLI help (discover available commands)
-        const help = section("HELP");
-        if (help && help !== "NO_HELP") {
-          // Strip ANSI codes for clean display
-          const cleanHelp = help.replace(/\x1b\[[0-9;]*m/g, "");
-          checks.push({ name: "OpenClaw CLI", status: "ok", detail: cleanHelp.slice(0, 500) });
-        }
-
-        // OpenClaw doctor (full output - strip ASCII art banner)
-        const doctor = section("DOCTOR");
-        if (doctor && doctor !== "NO_DOCTOR") {
-          // Strip ANSI codes and the ASCII art banner (block chars)
-          const cleanDoctor = doctor
-            .replace(/\x1b\[[0-9;]*m/g, "")
-            .replace(/[▄▀█░▐▌▓▒]+/g, "")
-            .replace(/🦞.*🦞/g, "")
-            .replace(/OPENCLAW/g, "")
-            .replace(/\n{2,}/g, "\n")
-            .trim();
-          if (cleanDoctor) {
-            const hasIssues = /error|fail|critical|unhealthy/i.test(cleanDoctor);
-            checks.push({
-              name: "OpenClaw Doctor",
-              status: hasIssues ? "warning" : "ok",
-              detail: cleanDoctor.slice(0, 1000),
-            });
+          } else {
+            checks.push(check);
           }
         }
 

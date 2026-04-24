@@ -933,6 +933,18 @@ export const openclawHandler: RuntimeHandler = {
     return null;
   },
 
+  // JAR-99 LOW #3 — dispatch the in-pod diagnostic probes through the
+  // handler registry so /diagnose stops hardcoding OpenClaw CLI calls.
+  // Returns only the checks array; the route reads gatewayDown + podModel
+  // off the raw helper directly via the named import when it needs them
+  // for the auto-remediation path. The handler-facing contract is just
+  // the checks.
+  async runDiagnostics(ctx: { podName: string; managedBy: "legacy" | "operator" }) {
+    const { runOpenClawDiagnostics } = await import("./openclaw.diagnostics.js");
+    const { checks } = await runOpenClawDiagnostics(ctx);
+    return checks;
+  },
+
   // JAR-99 LOW #2 — terminal session cosmetics. These used to be
   // hardcoded in routes/terminal.ts regardless of runtime.
   getTerminalBanner(): string {
