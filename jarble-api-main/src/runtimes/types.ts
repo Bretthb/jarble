@@ -462,6 +462,31 @@ export interface RuntimeHandler {
   getShellAlias?(): string | null;
   /** Prompt label shown in PS1 (e.g. "openclaw"). Defaults to "runtime". */
   getPromptLabel?(): string;
+
+  /**
+   * JAR-99 LOW #3 — in-pod diagnostic probes. The /diagnose route dispatches
+   * to this method when set; runtimes that don't override it return no
+   * additional checks and the route relies on its runtime-agnostic signals
+   * (pod status, LLM key configured, etc.) alone. Implementations own the
+   * exec calls into the pod and parse the output into the `DiagnosticCheck`
+   * shape. Must not throw — return an `{ name, status: "error", detail }`
+   * entry for any fatal condition instead.
+   */
+  runDiagnostics?(ctx: {
+    podName: string;
+    managedBy: "legacy" | "operator";
+  }): Promise<RuntimeDiagnosticCheck[]>;
+}
+
+/**
+ * Runtime-emitted diagnostic row for the /diagnose route.
+ * Matches the route's existing DiagnosticCheck shape.
+ */
+export interface RuntimeDiagnosticCheck {
+  name: string;
+  status: "ok" | "warning" | "error" | "skipped";
+  detail: string;
+  suggestion?: string;
 }
 
 /**
