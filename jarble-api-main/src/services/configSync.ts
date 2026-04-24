@@ -41,6 +41,7 @@ import type { ManagedBy } from "../k8s/constants.js";
 import { getPvcMountPath, getContainerName } from "../k8s/constants.js";
 import { updateDeploymentConfigMap } from "../k8s/configmap.js";
 import { getHandlerOrNull } from "../runtimes/index.js";
+import { waitForPodReady, ADAPTIVE_POLL_INTERVAL } from "./waitForPodReady.js";
 import type { DeploymentFields } from "../runtimes/types.js";
 import { decryptApiKey, encryptApiKey } from "../utils/encryption.js";
 import { createModuleLogger } from "../utils/logger.js";
@@ -682,20 +683,12 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<ConfigSyncRe
 
       if (restarted) {
         // Process restart signaled - poll for readiness (shorter timeout since no pod recreation)
-        let ready = false;
-        let failureReason = "";
-        for (let i = 0; i < 30; i++) { // 30 × 2s = 60s max
-          const status = await getDeploymentPodStatus(deploymentId, managedBy);
-          if (status.status === "running") {
-            ready = true;
-            break;
-          }
-          if (status.status === "failed") {
-            failureReason = status.error || "Pod failed after reload";
-            break;
-          }
-          await new Promise((r) => setTimeout(r, 2000));
-        }
+        const { ready, error: failureReasonRaw } = await waitForPodReady(
+          deploymentId,
+          managedBy,
+          { timeoutMs: 60_000 }, // fixed 2s interval default, 60s total
+        );
+        const failureReason = failureReasonRaw || "Pod failed after reload";
 
         if (ready) {
           await db.update(deployments)
@@ -792,28 +785,16 @@ async function syncConfigsToPvcInner(deploymentId: string): Promise<ConfigSyncRe
       gatewayToken: currentSecret?.OPENCLAW_GATEWAY_TOKEN,
     });
 
-    // Poll for readiness with adaptive intervals:
-    //   - First 20s: poll every 1s (warm boots with .initialized are ready in ~15s)
-    //   - 20s-60s: poll every 2s
-    //   - 60s-180s: poll every 3s (cold boot npm install takes 2-3 min)
-    let ready = false;
-    let failureReason = "";
-    const pollStartMs = Date.now();
-    const maxPollMs = 180_000; // 3 min max
-    while (Date.now() - pollStartMs < maxPollMs) {
-      const status = await getDeploymentPodStatus(deploymentId, managedBy);
-      if (status.status === "running") {
-        ready = true;
-        break;
-      }
-      if (status.status === "failed") {
-        failureReason = status.error || "Pod failed to start";
-        break;
-      }
-      const elapsedMs = Date.now() - pollStartMs;
-      const pollMs = elapsedMs < 20_000 ? 1000 : elapsedMs < 60_000 ? 2000 : 3000;
-      await new Promise((r) => setTimeout(r, pollMs));
-    }
+    // Poll for readiness with adaptive intervals (see waitForPodReady's
+    // ADAPTIVE_POLL_INTERVAL for the curve). Short polls while the pod might
+    // be a warm boot (.initialized present → ~15s to ready), stretching to
+    // match cold-boot npm install windows (~2-3 min).
+    const { ready, error: failureReasonRaw } = await waitForPodReady(
+      deploymentId,
+      managedBy,
+      { timeoutMs: 180_000, intervalFn: ADAPTIVE_POLL_INTERVAL },
+    );
+    const failureReason = failureReasonRaw || "Pod failed to start";
 
     if (ready) {
       const result = await db.update(deployments)
