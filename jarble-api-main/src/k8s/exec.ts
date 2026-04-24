@@ -73,7 +73,7 @@ export async function execInPod(
 export async function execInPodWithStdin(
   podName: string,
   command: string[],
-  stdinContent: string,
+  stdinContent: string | Buffer,
   timeoutMs: number = 30000,
   containerName: string = LEGACY_CONTAINER_NAME
 ): Promise<void> {
