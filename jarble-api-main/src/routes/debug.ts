@@ -6,6 +6,7 @@ import { logger } from "../utils/logger.js";
 import { verifyToken } from "../services/auth.js";
 import { syncConfigsToPvc, type ConfigSyncResult } from "../services/configSync.js";
 import { safeFireAndForget } from "../utils/safeAsync.js";
+import { validateFilePath } from "../utils/pathValidation.js";
 import { validateThemeConfig, THEME_PRESET_NAMES } from "@jarble/component-manifest";
 
 /**
@@ -472,10 +473,19 @@ debugRouter.get("/deployment/:id/config", async (req, res) => {
     }
 
     if (file) {
-      // Read a specific file
-      const safePath = file.replace(/\.\./g, ""); // basic path traversal guard
-      const content = await k8s.execInPod(podName, ["cat", `/data/${safePath}`]);
-      res.json({ file: safePath, content });
+      // JAR-89 §11: the previous guard `file.replace(/\.\./g, "")` was a
+      // substring strip, not a real path-traversal check — `....//` collapses
+      // to `..//` after the strip and still escapes. Route through the
+      // shared validator in utils/pathValidation.ts which resolves the path
+      // and rejects anything that lands outside /data/.
+      const requested = file.startsWith("/") ? file : `/data/${file}`;
+      const validation = validateFilePath(requested, "/data", { readOnly: true });
+      if (!validation.valid) {
+        res.status(400).json({ error: validation.error });
+        return;
+      }
+      const content = await k8s.execInPod(podName, ["cat", validation.resolvedPath]);
+      res.json({ file: validation.resolvedPath, content });
     } else {
       // List config directory + read key files
       const listing = await k8s.execInPod(podName, ["find", "/data/config", "-type", "f"]);
