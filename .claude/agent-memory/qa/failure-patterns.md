@@ -48,6 +48,18 @@ Recurring issues discovered by QA agents and their root causes.
 - **Frequency**: Deterministic
 - **Resolution**: Use `?input={"json":{"id":"..."}}` format
 
+### FP-007: Playwright Chrome Single-Instance Lock (ENVIRONMENT)
+
+- **Pattern**: Playwright MCP configured to use system Chrome (`C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`). When user's Chrome is already running, Chrome's single-instance lock routes new windows to the existing session and exits the spawned process before Playwright can attach CDP.
+- **Root cause**: Playwright MCP server config uses system Chrome path, not bundled Chromium
+- **Classification**: ENVIRONMENT_ISSUE
+- **First seen**: 2026-04-23
+- **Frequency**: Every run where user's Chrome is open (expected for overnight runs when user is present)
+- **Resolution**: Edit `.claude/settings.json` Playwright MCP config to use bundled Chromium at `C:\Users\Brett Bono\AppData\Local\ms-playwright\chromium-1208\`. OR close all Chrome windows before QA run.
+- **Impact**: Blocks ALL UI testing — entire qa-explorer-ui agent cannot run
+
+---
+
 ### FP-006: React #418 hydration mismatch (pre-existing)
 
 - **Pattern**: Console shows `React #418` hydration mismatch on every page

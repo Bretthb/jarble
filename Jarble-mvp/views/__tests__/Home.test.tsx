@@ -127,6 +127,6 @@ describe("Home", () => {
   it("renders the feature cards section", () => {
     render(<Home />);
     expect(screen.getByText(/Transparent pricing/)).toBeInTheDocument();
-    expect(screen.getByText(/\$13\.99\/mo/)).toBeInTheDocument();
+    expect(screen.getByText(/\$17\.99\/mo/)).toBeInTheDocument();
   });
 });

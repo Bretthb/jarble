@@ -1,56 +1,42 @@
 ---
-name: Cluster auto-scaling work in progress
-description: Hetzner K3s auto-scaling — two approaches attempted, both need refinement. Custom nodeManager has provisioning logic but capacity detection edge cases. K8s cluster autoscaler deployed but can't resolve Terraform-provisioned nodes.
+name: Cluster auto-scaling status
+description: Hetzner K3s auto-scaling via custom nodeManager — operational. JAR-130 (2026-04-22) fixed the duplicate-InternalIP bug in cloud-init. Cluster autoscaler still can't own Terraform-provisioned nodes (kept disabled).
 type: project
+originSessionId: 7d6aaeae-717e-4337-96f8-6133fa8748ed
 ---
+## Auto-scaling K3s Workers
 
-## Auto-scaling K3s Workers (2026-03-25)
+**Goal**: Auto-provision Hetzner cpx31+ workers when agent pods can't schedule, deprovision when empty.
 
-**Goal**: Auto-provision Hetzner cpx21 workers when bot pods can't schedule, deprovision when empty.
+### What's live (as of 2026-04-22):
+- Custom `nodeManager.ts` background watcher — polls every 15s for Pending pods, provisions right-sized cpx31/41/51 workers via Hetzner API.
+- `managed_nodes` table tracks provisioned servers with status lifecycle (`provisioning` → `joining` → `ready` → `draining` → `deleting` → `deleted` / `failed`).
+- RBAC: `jarble-node-manager` ClusterRole with nodes + pods permissions.
+- Master node tainted (`NoSchedule`) so agent pods don't land there.
+- Pod resource requests match limits (Guaranteed QoS).
+- Env vars in K8s secret `jarble-api-secrets` (rotate per JAR-82).
 
-### What's deployed:
-- `cluster-autoscaler.yaml` in kube-system — Hetzner provider, CPX21:ASH pool, 0-10 range
-- `nodeManager.ts` simplified to observability-only (capacity logging)
-- `managed_nodes` table in DB (MySQL/PG/SQLite schemas)
-- RBAC: `jarble-node-manager` ClusterRole (nodes + pods permissions)
-- Master node tainted (`NoSchedule`) to prevent bot pods landing there
-- Pod resource requests now match limits (guaranteed QoS)
-- Hetzner env vars in K8s secret (HETZNER_API_TOKEN, NETWORK_ID, FIREWALL_ID, SSH_KEY_ID, K3S_JOIN_TOKEN)
+### JAR-130 resolution (2026-04-22)
+Cloud-init used to bake a pre-picked `--node-ip` that drifted from the NIC's actual Hetzner-DHCP-assigned IP. Result: two workers reported the same `InternalIP=10.0.1.30`, which broke every `kubectl exec` into pods on them (404 "pod does not exist"). Fix landed in PR #172:
 
-### Issue with K8s Cluster Autoscaler:
-- The Hetzner provider uses `k3s://{nodeName}` to look up servers in the Hetzner API
-- Terraform-provisioned nodes (`jarble-agent-1`, `jarble-agent-2`) aren't found because they weren't created by the autoscaler
-- Every loop errors: "failed to get servers for node jarble-agent-1 error: server not found"
-- This blocks the autoscaler from reaching the scale-up logic
+- `buildCloudInit` now derives `--node-ip` from `enp7s0` at first boot, with a bounded wait + 10.0.0.0/8 validation so link-local 169.254 can't be captured.
+- After K3s joins, `provisionNode` reads the reported InternalIP and updates `managed_nodes.nodeIp` — DB row now reflects reality instead of a pre-picked placeholder.
+- `getNextNodeIp` removed — Hetzner owns allocation.
 
-**Why:** The autoscaler expects to own all nodes. Existing Terraform nodes don't have the right provider IDs.
+**Ops follow-up still open**: the two already-running duplicate-IP workers were provisioned under the old code. At least one needs draining before exec into their pods starts working. See Linear comment on JAR-130 for the drain playbook.
 
-### Current approach (WORKING — needs network fix):
-Background watcher polls every 15s for Pending (Unschedulable) bot pods.
-When detected, provisions a Hetzner server via API. Server creates successfully.
-**Issue**: K3s agent doesn't join because cloud-init doesn't set `--node-ip`
-and the auto-assigned IPs (10.0.1.1, 10.0.1.2) conflict with the gateway.
-**Fix needed**: Either assign a static private IP via the Hetzner API
-(`POST /servers/{id}/actions/attach_to_network` with explicit IP) BEFORE
-cloud-init runs, or pass the IP to cloud-init via server metadata/labels.
+### Cluster Autoscaler (disabled)
+`jarble-api-main/k8s/cluster-autoscaler.yaml` exists but the Hetzner provider requires `k3s://{nodeName}` identity that Terraform-provisioned nodes don't have ("server not found" on every loop). Kept disabled; custom nodeManager does the work instead.
 
-### Next steps:
-1. Fix cloud-init network: either use `--node-ip` with a deterministic IP, or
-   let K3s auto-detect from the `enp7s0` interface
-2. Dynamic server sizing: match Hetzner server type + block storage to deployment
-   config (user picks vCPU/RAM/storage, we provision the right server type)
-3. Per-deployment VPS: each deployment gets its own server (1:1 mapping)
+### DB schema
+Schema is Postgres-only now (MySQL + SQLite providers removed in commit 388018b). Unit tests use an in-memory SQLite mirror (`src/__tests__/helpers/testSchema.sqlite.ts`).
 
-### Hetzner IDs:
-- Network: 11998849
-- Firewall: 10633885 (jarble-firewall)
-- SSH Key: 109686600 (jarble-key)
-- K3s token: UfFzWMkCq0l3cXHFSYydjedjGfUKxAGWKURFE89AnkfCHxTx
-- API token: in K8s secret `jarble-api-secrets`
+### Key files
+- `jarble-api-main/src/k8s/nodeManager.ts` — provision/deprovision + capacity check.
+- `jarble-api-main/src/k8s/constants.ts` — `nodeName` in `DeploymentConfig`, server tier table.
+- `jarble-api-main/src/k8s/lifecycle.ts` — nodeSelector pinning, guaranteed QoS.
+- `jarble-api-main/src/db/schema.pg.ts` — `managed_nodes` table.
+- `jarble-api-main/k8s/cluster-autoscaler.yaml` — disabled, Hetzner env vars should use secretRef.
 
-### Key files:
-- `jarble-api-main/k8s/cluster-autoscaler.yaml`
-- `jarble-api-main/src/k8s/nodeManager.ts`
-- `jarble-api-main/src/k8s/constants.ts` (nodeName in DeploymentConfig)
-- `jarble-api-main/src/k8s/lifecycle.ts` (nodeSelector for pinning, guaranteed QoS)
-- `jarble-api-main/src/db/schema*.ts` (managed_nodes table)
+### Secrets note
+**Do not commit Hetzner or K3s tokens to this file.** They live in `jarble-api-secrets` K8s secret; surface them only via `process.env` at runtime. JAR-82 tracks the rotation of the previous committed-then-revoked values.

@@ -59,6 +59,7 @@ import {
   sourcesSchema,
   pageSchema,
   confirmationSchema,
+  marketplaceSandboxSchema,
 } from "@jarble/component-manifest";
 
 // Re-export schemas for consumers that import them directly from registry.ts
@@ -106,6 +107,7 @@ export {
   toolSchema,
   sourcesSchema,
   confirmationSchema,
+  marketplaceSandboxSchema,
 };
 
 // ── Lightweight components - static imports ──────────────────────────────────
@@ -202,6 +204,7 @@ export const CANVAS_COMPONENTS: Record<string, CanvasComponentEntry> = {
   code_editor: { component: CanvasCodeEditor, propsSchema: codeEditorSchema },
   spreadsheet: { component: CanvasSpreadsheet, propsSchema: spreadsheetSchema },
   sandbox: { component: CanvasSandbox, propsSchema: sandboxSchema },
+  marketplace_sandbox: { component: CanvasSandbox, propsSchema: marketplaceSandboxSchema },
   sandpack_sandbox: { component: CanvasSandpackSandbox, propsSchema: sandpackSandboxSchema },
   video: { component: CanvasVideo, propsSchema: videoSchema },
   embed: { component: CanvasEmbed, propsSchema: embedSchema },

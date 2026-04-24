@@ -22,6 +22,25 @@ Also: `runtimeCatalog.getById` requires a **numeric** `id`, not a string. Passin
 `services.get` requires `serviceId` field, not `id`.
 `benchmarks.leaderboard` requires `domainSlug` field, not `domainId`.
 
+**org router** (tested 2026-04-23):
+- `org.create` requires `{ name: string, slug: string }` — slug must be lowercase alphanumeric with hyphens (min 2 chars). `description` is NOT a valid field (schema does not include it).
+- `org.getById` requires `{ orgId: string }` (NOT `id`).
+- `org.delete` requires `{ orgId: string }` — returns `{ success: true }` on success.
+- `org.list` — no input required, returns array.
+
+**subagents router** (tested 2026-04-23):
+- `subagents.list` requires `{ deploymentId: string }` — NOT a no-input procedure. Returns 404 for unknown deploymentId.
+
+**deploymentSecrets router** (tested 2026-04-23):
+- `deploymentSecrets.list` does NOT exist — returns 404. Correct name is `deploymentSecrets.getByDeployment`.
+- `deploymentSecrets.getByDeployment` requires `{ deploymentId: string }` — returns 404 for unknown deploymentId.
+
+**flows router** (tested 2026-04-23):
+- `flows.create` requires `{ name, definition: { nodes: [], edges: [] }, description?, status?, entryNodeId?, teamType? }` — `definition` is a top-level required field (NOT `nodes`/`edges` at the root level).
+- `flows.create` with `deployment` type nodes performs FK validation — use `output` type nodes in tests to avoid FK errors against non-existent deployments.
+- `flows.listExecutions` requires `{ flowId: string }` — returns empty array when no executions exist.
+- `flows.delete` with `{ id, hard: true }` performs a permanent hard delete — `getById` returns 404 afterward.
+
 Admin router procedure names (NOT `getUsers`/`getMetrics` — those return 404):
 - `admin.listUsers` — list all users (adminProcedure, returns 403 for non-admin)
 - `admin.getStats` — platform stats / metrics (adminProcedure, returns 403 for non-admin)

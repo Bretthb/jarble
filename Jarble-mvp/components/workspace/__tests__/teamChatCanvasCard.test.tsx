@@ -24,11 +24,18 @@ vi.mock("@/components/canvas/CanvasRenderer", () => ({
   ),
 }));
 
-// Mock lucide-react's X icon so we can locate it without loading all icons.
+// Mock lucide-react with all icons used by TeamChatCanvasCard and ArtifactPreviewCard.
+// vi.mock is hoisted by Vitest, so no external helpers — stubs are inlined.
 vi.mock("lucide-react", () => ({
-  X: ({ className }: { className?: string }) => (
-    <span className={className} data-testid="icon-x" />
-  ),
+  X: ({ className }: { className?: string }) => <span className={className} data-testid="icon-x" />,
+  BarChart3: ({ className }: { className?: string }) => <span className={className} data-testid="icon-barchart3" />,
+  Table2: ({ className }: { className?: string }) => <span className={className} data-testid="icon-table2" />,
+  Code2: ({ className }: { className?: string }) => <span className={className} data-testid="icon-code2" />,
+  Image: ({ className }: { className?: string }) => <span className={className} data-testid="icon-image" />,
+  Activity: ({ className }: { className?: string }) => <span className={className} data-testid="icon-activity" />,
+  LayoutGrid: ({ className }: { className?: string }) => <span className={className} data-testid="icon-layoutgrid" />,
+  Layers: ({ className }: { className?: string }) => <span className={className} data-testid="icon-layers" />,
+  ExternalLink: ({ className }: { className?: string }) => <span className={className} data-testid="icon-externallink" />,
 }));
 
 import TeamChatCanvasCard, {

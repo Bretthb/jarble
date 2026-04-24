@@ -9,9 +9,9 @@
 | /about | 2026-03-24 | PASS | qa-explorer-ui |
 | /login | 2026-03-24 | PASS | qa-explorer-ui |
 | /register | 2026-03-24 | PASS (-> /login) | qa-explorer-ui |
-| /marketplace | 2026-03-24 | PASS | qa-explorer-ui |
-| /explore | 2026-03-24 | PASS | qa-explorer-ui |
-| /docs | 2026-03-24 | PASS | qa-explorer-ui |
+| /marketplace | 2026-03-24 | STALE (marketplace removed in codebase — page may 404 now) | qa-explorer-ui |
+| /explore | 2026-03-24 | STALE (explore page removed in codebase) | qa-explorer-ui |
+| /docs | 2026-03-24 | STALE (docs pages removed in codebase) | qa-explorer-ui |
 | /privacy | 2026-03-24 | PASS | qa-explorer-ui |
 | /terms | 2026-03-24 | PASS | qa-explorer-ui |
 | /dashboard | 2026-03-26 | PASS (real Auth0 login — shows empty deployments state + user email) | qa-explorer-ui |
@@ -24,16 +24,17 @@
 | /docs/architecture | 2026-03-26 | PASS (system overview, ASCII diagram, chat arch, config sync) | qa-explorer-ui |
 | /d/[id] | never | - | - |
 | /d/[id]/configure | never | - | - |
-| /marketplace/[id] | never | - | - |
-| /marketplace/services/[id] | never | - | - |
 | /analytics | never | - | - |
 | /beta | never | - | - |
-| /docs/components | never | - | - |
-| /docs/marketplace | never | - | - |
-| /docs/platform | never | - | - |
-| /docs/security | never | - | - |
 | /admin | never | - | - |
-| /admin/* (7 sub-pages) | never | - | - |
+| /admin/announcements | never | NEW (added 2026-04) | - |
+| /admin/promo | never | NEW (added 2026-04) | - |
+| /admin/* (other sub-pages) | never | - | - |
+| /orgs | never | NEW (added 2026-04) | - |
+| /orgs/[orgId] | never | NEW (added 2026-04) | - |
+| /invite/[token] | never | NEW (added 2026-04) | - |
+| /legal/terms | never | NEW (added 2026-04) | - |
+| /legal/privacy | never | NEW (added 2026-04) | - |
 
 ## API Endpoints (tRPC)
 
@@ -41,41 +42,24 @@
 
 | Router.Procedure | Last Tested | Result |
 |-----------------|------------|--------|
-| health (REST) | 2026-03-26 | PASS (<110ms) |
-| runtimeCatalog.list | 2026-03-24 | PASS (2 runtimes) |
+| health (REST) | 2026-04-23 | PASS (0.22s) |
+| runtimeCatalog.list | 2026-04-23 | WARN (only openclaw — echo runtime handler added but not seeded in DB) |
 | runtimeCatalog.getBySlug | 2026-03-24 | PASS |
 | runtimeCatalog.getById | 2026-03-24 | PASS (openclaw details) |
 | runtimeCatalog.getCapabilities | 2026-03-24 | PASS (needsLlm, hasPlatforms, etc.) |
-| template.list | 2026-03-24 | PASS (13 templates) |
-| template.getCategories | 2026-03-24 | PASS |
-| template.getById | 2026-03-24 | PASS (null for "1") |
-| template.listByCategory | 2026-03-24 | PASS (2 in "general") |
-| marketplace.browse | 2026-03-24 | PASS |
-| marketplace.getCategories | 2026-03-24 | PASS |
-| marketplace.getFeatured | 2026-03-24 | PASS (empty) |
-| marketplace.getById | 2026-03-24 | PASS (404 correct) |
-| marketplace.builtinSchemas | 2026-03-24 | PASS (card, data_table schemas) |
-| marketplace.getReviews | 2026-03-26 | PASS (empty paginated result for unknown componentId) |
-| benchmarks.listDomains | 2026-03-24 | PASS |
-| benchmarks.leaderboard | 2026-03-24 | PASS (empty for "general") |
-| benchmarks.getPublicProfile | 2026-03-26 | PASS (404 for unknown deploymentId) |
-| benchmarks.serviceLeaderboard | 2026-03-26 | PASS (empty entries for unknown serviceId) |
-| benchmarks.getServiceReviews | never | - |
-| benchmarks.getDeploymentRatings | never | - |
-| benchmarks.getServiceMetrics | never | - |
 | deployment.getPublicProfile | 2026-03-26 | PASS (404 for unknown id; field name is `id` not `deploymentId`) |
-| services.list | 2026-03-26 | PASS (empty items) |
-| services.get | 2026-03-26 | PASS (404 for unknown serviceId) |
-| services.listByCreator | 2026-03-26 | PASS (empty for unknown creatorId) |
 | user.me (no auth) | 2026-03-24 | PASS (null) |
-| marketplace.getCreatorProfile | never | - |
+| REMOVED: template.* | 2026-04-23 | REMOVED — template router deleted from codebase |
+| REMOVED: marketplace.* | 2026-04-23 | PASS — 404 NOT_FOUND (clean removal, not 500) |
+| REMOVED: benchmarks.* | 2026-04-23 | PASS — 404 NOT_FOUND (clean removal, not 500) |
+| REMOVED: services.* | 2026-04-23 | REMOVED — services router deleted from codebase |
 
 ### Protected Procedures (Auth Verified)
 
 | Router.Procedure | Unauthed->401 | Authed Response | Last Tested |
 |-----------------|-------------|-----------------|------------|
 | user.me | null (not 401) | 200 — email, role, freeDeploymentUsed | 2026-03-24 |
-| deployment.list | YES (401) | 200 — empty array | 2026-03-26 |
+| deployment.list | YES (401) | 200 — array (post-split: procedures1/procedures2 routing intact) | 2026-04-23 |
 | deployment.create | YES (401) | not tested with valid input | 2026-03-24 |
 | billing.getOverview | YES (401) | 200 — totalMonthlyCents:0, activeSubscriptionCount:0 | 2026-03-24 |
 | flows.list | YES (401) | 200 — empty array (NOTE: includes archived flows by default) | 2026-03-26 |
@@ -86,7 +70,6 @@
 | flows.listExecutions | not tested unauthed | 200 — empty array for flow with no executions | 2026-03-26 |
 | flows.duplicate | never | - | - |
 | flows.generateFromPrompt | never | - | - |
-| agentCredits.getBalance | YES (401) | 200 — balance:0, 3 tiers | 2026-03-24 |
 | apiKeys.list | YES (401) | 200 — empty array | 2026-03-24 |
 | skills.listCatalog | not tested unauthed | 200 — 23 skills | 2026-03-24 |
 | platformCredentials.getByDeployment | not tested unauthed | 404 (no deployment) | 2026-03-24 |
@@ -96,6 +79,15 @@
 | admin.getSystemHealth | never | - | - |
 | admin.getClusterMetrics | never | - | - |
 | admin.listAllDeployments | never | - | - |
+| org.list | YES (401) | not tested authed | 2026-04-23 |
+| org.create | YES (401) | not tested authed | 2026-04-23 |
+| org.getById | never | - | - |
+| org.invite | never | - | - |
+| org.acceptInvite | never | - | - |
+| subagents.list | YES (401) | not tested authed | 2026-04-23 |
+| deploymentSecrets.* | never | NEW router added 2026-04 | - |
+| user.acceptTerms | YES (401) | not tested authed | 2026-04-23 |
+| REMOVED: agentCredits.* | 2026-04-23 | REMOVED — agentCredits router deleted from codebase |
 
 ### REST Endpoints
 
