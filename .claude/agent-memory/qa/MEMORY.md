@@ -8,28 +8,32 @@
 - [Last Run](last-run.md) — most recent run state and results
 
 ## Statistics
-- Total runs: 5
-- Last run: 2026-04-23T02:32:43Z (SHA 27e3b8f)
-- Last run pass rate: 47% (8 pass, 2 warn, 0 fail, 1 error, 6 skip out of 17 goals — UI blocked by Chrome conflict)
-- Cumulative real bugs found: 0
+- Total runs: 6
+- Last run: 2026-04-24T22:23:13Z (SHA b76ef3f)
+- Last run pass rate: 82% (9 pass, 2 warn, 0 fail, 0 error, 0 skip out of 11 goals)
+- Cumulative real bugs found: 1 potential (FP-009: empty BYOK chat response)
 - Auto-fixed: 0
-- Total endpoints tested (cumulative): 40 tRPC + 2 REST
-- Total pages tested (cumulative): 14 public + 6 authenticated (dashboard, deployments, settings, billing, onboarding, docs sub-pages)
+- Total endpoints tested (cumulative): 47 tRPC + 3 REST
+- Total pages tested (cumulative): 14 public + 8 authenticated (dashboard, deployments, settings, billing, onboarding/new, d/[id], docs sub-pages)
 
 ## Key Findings
 - **Auth0 real login confirmed working** (2026-03-26): Auth0Provider.tsx changes (SSR fix, window.location.origin redirectUri) work. Real Auth0 UI login via Playwright now enables full authenticated session testing. Token injection approach is obsolete.
-- **CRITICAL ENV ISSUE (2026-04-23)**: Playwright MCP configured to use system Chrome — conflicts when user's Chrome is running. All UI tests blocked. Fix: configure Playwright to use bundled Chromium at `C:\Users\Brett Bono\AppData\Local\ms-playwright\chromium-1208\`
+- **Chrome conflict RESOLVED** (2026-04-24): PR #190 added --headless flag to Playwright MCP. UI testing now works even when user's Chrome is running. All UI goals passed in latest run.
 - **Massive codebase refactor (2026-04-23, SHA 27e3b8f)**: 901 files changed. Marketplace, services, benchmarks, template, agentCredits routers REMOVED. New org, subagents, deploymentSecrets routers ADDED. All verified via API routing checks.
+- **OpenClaw diagnostics refactor confirmed clean (2026-04-24, SHA b76ef3f)**: `runOpenClawDiagnostics()` extracted to `openclaw.diagnostics.ts`; diagnose route auth guards intact (401/404 correct).
+- **Deployment wizard BYOK fully tested (2026-04-24)**: 5-step wizard creates OpenClaw + Anthropic BYOK deployment end-to-end. Autoscaler provisions Hetzner worker. Pod reaches Running in ~3-4 min.
+- **FP-009 POTENTIAL BUG**: BYOK Anthropic Opus 4.6 chat response renders empty body after 75s typing indicator. Needs Langfuse trace investigation. Deployment cleaned up — needs fresh repro.
+- **FP-008 UX GAP**: 2-3 min "pod not reachable" after status=Running — misleading green badge while gateway isn't ready yet.
+- **TOS Consent Gate works** (2026-04-24): First-login modal appeared and blocked dashboard; accepted and dismissed correctly.
 - All new routers confirmed registered (org, subagents, user.acceptTerms) — return 401 not 404 ✓
-- Removed routers return clean 404 NOT_FOUND (not 500) — clean removal confirmed ✓
 - echo runtime handler added (PR #176) but NOT seeded in runtimeCatalog DB table — won't appear in wizard
-- Previously tested pages (marketplace, explore, docs) may have changed/been removed — mark as stale
 - API is healthy: responds in 0.22s at https://api.jarble.ai/health
 - Admin procedures return 403 FORBIDDEN (not 401) for non-admin — correct RBAC
 - Strong security headers: CSP (default-src 'none'), HSTS, X-Frame-Options, rate limiter (300req/60s)
 - Drizzle ORM parameterized queries confirmed protecting against SQL injection
 - Zod strips __proto__ fields in default strip mode (prototype pollution protection)
 - Pre-existing React #418 hydration mismatch on all pages — not related to any recent changes
+- **Billing counter lag (LOW)**: Monthly Spend shows $27.40 but Active Subscriptions=0 immediately after creating a $25/mo deployment — Stripe webhook timing
 
 ## Known Environment Issues
 - Dev SQLite DB is recreated on API restart (seed data only)

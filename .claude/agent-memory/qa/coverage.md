@@ -14,11 +14,12 @@
 | /docs | 2026-03-24 | STALE (docs pages removed in codebase) | qa-explorer-ui |
 | /privacy | 2026-03-24 | PASS | qa-explorer-ui |
 | /terms | 2026-03-24 | PASS | qa-explorer-ui |
-| /dashboard | 2026-03-26 | PASS (real Auth0 login — shows empty deployments state + user email) | qa-explorer-ui |
-| /deployments | 2026-03-26 | PASS (3 tabs: Linked, Bot Teams, Resource Map — no JS errors from 1418-line rewrite) | qa-explorer-ui |
+| /dashboard | 2026-04-24 | PASS (org switcher present; workspace banner; deployment card with RAM/uptime/cost after creation) | qa-explorer-ui |
+| /deployments | 2026-04-24 | PASS (3 tabs: Linked, Agent Teams, Resource Map; flow canvas renders; 7 Team 1 flows listed) | qa-explorer-ui |
 | /settings | 2026-03-26 | PASS (profile, appearance, account, danger zone) | qa-explorer-ui |
-| /billing | 2026-03-26 | PASS ($0 spend, no subscriptions, Stripe portal link) | qa-explorer-ui |
-| /onboarding/[id] | 2026-03-26 | PASS (2/3 steps verified: name + 13-card persona selection) | qa-explorer-ui |
+| /billing | 2026-04-24 | PASS (stat cards, empty subscriptions, invoice history; minor: $27.40 spend shows but Active Subscriptions=0 lag) | qa-explorer-ui |
+| /onboarding/new | 2026-04-24 | PASS (5-step wizard: name→runtime→system-prompt→LLM-BYOK→deploy; BYOK Anthropic validated + deployment created) | qa-explorer-ui |
+| /d/[id] | 2026-04-24 | WARN (chat UI loads after ~3-4 min provisioning; BYOK Anthropic Opus 4.6 typing indicator appeared but response body was empty) | qa-explorer-ui |
 | /docs/getting-started | 2026-03-26 | PASS (8 sections, ToC, code blocks) | qa-explorer-ui |
 | /docs/api | 2026-03-26 | PASS (API Reference, auth, router docs) | qa-explorer-ui |
 | /docs/architecture | 2026-03-26 | PASS (system overview, ASCII diagram, chat arch, config sync) | qa-explorer-ui |
@@ -69,7 +70,7 @@
 | flows.delete | not tested unauthed | 200 — soft delete by default (archived still in list); hard=true removes | 2026-03-26 |
 | flows.listExecutions | not tested unauthed | 200 — empty array for flow with no executions | 2026-03-26 |
 | flows.duplicate | never | - | - |
-| flows.generateFromPrompt | never | - | - |
+| flows.generateFromPrompt | 2026-04-24 | WARN — 412 PRECONDITION_FAILED when test user has no LLM key configured (correct behavior, not a bug) | 2026-04-24 |
 | apiKeys.list | YES (401) | 200 — empty array | 2026-03-24 |
 | skills.listCatalog | not tested unauthed | 200 — 23 skills | 2026-03-24 |
 | platformCredentials.getByDeployment | not tested unauthed | 404 (no deployment) | 2026-03-24 |
@@ -79,20 +80,21 @@
 | admin.getSystemHealth | never | - | - |
 | admin.getClusterMetrics | never | - | - |
 | admin.listAllDeployments | never | - | - |
-| org.list | YES (401) | not tested authed | 2026-04-23 |
+| org.list | YES (401) | 200 — returns [] for test user with no orgs | 2026-04-24 |
 | org.create | YES (401) | not tested authed | 2026-04-23 |
 | org.getById | never | - | - |
 | org.invite | never | - | - |
 | org.acceptInvite | never | - | - |
 | subagents.list | YES (401) | not tested authed | 2026-04-23 |
 | deploymentSecrets.* | never | NEW router added 2026-04 | - |
-| user.acceptTerms | YES (401) | not tested authed | 2026-04-23 |
+| user.acceptTerms | YES (401) | not tested authed (but TOS consent gate triggered + accepted in UI on 2026-04-24) | 2026-04-24 |
 | REMOVED: agentCredits.* | 2026-04-23 | REMOVED — agentCredits router deleted from codebase |
 
 ### REST Endpoints
 
 | Endpoint | Last Tested | Result |
 |----------|------------|--------|
+| GET /api/deployments/:id/diagnose | 2026-04-24 | PASS — 401 no auth, 404 valid auth + fake ID; refactored to openclaw.diagnostics.ts, guards intact |
 | POST /api/tambo-agent | never | - |
 | POST /api/flows/:flowId/chat | 2026-03-26 | PASS (401 no auth, 404 bad flowId, all injection attempts blocked) |
 | POST /api/flows/:flowId/execute | never | - |
