@@ -127,6 +127,10 @@ interface DeploymentData {
   llmApiKeyId: string | null;
   llmApiKeySourceDeploymentId: string | null;
   llmCreditLimitDollars: number | null;
+  /** JAR-103: surfaced on Agent Teams canvas nodes so the LLM identity is
+   * visible at a glance without opening the config sidebar. */
+  llmProvider?: string | null;
+  llmModel?: string | null;
 }
 
 type DeploymentNodeData = DeploymentData & {
@@ -1001,6 +1005,28 @@ const FLOW_NODE_WIDTH = 260;
 const FLOW_NODE_HEIGHT = 140;
 
 /** Get the left border color based on node role characteristics */
+/**
+ * JAR-103: format an LLM model string for compact display on a canvas node.
+ *
+ * Examples:
+ *   "openrouter/auto"                   → "auto"
+ *   "openrouter/anthropic/claude-sonnet-4-20250514" → "claude-sonnet-4"
+ *   "anthropic/claude-opus-4-1-20250805" → "claude-opus-4-1"
+ *   "gpt-4o-2024-08-06"                 → "gpt-4o"
+ *   "gemini-2.0-flash-exp"              → "gemini-2.0-flash"
+ *   null / ""                           → null  (caller shouldn't render)
+ */
+function formatModelLabel(model: string | null | undefined): string {
+  if (!model) return "";
+  // Strip routing-provider prefix (openrouter/..., together/...) and
+  // vendor-org prefix (anthropic/..., openai/...) down to the bare model id.
+  const tail = model.split("/").pop() ?? model;
+  // Drop the trailing ISO date stamp Anthropic models ship with (e.g.
+  // "-20250514"). Keeps the meaningful identifier without date noise.
+  const cleaned = tail.replace(/-\d{8}$/, "");
+  return cleaned;
+}
+
 function getNodeBorderColor(data: FlowNodeData): string {
   if (data.isEntryPoint) return "border-l-blue-500";
   if (data.canDelegate !== false) return "border-l-emerald-500";
@@ -1204,12 +1230,27 @@ function FlowDeploymentNode({
           </p>
         )}
 
-        {/* Row 4: Status + Runtime */}
-        <div className="flex items-center gap-2">
+        {/* Row 4: Status + Runtime + Model (JAR-103 AC1) */}
+        <div className="flex items-center gap-2 min-w-0">
           <StatusBadge status={data.status} compact />
-          <span className="text-[10px] text-muted-foreground truncate">
+          <span
+            className="shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-medium bg-secondary/60 text-muted-foreground border border-border/60 uppercase tracking-wide"
+            title={`Runtime: ${data.runtime}`}
+          >
             {data.runtime}
           </span>
+          {data.llmModel && (
+            <span
+              className="shrink min-w-0 truncate text-[10px] text-muted-foreground/90"
+              title={
+                data.llmProvider
+                  ? `Model: ${data.llmProvider} / ${data.llmModel}`
+                  : `Model: ${data.llmModel}`
+              }
+            >
+              {formatModelLabel(data.llmModel)}
+            </span>
+          )}
         </div>
 
         {/* Row 5: Badges (delegation + context scope) */}
