@@ -6,6 +6,7 @@ import { nanoid } from "nanoid";
 import { logger } from "../../utils/logger.js";
 import { TRPCError } from "@trpc/server";
 import { syncConfigsToPvc } from "../../services/configSync.js";
+import { findDeploymentByCreator } from "../../services/deploymentAccess.js";
 import { safeFireAndForget } from "../../utils/safeAsync.js";
 
 const { deployments, skillsCatalog, deploymentSkills } = tables;
@@ -31,9 +32,7 @@ export const skillsRouter = router({
     .input(z.object({ deploymentId: z.string() }))
     .query(async ({ ctx, input }) => {
       // Verify ownership
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
-      });
+      const deployment = await findDeploymentByCreator(ctx.db, input.deploymentId, ctx.user.id);
 
       if (!deployment) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
@@ -65,9 +64,7 @@ export const skillsRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       // Verify ownership
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
-      });
+      const deployment = await findDeploymentByCreator(ctx.db, input.deploymentId, ctx.user.id);
 
       if (!deployment) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
@@ -118,9 +115,7 @@ export const skillsRouter = router({
     }))
     .mutation(async ({ ctx, input }) => {
       // Verify ownership
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
-      });
+      const deployment = await findDeploymentByCreator(ctx.db, input.deploymentId, ctx.user.id);
 
       if (!deployment) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
