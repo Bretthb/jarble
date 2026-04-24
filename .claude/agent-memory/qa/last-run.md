@@ -1,85 +1,72 @@
 # Last QA Run
 
 ## Run Details
-- **Timestamp**: 2026-04-23T02:32:43.513Z
-- **Git SHA**: 27e3b8f
-- **Duration**: ~12 minutes
-- **Pass rate**: 73% (8 pass, 2 warn, 0 fail, 1 error, 6 skip out of 17 goals)
-- **Real bugs found**: 0
-- **Actionable gaps found**: 1 (echo runtime not seeded in runtimeCatalog DB)
-- **Environment issues**: 2 (Chrome single-instance lock blocked UI; auth token RSA sig invalid)
+- **Timestamp**: 2026-04-24T22:23:13.862Z
+- **Git SHA**: b76ef3f
+- **Duration**: ~17 minutes
+- **Pass rate**: 82% (9 pass, 2 warn, 0 fail, 0 error, 0 skip out of 11 goals)
+- **Real bugs found**: 1 potential (FP-009: empty chat response body for BYOK Anthropic Opus 4.6)
+- **UX gaps found**: 1 (FP-008: pod-not-reachable lag after status=Running)
+- **Healer dispatched**: No (deployment deleted for cleanup before investigation)
 
 ## Goals Tested
 
 | # | Goal | Type | Status | Notes |
 |---|------|------|--------|-------|
-| 1 | API Health Check | API | PASS | 200 OK in 0.22s — API live |
-| 2 | user.me Auth | API | WARN | 401 — auth token had invalid RSA sig (environment, not API bug) |
-| 3 | org.list — New Router | API | PASS | Router registered, returns 401 (protected, correct) |
-| 4 | org.create — New Router | API | PASS | Procedure exists, returns 401 (correct) |
-| 5 | deployment.list — Post-Rewrite | API | PASS | Router split didn't break routing |
-| 6 | subagents.list — New Router | API | PASS | Router registered, returns 401 |
-| 7 | Removed marketplace → 404 | API | PASS | Clean NOT_FOUND, not 500 |
-| 8 | Removed benchmarks → 404 | API | PASS | Clean NOT_FOUND, not 500 |
-| 9 | runtimeCatalog.list + echo | API | WARN | Only openclaw in catalog; echo runtime handler exists but not seeded in DB |
-| 10 | user.acceptTerms — TOS | API | PASS | Procedure registered, returns 401 |
-| 11 | Auth0 Login | UI | ERROR | Chrome single-instance lock blocked Playwright — can't open new browser session |
-| 12 | Dashboard Load | UI | SKIP | Blocked by Goal 11 |
-| 13 | /orgs (New Page) | UI | SKIP | Blocked by Goal 11 |
-| 14 | Consent Modal | UI | SKIP | Blocked by Goal 11 |
-| 15 | Deployment Wizard (Focus) | UI | SKIP | Blocked by Goal 11 — PRIMARY FOCUS NOT TESTED |
-| 16 | /billing page | UI | SKIP | Blocked by Goal 11 |
-| 17 | /admin/announcements | UI | SKIP | Blocked by Goal 11 |
+| 1 | Diagnose endpoint auth enforcement | API | PASS | 401 no auth, 404 valid auth + fake ID — refactor to openclaw.diagnostics.ts intact |
+| 2 | flows.create with valid nodes | API | PASS | Flow created (flw_cl6wluaggtcb), retrieved, then soft-deleted |
+| 3 | flows.generateFromPrompt | API | WARN | 412 PRECONDITION_FAILED — test user has no LLM key (expected behavior, not a bug) |
+| 4 | flows.delete cleanup | API | PASS | Soft delete confirmed; flow absent from list |
+| 5 | org.list with valid auth | API | PASS | Returns [] for test user with no orgs |
+| 6 | Diagnose endpoint unauthenticated | API | PASS | 401 returned correctly |
+| 7 | Dashboard loads with org switcher | UI | PASS | Workspace banner, org switcher in profile dropdown, deployment section all present |
+| 8 | Agent Teams / Flow Canvas | UI | PASS | 7 Team 1 flows listed; canvas renders with mini-map, zoom, chat/run controls; node badges not shown (flows have empty nodes) |
+| 9 | Deployment wizard BYOK Anthropic | UI | PASS | Full 5-step wizard completed; Anthropic key validated; deployment 8uv3e8mpg9uc created; pod provisioned via autoscaler |
+| 10 | /d/[id] chat interface | UI | WARN | Pod-not-reachable lag for 2-3 min after Running; chat UI loaded; Opus 4.6 response had empty body after 75s typing indicator |
+| 11 | Visual regression (billing, deployments) | UI | PASS | All 3 pages clean; minor billing counter lag noted |
 
 ## Key Findings
 
-### All New API Routers Confirmed Registered
-- `org` router: `org.list`, `org.create` — confirmed as protectedProcedures, return 401 (correct)
-- `subagents` router: `subagents.list` — confirmed as protectedProcedure, returns 401 (correct)
-- `user.acceptTerms` — TOS consent procedure confirmed registered
-- All new endpoints wired up correctly after massive refactor
+### Code Change Verified: openclaw.diagnostics.ts Extraction (b76ef3f)
+- The refactored `diagnose.ts` → `runOpenClawDiagnostics()` extraction is working correctly
+- Auth guard still fires: 401 on missing auth, 404 on valid auth with non-existent deployment
+- No 500 errors from the refactoring — extraction is clean
 
-### Removed Routers Return Clean 404
-- `marketplace.browse` → 404 NOT_FOUND (not 500) ✓
-- `benchmarks.listDomains` → 404 NOT_FOUND (not 500) ✓
-- `deployment.list` routing intact after procedures1.ts/procedures2.ts split ✓
+### Deployment Wizard BYOK Works End-to-End
+- 5-step wizard: Name → OpenClaw runtime → (optional system prompt) → LLM BYOK Anthropic → Deploy
+- Anthropic key validation via API works ("Key validated! Connected to Anthropic." toast)
+- Default model shown as "Claude Opus 4.6" in the deploy step
+- Autoscaler provisioned a new Hetzner worker (jarble-auto-8uv3e8mpg9uc) for the pod
+- Deployment reached Running state in ~3-4 minutes
 
-### echo Runtime Not Seeded in DB
-- PR #176 added `runtimes/handlers/echo.ts` for the echo dummy runtime
-- `runtimeCatalog.list` returns only `openclaw` — echo is not in the DB table
-- echo runtime cannot be selected in the onboarding wizard until a DB seed/migration adds it
-- This may be intentional (dev-only runtime) but worth noting
+### Agent Teams Canvas Confirmed Working
+- Renders with @xyflow/react grid + mini-map + zoom controls
+- Shows 7 "Team 1" flows from test user's existing data
+- Left panel: "No deployments yet — Create deployments first, then build your team here"
+- Top controls: New / Layout / Save (disabled) / Chat (disabled) / Run / Delete
 
-### UI Testing Completely Blocked (Environment Issue)
-- Playwright MCP configured to use system Chrome (`C:\Program Files (x86)\Google\Chrome\Application\chrome.exe`)
-- Chrome's single-instance lock prevents Playwright from attaching when user's Chrome is running
-- Fix needed: configure Playwright MCP to use bundled Chromium at `C:\Users\Brett Bono\AppData\Local\ms-playwright\chromium-1208\`
-- **PRIMARY FOCUS (deployment wizard end-to-end) was NOT tested** due to this blocker
+### TOS Consent Gate Triggered
+- On first login with smallradcomp@gmail.com, TOS consent modal appeared (tosAcceptedAt was null)
+- User accepted consent before dashboard was accessible — gate working as designed
 
-### Auth Token Issue
-- Provided AUTH_TOKEN failed RSA signature verification against Auth0 JWKS
-- Token `exp` was valid (2026-04-24T02:32:42Z), `kid` exists in JWKS, but sig invalid
-- Likely caused by token truncation/corruption during prompt formatting
-- API's auth enforcement is working correctly (proper 401 responses)
-- All API routing and procedure registration verified via 401 responses (not 404/500)
+### WARN: Empty Chat Response Body (FP-009)
+- After BYOK Anthropic deployment reached Running, sent "Hello, what can you do?"
+- Typing indicator appeared for 75+ seconds
+- Assistant message header rendered ("claude-opus-4-6") but body was empty
+- "openclaw-control-ui" appeared as sender label (anomalous)
+- Deployment was deleted for cleanup — need new repro deployment to investigate Langfuse traces
+
+### WARN: Pod-Not-Reachable Lag (FP-008)
+- 2-3 minute window where status=Running but chat iframe returns {"error":"Pod not reachable"}
+- Misleading UX — users see green "Running" badge but can't use the agent yet
 
 ## Healer Actions
-None — no code bugs found. Both failures are environment issues.
+None — deployment was cleaned up before healer could investigate. FP-009 needs a fresh repro.
 
-## Environment Fixes Needed for Next Run
-1. **CRITICAL**: Configure Playwright MCP to use bundled Chromium, not system Chrome
-   - Edit `.claude/settings.json` Playwright MCP config to use Chromium path
-   - OR: Close all Chrome windows before overnight QA run
-2. **Moderate**: Ensure AUTH_TOKEN is properly formatted (not truncated) in prompt
-
-## Next Run Priorities (Carried Forward)
-1. **Fix Playwright Chrome config** — blocker for ALL UI testing
-2. Once unblocked, test ALL of these (all untested due to Chrome issue):
-   - Deployment wizard end-to-end (FOCUS area)
-   - /orgs page (brand new, never tested)
-   - Consent modal behavior
-   - Dashboard with new org switcher
-   - /admin/announcements and /admin/promo pages (new)
-   - /d/[id] chat interface
-3. Test org.create / org.list happy paths with valid auth token
-4. Verify echo runtime seeding in catalog (or confirm it's intentionally dev-only)
+## Next Run Priorities
+1. **INVESTIGATE FP-009**: Create new BYOK Anthropic deployment and check Langfuse traces for empty response; compare with a non-BYOK deployment
+2. **Test /d/[id] with non-BYOK deployment** (if one can be provisioned without payment)
+3. **Test Agent Teams generateFromPrompt UI** — the "Generate Flow" button in the teams canvas (needs a configured LLM on the test user)
+4. **Test /orgs page** — new page never tested end-to-end via UI
+5. **Test Files panel** in /d/[id] — Files icon was visible but not clicked this run
+6. **Test Control UI** deep-dive (openclaw-control-ui interaction after pod fully warms up)
