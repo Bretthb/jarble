@@ -1,7 +1,7 @@
 import { z } from "zod";
 import crypto from "crypto";
 import { protectedProcedure, publicProcedure } from "../../middleware.js";
-import { tables, dbDate } from "../../../db/index.js";
+import { tables, dbDate, getRowsAffected } from "../../../db/index.js";
 import { eq, and, or, isNull, sql, inArray } from "drizzle-orm";
 import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc, findPodForDeployment, execInPod, appsApi, NAMESPACE } from "../../../k8s/index.js";
 import { ensureCapacityForDeployment, checkScaleDown, getCapacityStatus, CapacityError, SERVER_TYPES } from "../../../k8s/nodeManager.js";
@@ -63,8 +63,11 @@ export const procedures2 = {
           .set({ status: "stopping" })
           .where(and(eq(deployments.id, input.id), eq(deployments.status, "running")));
 
-        const rowsAffected = (stopResult as any)[0]?.affectedRows ?? (stopResult as any).rowCount ?? (stopResult as any).changes ?? 1;
-        if (rowsAffected === 0) {
+        // getRowsAffected normalizes the dialect differences — see
+        // src/db/index.ts. Falls back to 0 when no field is set, which
+        // triggers the PRECONDITION_FAILED below (the safe response if
+        // we can't tell whether the write landed).
+        if (getRowsAffected(stopResult) === 0) {
           throw new TRPCError({
             code: "PRECONDITION_FAILED",
             message: "Deployment is no longer running (concurrent request may have stopped it)",
@@ -861,11 +864,11 @@ export const procedures2 = {
       // do NOT — they block the delete with a constraint violation if not cleaned first.
       const credResult = await ctx.db.delete(platformCredentials)
         .where(eq(platformCredentials.deploymentId, input.id));
-      logger.debug({ deploymentId: input.id, rows: (credResult as any)?.changes ?? (credResult as any)?.rowsAffected ?? "?" }, "delete: platform_credentials removed");
+      logger.debug({ deploymentId: input.id, rows: getRowsAffected(credResult) }, "delete: platform_credentials removed");
 
       const skillsResult = await ctx.db.delete(deploymentSkills)
         .where(eq(deploymentSkills.deploymentId, input.id));
-      logger.debug({ deploymentId: input.id, rows: (skillsResult as any)?.changes ?? (skillsResult as any)?.rowsAffected ?? "?" }, "delete: deployment_skills removed");
+      logger.debug({ deploymentId: input.id, rows: getRowsAffected(skillsResult) }, "delete: deployment_skills removed");
 
       // Clean up agent_calls (no ON DELETE CASCADE on caller/callee FKs)
       await ctx.db.delete(agentCalls)
