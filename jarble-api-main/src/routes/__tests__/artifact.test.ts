@@ -16,6 +16,7 @@ import http from "http";
 vi.mock("../../k8s/index.js", () => ({
   findPodForDeployment: vi.fn(),
   execInPod: vi.fn(),
+  execInPodWithStdin: vi.fn(),
 }));
 
 // Auth
@@ -42,7 +43,7 @@ vi.mock("../../utils/logger.js", () => ({
   }),
 }));
 
-import { findPodForDeployment, execInPod } from "../../k8s/index.js";
+import { findPodForDeployment, execInPod, execInPodWithStdin } from "../../k8s/index.js";
 import { verifyToken, getUserFromToken } from "../../services/auth.js";
 import { db } from "../../db/index.js";
 import { artifactRouter } from "../artifact.js";
@@ -92,6 +93,10 @@ const AUTH_HEADER = { Authorization: "Bearer valid-token" };
 describe("Artifact API routes", () => {
   beforeEach(async () => {
     vi.clearAllMocks();
+    // execWrite() in artifact.ts now pipes content through execInPodWithStdin
+    // (JAR-89 §4). Default this mock to resolve successfully so write-path
+    // tests don't 500 unless they override with a custom resolution.
+    (execInPodWithStdin as any).mockResolvedValue("");
     baseUrl = await startServer(createTestApp());
   });
 
@@ -312,15 +317,13 @@ describe("Artifact API routes", () => {
       (getUserFromToken as any).mockResolvedValue({ id: "user-1" });
       mockFindFirst.mockResolvedValue({ id: depId, userId: "user-1", status: "running" });
       (findPodForDeployment as any).mockResolvedValue("pod-1");
-      // First exec: read existing artifact (not found)
-      // Second exec: write artifact file
-      // Third exec: read manifest (not found)
-      // Fourth exec: write manifest
+      // Reads go through execInPod; writes go through execInPodWithStdin
+      // (JAR-89 §4 — stdin piping replaces shell-arg base64).
+      // First read: existing artifact (not found)
+      // Second read: manifest (not found)
       (execInPod as any)
         .mockResolvedValueOnce("__NOT_FOUND__") // read existing artifact
-        .mockResolvedValueOnce("")               // write artifact
-        .mockResolvedValueOnce("__NOT_FOUND__") // read manifest
-        .mockResolvedValueOnce("");              // write manifest
+        .mockResolvedValueOnce("__NOT_FOUND__"); // read manifest
 
       const res = await fetch(
         `${baseUrl}/api/deployments/${depId}/artifact/sync`,
@@ -337,8 +340,10 @@ describe("Artifact API routes", () => {
       expect(data.artifact.id).toBe("art-1");
       expect(data.artifact.source).toBe("user");
 
-      // Verify execInPod was called for write operations
-      expect(execInPod).toHaveBeenCalledTimes(4);
+      // Verify 2 reads via execInPod (existing artifact + manifest)
+      // and 2 writes via execInPodWithStdin (artifact file + manifest file).
+      expect(execInPod).toHaveBeenCalledTimes(2);
+      expect(execInPodWithStdin).toHaveBeenCalledTimes(2);
     });
 
     it("preserves existing createdAt and pinned on update", async () => {
@@ -353,11 +358,10 @@ describe("Artifact API routes", () => {
         createdAt: "2025-06-15T00:00:00.000Z",
         pinned: true,
       };
+      // Reads go through execInPod; writes go through execInPodWithStdin (JAR-89 §4).
       (execInPod as any)
         .mockResolvedValueOnce(JSON.stringify(existingArtifact)) // read existing
-        .mockResolvedValueOnce("")  // write artifact
-        .mockResolvedValueOnce("__NOT_FOUND__") // read manifest
-        .mockResolvedValueOnce(""); // write manifest
+        .mockResolvedValueOnce("__NOT_FOUND__"); // read manifest
 
       const res = await fetch(
         `${baseUrl}/api/deployments/${depId}/artifact/sync`,
@@ -451,8 +455,8 @@ describe("Artifact API routes", () => {
       };
       (execInPod as any)
         .mockResolvedValueOnce("")  // rm -f artifact file
-        .mockResolvedValueOnce(JSON.stringify(manifest)) // read manifest
-        .mockResolvedValueOnce(""); // write updated manifest
+        .mockResolvedValueOnce(JSON.stringify(manifest)); // read manifest
+      // Manifest write goes through execInPodWithStdin (JAR-89 §4).
 
       const res = await fetch(
         `${baseUrl}/api/deployments/dep-1/artifact/art-1`,
@@ -463,18 +467,17 @@ describe("Artifact API routes", () => {
       const data = await jsonBody(res);
       expect(data.ok).toBe(true);
 
-      // Verify 3 execInPod calls: rm, read manifest, write manifest
-      expect(execInPod).toHaveBeenCalledTimes(3);
+      // 2 execInPod calls (rm + read manifest) and 1 execInPodWithStdin call
+      // (write updated manifest via stdin pipe).
+      expect(execInPod).toHaveBeenCalledTimes(2);
+      expect(execInPodWithStdin).toHaveBeenCalledTimes(1);
 
-      // The last call should be the manifest write (base64 encoded)
-      const calls = (execInPod as any).mock.calls;
-      const lastCall = calls[calls.length - 1];
-      const writeCmd = lastCall[1][2]; // the sh -c command string
-      // The base64-encoded content should decode to a manifest without art-1
-      const b64Match = writeCmd.match(/echo '([^']+)'/);
-      expect(b64Match).toBeTruthy();
-      const decoded = Buffer.from(b64Match![1], "base64").toString();
-      const updated = JSON.parse(decoded);
+      // The stdin-piped write should contain a manifest without art-1.
+      const stdinCalls = (execInPodWithStdin as any).mock.calls;
+      const writeCall = stdinCalls[stdinCalls.length - 1];
+      // execInPodWithStdin(podName, argv, content) — content is the 3rd arg.
+      const writtenContent = writeCall[2];
+      const updated = JSON.parse(writtenContent);
       expect(updated.artifacts).toHaveLength(1);
       expect(updated.artifacts[0].id).toBe("art-2");
     });
