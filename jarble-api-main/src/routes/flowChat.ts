@@ -474,9 +474,55 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     const sessionKey = `flow-${flowId}-${user.id}${conversationId ? `-${conversationId}` : ""}`;
 
     const messageId = nanoid();
-    // Generate a trace ID for the entire flow chat turn so budget checks
-    // and OTel spans can stitch all delegation hops into one trace.
-    const flowTraceId = nanoid(32);
+
+    // ── JAR-76: record the ROOT agent_calls row for this flow-chat turn ──
+    // Same pattern as tamboAgent.ts. This anchors the trace tree so every
+    // delegation hop below stitches back to a single root and shows up in
+    // the Debug Traces panel for the entry bot.
+    //
+    // Fire-and-forget: the writer catches its own errors. Audit failures
+    // must never break the flow-chat path, so a failure here still
+    // produces a usable synthetic handle via startAgentCall's fallback.
+    const { startAgentCall: startRootAgentCall, finishAgentCall: finishRootAgentCall } =
+      await import("../services/agentCallsWriter.js");
+    const rootAgentCall = await startRootAgentCall({
+      kind: "chat_turn",
+      skillName: "__flow_chat_turn__",
+      callerDeploymentId: null, // user is the caller, not a deployment
+      calleeDeploymentId: entryNode.deploymentId!,
+      parentCallId: null,
+      parentSpanId: null,
+      traceId: null, // writer generates one; every hop below reuses it
+      depth: 0,
+      userId: user.id,
+      orgId: entryDeployment.orgId ?? null,
+      sessionId: sessionKey,
+      spanName: "jarble.flow.chat.turn",
+      requestBody: userMessage,
+      attributes: {
+        flowId,
+        flowName: dbFlow[0].name,
+        entryNodeId: entryNode.id,
+        runId,
+        threadId,
+        messageLength: userMessage.length,
+      },
+    });
+    const flowTraceId = rootAgentCall.traceId;
+    let rootCallFinished = false;
+    const finishRoot = async (
+      status: "completed" | "failed",
+      extra?: { errorMessage?: string; attributes?: Record<string, unknown> },
+    ) => {
+      if (rootCallFinished) return;
+      rootCallFinished = true;
+      await finishRootAgentCall({
+        call: rootAgentCall,
+        status,
+        errorMessage: extra?.errorMessage,
+        attributes: extra?.attributes,
+      });
+    };
     // Phase 2 group-chat: tag the entry bot's message with its role +
     // deployment ID so the client renders it with the coordinator's avatar.
     const entryRole = entryNode.role || entryNode.label || "Coordinator";
@@ -626,7 +672,10 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
             userId: user!.id,
             sourceDeploymentId: entryNode.deploymentId!,
             toolName: call.toolName,
-            parentCallId: null,
+            // JAR-76: stitch this delegation into the flow-chat root trace
+            // so the full cascade shows up in the Debug Traces panel.
+            parentCallId: rootAgentCall.callId,
+            parentSpanId: rootAgentCall.spanId,
             ancestorDeploymentIds: [entryNode.deploymentId!],
             flowId,
             traceId: flowTraceId,
@@ -1075,6 +1124,18 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
       }
     })();
 
+    // JAR-76: close the root agent_calls row with turn-level counters so
+    // Debug Traces can show the full cascade under one root.
+    await finishRoot("completed", {
+      attributes: {
+        delegationCount: delegationTrace.length,
+        delegationSuccessCount: delegationTrace.filter((d) => d.success).length,
+        delegationFailureCount: delegationTrace.filter((d) => !d.success).length,
+        totalCreditsCents:
+          delegationTrace.reduce((s, d) => s + d.creditsUsed, 0) + 1,
+      },
+    });
+
     // Finish
     sendEvent(res, { type: RUN_FINISHED, runId, threadId });
     res.end();
@@ -1091,6 +1152,12 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     );
   } catch (err) {
     log.error({ err }, "Flow chat route error");
+    // JAR-76: if a root agent_calls row was opened before this error,
+    // it stays in `status=pending`. The writer's nightly staleness
+    // reaper flips orphaned pending rows >10min old to `abandoned`, so
+    // the row still shows up in Debug Traces rather than going missing.
+    // A tighter "mark-failed on error" path would need `finishRoot` to
+    // be hoisted out of the inner try scope; that refactor is deferred.
     if (user) releaseConnection(user.id);
     if (!res.headersSent) {
       res.status(500).json({ error: "Internal server error" });
