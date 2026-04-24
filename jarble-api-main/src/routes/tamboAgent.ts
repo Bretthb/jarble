@@ -1268,14 +1268,24 @@ tamboAgentRouter.post("/", async (req, res) => {
     }
 
     // ── Subagent delegation round-trips (legacy path) ─────────────────────
-    // With native OpenClaw subagents (agents.list + sessions_spawn), the bot
-    // handles subagent orchestration internally — no API interception needed.
-    // This legacy path only runs when native subagents are NOT available
-    // (e.g., non-OpenClaw runtimes or deployments without custom subagents).
-    // OpenClaw deployments use native sessions_spawn for subagent orchestration.
-    // The agents.list config is written by renderConfigs in openclaw.ts — the bot
-    // handles delegation internally via sessions_spawn, no API interception needed.
-    const hasNativeSubagents = deployment.runtime === "openclaw" && process.env.OPENCLAW_NATIVE_SUBAGENTS === "true";
+    // When the runtime declares native subagent support (OpenClaw's
+    // agents.list + sessions_spawn is the reference impl), the runtime
+    // handles subagent orchestration internally and the API skips this
+    // legacy interception. Runtimes that do not support native subagents
+    // — or where the operator has explicitly disabled the native path via
+    // RUNTIME_NATIVE_SUBAGENTS=false as a kill-switch — fall through and
+    // the API drives subagent delegation itself.
+    //
+    // JAR-99 LOW #1 — this used to be keyed on `runtime === "openclaw" &&
+    // process.env.OPENCLAW_NATIVE_SUBAGENTS === "true"`, which blocked any
+    // future runtime that declared `supportsNativeSubagents: true` from
+    // reaching this path. The check now goes through the RuntimeHandler
+    // registry (same source JAR-99 §5 moved deploymentCapabilities to).
+    const { getHandlerOrNull } = await import("../runtimes/index.js");
+    const runtimeHandler = getHandlerOrNull(deployment.runtime);
+    const killSwitchActive = process.env.RUNTIME_NATIVE_SUBAGENTS === "false";
+    const hasNativeSubagents =
+      runtimeHandler?.supportsNativeSubagents === true && !killSwitchActive;
 
     if (!hasNativeSubagents) {
       try {
