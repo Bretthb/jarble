@@ -1,7 +1,7 @@
 import { z } from "zod";
 import crypto from "crypto";
 import { protectedProcedure, publicProcedure } from "../../middleware.js";
-import { tables, dbDate } from "../../../db/index.js";
+import { tables, dbDate, getRowsAffected } from "../../../db/index.js";
 import { eq, and, or, isNull, sql, inArray } from "drizzle-orm";
 import { createDeployment, deleteDeployment, stopDeployment, startDeployment, restartDeployment, getDeploymentPodStatus, getDeploymentStorageUsage, exportDeploymentConfigs, getDeploymentLogs, getCustomComponentsWithDefinitions, writeComponentToPvc, deleteComponentFromPvc, findPodForDeployment, execInPod, appsApi, NAMESPACE } from "../../../k8s/index.js";
 import { ensureCapacityForDeployment, checkScaleDown, getCapacityStatus, CapacityError, SERVER_TYPES } from "../../../k8s/nodeManager.js";
@@ -664,10 +664,9 @@ export const procedures1 = {
           )
         ));
 
-      // Check if update affected any rows (Drizzle returns different shapes per DB)
-      const rowsAffected = (result as any)?.rowCount ?? (result as any)?.rowsAffected ?? (result as any)?.changes ?? (result as any)?.[0]?.affectedRows ?? 0;
-
-      if (rowsAffected === 0) {
+      // Check if update affected any rows — getRowsAffected handles the
+      // dialect-shape differences (see src/db/index.ts).
+      if (getRowsAffected(result) === 0) {
         // Deployment exists (access check passed above) but is in wrong state
         const deployment = await ctx.db.query.deployments.findFirst({
           where: eq(deployments.id, deploymentId),

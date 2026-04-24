@@ -68,10 +68,21 @@ export function dbDate(date: Date = new Date()): any {
 
 /**
  * Extract the number of affected rows from a Drizzle update/delete result.
- * Postgres returns `{ rowCount }` via node-postgres.
+ *
+ * Covers the dialects we actually see at runtime:
+ *   - Postgres (node-postgres)  — `{ rowCount }`
+ *   - Drizzle generic / MySQL   — `{ rowsAffected }` or `[ { affectedRows } ]`
+ *   - better-sqlite3 (test only) — `{ changes }`
+ *
+ * JAR-89 §8: this helper previously only handled the first two shapes, so
+ * half a dozen call sites in deployment.ts open-coded the fallback chain.
+ * Consolidating here lets those sites collapse to `getRowsAffected(result)`.
  */
 export function getRowsAffected(result: any): number {
-  if (result?.rowCount != null) return result.rowCount;
-  if (result?.rowsAffected != null) return result.rowsAffected;
+  if (!result) return 0;
+  if (result.rowCount != null) return result.rowCount;
+  if (result.rowsAffected != null) return result.rowsAffected;
+  if (result.changes != null) return result.changes;
+  if (Array.isArray(result) && result[0]?.affectedRows != null) return result[0].affectedRows;
   return 0;
 }

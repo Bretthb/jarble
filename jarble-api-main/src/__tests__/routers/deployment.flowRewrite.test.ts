@@ -106,6 +106,14 @@ vi.mock("../../db/index.js", async () => {
     },
     tables: schema,
     dbDate: () => new Date().toISOString().replace("T", " ").slice(0, 19),
+    getRowsAffected: (result: any) => {
+      if (!result) return 0;
+      if (result.rowCount != null) return result.rowCount;
+      if (result.rowsAffected != null) return result.rowsAffected;
+      if (result.changes != null) return result.changes;
+      if (Array.isArray(result) && result[0]?.affectedRows != null) return result[0].affectedRows;
+      return 0;
+    },
   };
 });
 
