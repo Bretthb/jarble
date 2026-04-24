@@ -26,6 +26,7 @@
         "@playwright/mcp@latest",
         "--browser",
         "chromium",
+        "--headless",
         "--isolated"
       ]
     },
