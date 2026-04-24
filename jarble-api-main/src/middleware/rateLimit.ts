@@ -155,6 +155,39 @@ export const mutationLimiter = rateLimit({
 });
 
 /**
+ * Chat turn limiter: 20 req/min per (IP, user).
+ *
+ * JAR-89 §3: `/api/tambo-agent` is the chat turn SSE endpoint. It is
+ * explicitly exempted from `globalLimiter` (SSE streams would otherwise
+ * burn the 300/min IP budget on reconnects) and is NOT under the `/trpc`
+ * mount, so neither `authLimiter` nor `mutationLimiter` applied. That
+ * left chat turns rate-limited by nothing — a looping client or an
+ * abusive bot could fan out unlimited expensive agent invocations.
+ *
+ * 20 turns/min per user is well above interactive use (a human clicking
+ * Send is 5-10/min tops during furious iteration) and still bounds the
+ * damage a bot could do to OpenRouter/Anthropic credits + pod exec
+ * pressure. Raise via `CHAT_TURN_LIMIT` env if a specific workflow
+ * needs more room.
+ */
+export const chatTurnLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: Math.max(1, parseInt(process.env.CHAT_TURN_LIMIT || "20", 10) || 20),
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: userKeyGenerator,
+  // Only POST counts — GET on the SSE stream reconnect path should not
+  // burn turn budget. The endpoint is POST today, but gate anyway to
+  // be explicit about intent.
+  skip: (req) => req.method !== "POST",
+  message: { error: "Too many chat turns. Please slow down." },
+  handler: (req, res, _next, options) => {
+    log.warn({ ip: req.ip, path: req.path }, `Chat turn rate limited`);
+    res.status(options.statusCode).json(options.message);
+  },
+});
+
+/**
  * Stripe action limiter: 10 req/min per user ID.
  * Prevents checkout spam and duplicate session creation.
  */
