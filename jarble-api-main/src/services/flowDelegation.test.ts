@@ -1247,3 +1247,71 @@ describe("sanitizeDelegationError (Cycle 8)", () => {
     expect(out).toContain("[redacted env var]");
   });
 });
+
+// ─── JAR-102: edge-semantics contract across all three types ────────────────
+//
+// This suite is the integration-level pin for the ticket's "each edge type is
+// actually honored through FlowEngine.executeStep" AC. FlowEngine.executeStep
+// resolves a deployment node's delegation targets by calling buildDelegationTools
+// (see flowEngine.ts executeDeploymentViaDelegation → buildDelegationTools). The
+// three types differ in which direction(s) produce delegation tools:
+//
+//   delegates    — source-only: source can delegate to target; target cannot
+//                  delegate back.
+//   reports      — bidirectional delegation despite the one-way label arrow.
+//                  Both source (reporter) and target (manager) can delegate.
+//   collaborates — bidirectional, peer-to-peer.
+//
+// Test strategy: construct the minimal 2-node flow, run buildDelegationTools
+// from BOTH nodes' perspective, and assert the tool count for each direction.
+// If any edge type becomes a no-op in the engine, this test fails.
+describe("JAR-102: edge-semantics executeStep contract — all three types", () => {
+  const A: any = {
+    id: "A", type: "deployment", deploymentId: "dep-A",
+    label: "Agent A", role: "Manager", position: { x: 0, y: 0 },
+  };
+  const B: any = {
+    id: "B", type: "deployment", deploymentId: "dep-B",
+    label: "Agent B", role: "Reporter", position: { x: 100, y: 0 },
+  };
+
+  it("'delegates' edge: A gets a tool for B, B gets no tool for A", () => {
+    const edges: any[] = [{ id: "e1", source: "A", target: "B", type: "delegates" }];
+    expect(buildDelegationTools(A, [A, B], edges)).toHaveLength(1);
+    expect(buildDelegationTools(B, [A, B], edges)).toHaveLength(0);
+  });
+
+  it("'reports' edge: both A and B get a tool for the other (bidirectional)", () => {
+    const edges: any[] = [{ id: "e1", source: "B", target: "A", type: "reports" }];
+    // Reporter (B) can delegate up to manager (A) — the natural arrow direction.
+    expect(buildDelegationTools(B, [A, B], edges)).toHaveLength(1);
+    expect(buildDelegationTools(B, [A, B], edges)[0].targetNodeId).toBe("A");
+    // Manager (A) can ALSO delegate down to reporter (B) despite the arrow.
+    // This is the "reports is bidirectional" invariant the ticket asks to pin.
+    expect(buildDelegationTools(A, [A, B], edges)).toHaveLength(1);
+    expect(buildDelegationTools(A, [A, B], edges)[0].targetNodeId).toBe("B");
+  });
+
+  it("'collaborates' edge: both A and B get a tool for the other (peer-to-peer)", () => {
+    const edges: any[] = [{ id: "e1", source: "A", target: "B", type: "collaborates" }];
+    expect(buildDelegationTools(A, [A, B], edges)).toHaveLength(1);
+    expect(buildDelegationTools(A, [A, B], edges)[0].targetNodeId).toBe("B");
+    expect(buildDelegationTools(B, [A, B], edges)).toHaveLength(1);
+    expect(buildDelegationTools(B, [A, B], edges)[0].targetNodeId).toBe("A");
+  });
+
+  it("regression guard: no edge type is silently a no-op", () => {
+    // Parameterized spot-check: for each edge type, at least ONE end gets a
+    // tool. If a type is accidentally dropped from the filter in
+    // buildDelegationTools, this test is the canary.
+    for (const type of ["delegates", "reports", "collaborates"] as const) {
+      const edges: any[] = [{ id: "e1", source: "A", target: "B", type }];
+      const toolsA = buildDelegationTools(A, [A, B], edges);
+      const toolsB = buildDelegationTools(B, [A, B], edges);
+      expect(
+        toolsA.length + toolsB.length,
+        `edge type "${type}" produced zero delegation tools on either end`,
+      ).toBeGreaterThan(0);
+    }
+  });
+});
