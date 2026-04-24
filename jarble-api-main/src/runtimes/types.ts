@@ -443,6 +443,25 @@ export interface RuntimeHandler {
     readiness?: RuntimeProbe;
     startup?: RuntimeProbe;
   };
+
+  /**
+   * JAR-99 LOW #2 — terminal-session cosmetics. The in-pod terminal route
+   * (routes/terminal.ts) used to hardcode `openclaw` in the banner / alias
+   * / prompt regardless of the deployment's runtime. These three optional
+   * hooks let a runtime customize its terminal without the route knowing
+   * slug-specific details. All three default to a generic `runtime>`
+   * prompt and no alias when undefined, which is the correct behavior for
+   * ZeroClaw and any future runtime that doesn't ship its own CLI.
+   */
+  /** Multi-line bash fragment to print on shell startup (welcome / usage). */
+  getTerminalBanner?(): string | null;
+  /**
+   * Bash alias line (e.g. `alias openclaw='/opt/openclaw/node_modules/.bin/openclaw'`).
+   * Return null to skip setting any alias.
+   */
+  getShellAlias?(): string | null;
+  /** Prompt label shown in PS1 (e.g. "openclaw"). Defaults to "runtime". */
+  getPromptLabel?(): string;
 }
 
 /**

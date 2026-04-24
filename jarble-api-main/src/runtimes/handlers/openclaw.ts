@@ -932,4 +932,22 @@ export const openclawHandler: RuntimeHandler = {
     }
     return null;
   },
+
+  // JAR-99 LOW #2 — terminal session cosmetics. These used to be
+  // hardcoded in routes/terminal.ts regardless of runtime.
+  getTerminalBanner(): string {
+    // Two-line welcome. printf-style escapes are resolved by the caller.
+    return [
+      `printf '\\n  \\033[36mOpenClaw Terminal\\033[0m\\n'`,
+      `printf '  Type \\033[1mopenclaw --help\\033[0m for available commands\\n\\n'`,
+    ].join("\n");
+  },
+  getShellAlias(): string {
+    // Use the baked-in binary directly instead of npx (which checks the
+    // registry and prompts to update).
+    return `alias openclaw='/opt/openclaw/node_modules/.bin/openclaw'\nexport PATH="/opt/openclaw/node_modules/.bin:$PATH"`;
+  },
+  getPromptLabel(): string {
+    return "openclaw";
+  },
 };
