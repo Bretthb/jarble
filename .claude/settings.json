@@ -23,7 +23,10 @@
       "args": [
         "C:\\nvm4w\\nodejs\\node_modules\\npm\\bin\\npx-cli.js",
         "-y",
-        "@playwright/mcp@latest"
+        "@playwright/mcp@latest",
+        "--browser",
+        "chromium",
+        "--isolated"
       ]
     },
     "chrome-devtools": {

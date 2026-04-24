@@ -305,7 +305,11 @@ function pruneOldReports() {
 // ── Build Orchestrator Prompt ────────────────────────────────────────────
 
 function buildPrompt(context) {
-  const { token, email, password, anthropicKey, diffStat, currentSha, focus, lastRun } = context;
+  const {
+    token, email, password, anthropicKey,
+    devBasicAuthUser, devBasicAuthPassword,
+    diffStat, currentSha, focus, lastRun,
+  } = context;
 
   let prompt = `Run a QA cycle for the Jarble platform.
 
@@ -314,6 +318,26 @@ API_URL: ${API_URL}
 GIT_SHA: ${currentSha}
 TIMESTAMP: ${new Date().toISOString()}
 `;
+
+  // Dev-frontend Traefik basic-auth (Coolify gates dev.jarble.ai behind
+  // a username/password prompt BEFORE Auth0 even loads). When both env
+  // vars are set, the browser agent MUST pass them as HTTP basic-auth
+  // credentials on the browser context — otherwise every page render
+  // returns 401 "Www-Authenticate: Basic realm=traefik" and no UI test
+  // can run.
+  if (devBasicAuthUser && devBasicAuthPassword) {
+    prompt += `
+DEV BASIC AUTH (required to reach dev.jarble.ai — passes Traefik proxy gate):
+DEV_BASIC_AUTH_USER: ${devBasicAuthUser}
+DEV_BASIC_AUTH_PASSWORD: ${devBasicAuthPassword}
+IMPORTANT: In Playwright MCP, set http-credentials on the browser context BEFORE navigating.
+With playwright-mcp that means calling \`browser_navigate\` with a URL of the form
+\`https://${devBasicAuthUser}:${devBasicAuthPassword}@dev.jarble.ai/...\` on first nav, OR using
+the tool's http-credentials option if available. Every subsequent nav on the same
+context will reuse the creds. If you still see a 401 Basic realm=traefik, retry
+with the embedded-credentials URL form.
+`;
+  }
 
   // Auth credentials for browser login
   if (email && password) {
@@ -450,7 +474,15 @@ async function runCycle(state, env) {
       token,
       email: env.QA_EMAIL || process.env.QA_EMAIL,
       password: env.QA_PASSWORD || process.env.QA_PASSWORD,
-      anthropicKey: env.QA_ANTHROPIC_KEY || process.env.QA_ANTHROPIC_KEY,
+      // Prefer the BYOK key when both are set — that's what the wizard's
+      // "bring your own key" flow expects. Fall back to the OAT token
+      // when BYOK isn't available (OpenClaw auto-passes sk-ant-oat*).
+      anthropicKey: env.QA_BYOK_ANTHROPIC_KEY
+        || process.env.QA_BYOK_ANTHROPIC_KEY
+        || env.QA_ANTHROPIC_KEY
+        || process.env.QA_ANTHROPIC_KEY,
+      devBasicAuthUser: env.DEV_BASIC_AUTH_USER || process.env.DEV_BASIC_AUTH_USER,
+      devBasicAuthPassword: env.DEV_BASIC_AUTH_PASSWORD || process.env.DEV_BASIC_AUTH_PASSWORD,
       diffStat,
       currentSha,
       focus: FOCUS,
@@ -460,8 +492,14 @@ async function runCycle(state, env) {
     // Invoke Claude Code
     log.agentStart("qa-orchestrator", FOCUS || "full QA cycle");
 
+    // The orchestrator prompt is 40-60 KB once the git diff + CLAUDE.md +
+    // agent memory are stuffed into it. Windows CreateProcess rejects any
+    // single arg over ~32 KB with ENAMETOOLONG, so we cannot pass the
+    // prompt as `-p "<prompt>"`. Instead, use `-p` with no companion
+    // value and pipe the prompt via stdin — claude CLI reads stdin when
+    // -p has no argument.
     const args = [
-      "-p", prompt,
+      "-p",
       "--agent", "qa-orchestrator",
       "--dangerously-skip-permissions",
       "--model", getArg("model", "sonnet"),
@@ -474,12 +512,18 @@ async function runCycle(state, env) {
 
     let output;
     try {
-      output = execFileSync("claude", args, {
+      // On Windows, execFileSync won't resolve `.exe` from PATH when given
+      // a bare name without going through a shell. Use the platform-specific
+      // filename so the shim is found without cmd.exe (which mangles the
+      // stdin-piped prompt).
+      const claudeBin = process.platform === "win32" ? "claude.exe" : "claude";
+      output = execFileSync(claudeBin, args, {
         cwd: ROOT,
         encoding: "utf-8",
         timeout: CYCLE_TIMEOUT,
         env: { ...process.env, ...env },
         maxBuffer: 50 * 1024 * 1024,
+        input: prompt,  // prompt goes via stdin — see args comment above
       });
       log.agentEnd("qa-orchestrator", "COMPLETE");
     } catch (err) {
@@ -489,6 +533,17 @@ async function runCycle(state, env) {
         output = err.stdout;
         log.log("WARN", "dispatch", "Claude exited with non-zero status");
       } else {
+        // Raw dump to stderr so spawn-time failures (ENAMETOOLONG, ENOENT,
+        // etc) are diagnosable — QALogger otherwise strips err to just
+        // err.message which is empty on spawn errors.
+        console.error("─── Claude spawn failure detail ───");
+        console.error("message:", err.message);
+        console.error("code:", err.code);
+        console.error("status:", err.status);
+        console.error("signal:", err.signal);
+        console.error("stderr:", err.stderr ? String(err.stderr).slice(0, 3000) : "(empty)");
+        console.error("args[0..5]:", args.slice(0, 5));
+        console.error("─── end detail ───");
         log.error("dispatch", "Claude invocation failed", err);
         log.finalize(summary);
         return;

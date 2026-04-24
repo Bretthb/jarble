@@ -72,6 +72,27 @@ QA_M2M_CLIENT_SECRET=<your M2M client secret from Auth0>
 
 **Auth0 M2M Setup (Option A)**: The M2M app must be authorized to access the `https://api.jarble.ai` API. In Auth0 Dashboard → Applications → APIs → your API → Machine to Machine Applications → authorize "Jarble (Test Application)".
 
+### 2a. Dev-frontend basic-auth (required for UI tests)
+
+`dev.jarble.ai` sits behind a Coolify-managed Traefik basic-auth gate that fires BEFORE Auth0 loads. Browser tests need these credentials or every page render returns 401:
+
+```bash
+DEV_BASIC_AUTH_USER=jarble
+DEV_BASIC_AUTH_PASSWORD=<the password you set in Coolify>
+```
+
+Get or rotate the password in the Coolify dashboard → `jarble:develop` application → Configuration → General → Basic Auth. Without these, API-only test goals still work but every `qa-explorer-ui` goal errors with `ERR_INVALID_AUTH_CREDENTIALS`.
+
+### 2b. BYOK Anthropic key (for deployment-creation tests)
+
+If you want overnight goals that create real OpenClaw deployments via the wizard in BYOK mode, add:
+
+```bash
+QA_ANTHROPIC_KEY=sk-ant-api03-...
+```
+
+This gets injected into the orchestrator prompt and the `qa-explorer-ui` agent uses it as the LLM provider key in the wizard. Without it, deployment-creation goals are skipped.
+
 ### 3. Run
 
 ```bash
