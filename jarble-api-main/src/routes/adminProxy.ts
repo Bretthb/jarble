@@ -445,8 +445,28 @@ adminProxyRouter.all("/:id/admin/*", async (req: Request, res: Response) => {
   });
 })();
 </script>`;
-      // Inject in <head> so it runs before module scripts
-      html = html.replace("</head>", autoConnectScript + "</head>");
+      // Inject in <head> so it runs before module scripts.
+      //
+      // JAR-89 §6 — the previous `.replace("</head>", ...)` was a literal
+      // substring match and failed for `</HEAD>`, `</head >` (whitespace),
+      // and any future rendering quirk. Use a case-insensitive regex with
+      // optional whitespace before the `>`. Falls back to prepending to
+      // the start of <body>, then to the very start of the document, so
+      // the bridge script still runs on unusual HTML shapes rather than
+      // being silently dropped.
+      const headCloseRe = /<\/head\s*>/i;
+      const bodyOpenRe = /<body\b[^>]*>/i;
+      if (headCloseRe.test(html)) {
+        html = html.replace(headCloseRe, autoConnectScript + "$&");
+      } else if (bodyOpenRe.test(html)) {
+        // No </head> — prepend just inside <body> instead.
+        html = html.replace(bodyOpenRe, "$&" + autoConnectScript);
+      } else {
+        // Malformed HTML — put the script at the very top and hope for
+        // the best. Logged so ops can notice if this fallback ever fires.
+        log.warn({ deploymentId }, "admin proxy: HTML missing <head> and <body>; prepending script to document start");
+        html = autoConnectScript + html;
+      }
       res.send(html);
     } else {
       res.send(body);
