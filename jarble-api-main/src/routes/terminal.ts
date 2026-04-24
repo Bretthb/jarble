@@ -7,6 +7,7 @@ import { db, tables } from "../db/index.js";
 import { verifyToken, getUserFromToken } from "../services/auth.js";
 import { findPodForDeployment, execClient } from "../k8s/index.js";
 import { NAMESPACE, LEGACY_CONTAINER_NAME } from "../k8s/constants.js";
+import { getHandlerOrNull } from "../runtimes/index.js";
 import { createModuleLogger } from "../utils/logger.js";
 
 const log = createModuleLogger("terminal");
@@ -120,12 +121,12 @@ export function attachTerminalWs(server: http.Server) {
 
     // Accept the WebSocket connection
     wss.handleUpgrade(request, socket, head, (ws) => {
-      wss.emit("connection", ws, request, { user, deploymentId });
+      wss.emit("connection", ws, request, { user, deploymentId, runtime: deployment.runtime });
     });
   });
 
-  wss.on("connection", async (ws: WebSocket, _request: http.IncomingMessage, ctx: { user: { id: string }; deploymentId: string }) => {
-    const { user, deploymentId } = ctx;
+  wss.on("connection", async (ws: WebSocket, _request: http.IncomingMessage, ctx: { user: { id: string }; deploymentId: string; runtime: string }) => {
+    const { user, deploymentId, runtime } = ctx;
     log.info({ deploymentId, userId: user.id }, "Terminal WS connected");
 
     let cleanedUp = false;
@@ -200,27 +201,34 @@ export function attachTerminalWs(server: http.Server) {
       sendJson(ws, { type: "output", data: chunk.toString() });
     });
 
-    // Start a bash shell scoped to OpenClaw CLI usage:
-    // - Custom prompt (openclaw>)
-    // - Alias so `openclaw` works without `npx`
-    // - Working directory set to /data
-    // - Welcome message with available commands
+    // Start a bash shell configured per the deployment's runtime handler.
+    //
+    // JAR-99 LOW #2 — the alias / prompt label / banner are all supplied
+    // by RuntimeHandler optional methods (getShellAlias, getPromptLabel,
+    // getTerminalBanner). When a runtime doesn't implement them, the
+    // fallbacks give a generic `runtime>` prompt with no alias and no
+    // banner, which is the right shape for ZeroClaw / echo / any future
+    // runtime that doesn't ship its own CLI.
+    const handler = getHandlerOrNull(runtime);
+    const promptLabel = handler?.getPromptLabel?.() ?? "runtime";
+    const shellAlias = handler?.getShellAlias?.() ?? null;
+    const banner = handler?.getTerminalBanner?.() ?? null;
+
+    const rcfileLines = [
+      `cat > /tmp/.jarblerc << 'RCEOF'`,
+      ...(shellAlias ? [shellAlias] : []),
+      `export PS1='\\[\\033[36m\\]${promptLabel}\\[\\033[0m\\]> '`,
+      `cd /data`,
+      `RCEOF`,
+    ];
+    const bannerLines = banner ? [banner] : [];
+
     const shellInit = [
       "/bin/bash", "-c",
       [
-        // Write a custom rcfile with alias + colored prompt + cd /data
-        // Use the baked-in binary directly instead of npx (which checks registry and prompts to update)
-        `cat > /tmp/.oclawrc << 'RCEOF'`,
-        `alias openclaw='/opt/openclaw/node_modules/.bin/openclaw'`,
-        `export PATH="/opt/openclaw/node_modules/.bin:$PATH"`,
-        `export PS1='\\[\\033[36m\\]openclaw\\[\\033[0m\\]> '`,
-        `cd /data`,
-        `RCEOF`,
-        // Print welcome message using printf (echo doesn't interpret escapes)
-        `printf '\\n  \\033[36mOpenClaw Terminal\\033[0m\\n'`,
-        `printf '  Type \\033[1mopenclaw --help\\033[0m for available commands\\n\\n'`,
-        // Start bash with our rcfile
-        `exec bash --rcfile /tmp/.oclawrc`,
+        ...rcfileLines,
+        ...bannerLines,
+        `exec bash --rcfile /tmp/.jarblerc`,
       ].join("\n"),
     ];
 
@@ -242,7 +250,7 @@ export function attachTerminalWs(server: http.Server) {
       );
 
       sendJson(ws, { type: "connected", podName });
-      log.info({ deploymentId, podName }, "OpenClaw terminal session started");
+      log.info({ deploymentId, podName, runtime }, "Pod terminal session started");
     } catch (err) {
       log.error({ err, deploymentId, podName }, "Failed to exec into pod");
       sendJson(ws, { type: "error", message: "Failed to open shell in pod" });
