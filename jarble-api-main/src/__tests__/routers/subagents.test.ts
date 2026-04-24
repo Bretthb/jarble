@@ -684,5 +684,17 @@ describe("subagents router", () => {
     it("should reject unauthenticated calls", async () => {
       await expect(anonCaller().subagents.listPublic()).rejects.toThrow();
     });
+
+    // Regression: tRPC wire-level callers (batch, direct curl) serialize
+    // "no input" as null. The input schema must accept null, not only undefined.
+    it("should accept null input (wire-level no-input serialization)", async () => {
+      const { id } = await createSubagent({ name: "Null Input Agent" });
+      await caller().subagents.togglePublic({ id, isPublic: true });
+
+      // Simulates the wire-level "null" that SuperJSON sends for absent input.
+      const result = await caller().subagents.listPublic(null);
+      expect(result.items).toHaveLength(1);
+      expect(result.hasMore).toBe(false);
+    });
   });
 });
