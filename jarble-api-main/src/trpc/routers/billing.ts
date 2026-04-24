@@ -12,6 +12,7 @@ import {
   getSubscriptionBreakdown,
 } from "../../services/stripe.js";
 import { getOpenRouterKeyUsage } from "../../utils/openrouter.js";
+import { findDeploymentByCreator } from "../../services/deploymentAccess.js";
 import { logger } from "../../utils/logger.js";
 
 const { users, deployments } = tables;
@@ -193,12 +194,7 @@ export const billingRouter = router({
   getManagedKeyUsage: protectedProcedure
     .input(z.object({ deploymentId: z.string() }))
     .query(async ({ ctx, input }) => {
-      const deployment = await ctx.db.query.deployments.findFirst({
-        where: and(
-          eq(deployments.id, input.deploymentId),
-          eq(deployments.userId, ctx.user.id),
-        ),
-      });
+      const deployment = await findDeploymentByCreator(ctx.db, input.deploymentId, ctx.user.id);
 
       if (!deployment) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Deployment not found" });
@@ -211,12 +207,7 @@ export const billingRouter = router({
       // Resolve to pool owner's key if linked
       let keyId = deployment.llmApiKeyId;
       if (deployment.llmApiKeySourceDeploymentId) {
-        const owner = await ctx.db.query.deployments.findFirst({
-          where: and(
-            eq(deployments.id, deployment.llmApiKeySourceDeploymentId),
-            eq(deployments.userId, ctx.user.id),
-          ),
-        });
+        const owner = await findDeploymentByCreator(ctx.db, deployment.llmApiKeySourceDeploymentId, ctx.user.id);
         keyId = owner?.llmApiKeyId || keyId;
       }
 
@@ -228,9 +219,7 @@ export const billingRouter = router({
   getDeploymentPrice: protectedProcedure
     .input(z.object({ deploymentId: z.string() }))
     .query(async ({ ctx, input }) => {
-      const dep = await ctx.db.query.deployments.findFirst({
-        where: and(eq(deployments.id, input.deploymentId), eq(deployments.userId, ctx.user.id)),
-      });
+      const dep = await findDeploymentByCreator(ctx.db, input.deploymentId, ctx.user.id);
       if (!dep) return null;
       if (!dep.stripeSubscriptionId || !isStripeConfigured()) {
         return { monthlyPriceCents: dep.monthlyPriceCents || 0, source: "db" as const };
