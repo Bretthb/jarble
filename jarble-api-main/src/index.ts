@@ -291,6 +291,14 @@ async function start() {
   // Initialize database (Postgres via Neon — schema managed by Drizzle migrations)
   await initDatabase();
 
+  // JAR-89 §12 — log a warning if any rows still carry the `plain:` prefix
+  // after prod encryption was provisioned. Dev runs (no encryption key) are
+  // silent. Fire-and-forget — observability only, never blocks startup.
+  void import("./utils/encryption.js").then(async ({ checkPlainEncryptedRows }) => {
+    const { db } = await import("./db/index.js");
+    await checkPlainEncryptedRows(db);
+  }).catch(() => { /* non-fatal */ });
+
   // Start periodic enforcement services
   startStorageEnforcement();
   // subscriptionEnforcement deliberately NOT started — see import-site comment.
