@@ -20,7 +20,7 @@ import { startLifecycleWorker } from "./services/lifecycleJobs.js";
 import { startWebhookCleanup } from "./services/webhookCleanup.js";
 import { startStuckDeploymentMonitor } from "./services/stuckDeploymentMonitor.js";
 import helmet from "helmet";
-import { globalLimiter, authLimiter, mutationLimiter } from "./middleware/rateLimit.js";
+import { globalLimiter, authLimiter, mutationLimiter, chatTurnLimiter } from "./middleware/rateLimit.js";
 import { requestIdMiddleware } from "./middleware/requestId.js";
 import { requestLoggingMiddleware } from "./middleware/requestLogging.js";
 import { trpcCacheMiddleware } from "./middleware/cache.js";
@@ -138,7 +138,10 @@ app.use(requestLoggingMiddleware);
 app.use("/api/stripe", stripeRouter);
 app.use("/api", webhooksRouter);
 app.use("/api/deployments", sseRouter);
-app.use("/api/tambo-agent", tamboAgentRouter);
+// JAR-89 §3 — chatTurnLimiter caps agent turns per user/IP because
+// /api/tambo-agent is exempt from globalLimiter (SSE streams) and isn't
+// under /trpc (so auth/mutation limiters don't apply).
+app.use("/api/tambo-agent", chatTurnLimiter, tamboAgentRouter);
 app.use("/api/deployments", canvasFilesRouter);
 app.use("/api/deployments", artifactRouter);
 app.use("/api/mcp", mcpRouter);
