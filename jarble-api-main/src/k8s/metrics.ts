@@ -19,8 +19,10 @@ let metricsRetryAfter = 0;
 /**
  * Parse K8s CPU resource string to millicores.
  * Examples: "500m" → 500, "2" → 2000, "42379n" → 0 (nanocores)
+ *
+ * Exported for unit testing — not part of the public k8s/* surface.
  */
-function parseCpuToMillicores(cpu: string): number {
+export function parseCpuToMillicores(cpu: string): number {
   if (cpu.endsWith("n")) {
     return Math.round(parseInt(cpu, 10) / 1_000_000);
   }
@@ -34,8 +36,10 @@ function parseCpuToMillicores(cpu: string): number {
 /**
  * Parse K8s memory resource string to MB.
  * Examples: "128Mi" → 128, "1Gi" → 1024, "131072Ki" → 128, "134217728" → 128
+ *
+ * Exported for unit testing — not part of the public k8s/* surface.
  */
-function parseMemoryToMb(mem: string): number {
+export function parseMemoryToMb(mem: string): number {
   if (mem.endsWith("Ki")) {
     return Math.round(parseInt(mem, 10) / 1024);
   }
