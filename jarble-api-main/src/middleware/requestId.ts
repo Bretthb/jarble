@@ -43,7 +43,7 @@ declare global {
 const HEX_ALPHABET = "0123456789abcdef";
 const TRACE_ID_LEN = 32;
 
-function toW3CTraceId(input: string): string {
+export function toW3CTraceId(input: string): string {
   // Strip any non-hex chars, lowercase, then pad/truncate to 32.
   const cleaned = input.toLowerCase().replace(/[^0-9a-f]/g, "");
   if (cleaned.length >= TRACE_ID_LEN) return cleaned.slice(0, TRACE_ID_LEN);
@@ -52,7 +52,7 @@ function toW3CTraceId(input: string): string {
   return cleaned.padEnd(TRACE_ID_LEN, "0");
 }
 
-function generateHexRequestId(): string {
+export function generateHexRequestId(): string {
   // 16 hex chars (8 bytes) — looks like the prefix of a real W3C trace id
   // and is friendly to copy/paste in logs. The full 32-char trace id is
   // derived from this by zero-padding.
@@ -63,7 +63,7 @@ function generateHexRequestId(): string {
   return s;
 }
 
-function parseTraceparent(header: string | undefined): { traceId: string; parentSpanId: string } | null {
+export function parseTraceparent(header: string | undefined): { traceId: string; parentSpanId: string } | null {
   // W3C traceparent format: 00-<trace-id>-<parent-id>-<flags>
   // version (2) - trace_id (32) - parent_id (16) - flags (2)
   if (!header) return null;
