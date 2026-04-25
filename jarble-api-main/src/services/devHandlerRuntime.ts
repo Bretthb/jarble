@@ -91,6 +91,11 @@ export function subscriberCount(serviceId: string): number {
   return listeners.get(serviceId)?.size ?? 0;
 }
 
+/** Clear all subscribers across all services (for tests) */
+export function clearAllSubscribers(): void {
+  listeners.clear();
+}
+
 // ── Handler execution ─────────────────────────────────────────────────────────
 
 export interface DevExecResult {
