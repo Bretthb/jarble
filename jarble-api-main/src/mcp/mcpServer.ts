@@ -26,7 +26,7 @@ import { logger } from "../utils/logger.js";
  * Handles the common types used by our tools: string, number, boolean, object,
  * array, and enum. Falls back to z.unknown() for unrecognized types.
  */
-function jsonSchemaPropertyToZod(prop: Record<string, any>): ZodTypeAny {
+export function jsonSchemaPropertyToZod(prop: Record<string, any>): ZodTypeAny {
   if (prop.enum) {
     return z.enum(prop.enum as [string, ...string[]]);
   }
@@ -63,7 +63,7 @@ function jsonSchemaPropertyToZod(prop: Record<string, any>): ZodTypeAny {
   }
 }
 
-function buildInputSchema(tool: McpTool): z.ZodObject<Record<string, ZodTypeAny>> {
+export function buildInputSchema(tool: McpTool): z.ZodObject<Record<string, ZodTypeAny>> {
   const params = tool.parameters;
   if (!params?.properties) {
     return z.object({});
