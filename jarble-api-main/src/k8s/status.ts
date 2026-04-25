@@ -107,6 +107,42 @@ export interface StorageUsage {
 }
 
 /**
+ * Parse the stdout from `df -B1 <mountPath>` into a StorageUsage row.
+ *
+ * df output shape (`-B1` = sizes in bytes):
+ *   Filesystem    1B-blocks    Used    Available  Use%  Mounted on
+ *   /dev/longhorn 21474836480  1073741824  20401094656  5%  /data
+ *
+ * Returns null when the input is malformed (less than 2 lines, fewer
+ * than 6 columns, or non-numeric byte counts) so callers can fall
+ * back without surfacing a parse-error to the user.
+ *
+ * Exported for unit testing — split out of `getDeploymentStorageUsage`
+ * which mixes the K8s exec orchestration with the parse step.
+ */
+export function parseDfOutput(stdoutData: string): StorageUsage | null {
+  const lines = stdoutData.trim().split("\n");
+  if (lines.length < 2) return null;
+
+  const parts = lines[1].trim().split(/\s+/);
+  if (parts.length < 6) return null;
+
+  const totalBytes = parseInt(parts[1], 10);
+  const usedBytes = parseInt(parts[2], 10);
+
+  if (isNaN(totalBytes) || isNaN(usedBytes)) return null;
+
+  const GB = 1024 * 1024 * 1024;
+  return {
+    usedBytes,
+    totalBytes,
+    usedGb: Math.round((usedBytes / GB) * 100) / 100,
+    totalGb: Math.round((totalBytes / GB) * 100) / 100,
+    percentUsed: totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 1000) / 10 : 0,
+  };
+}
+
+/**
  * Get storage usage for a deployment by exec-ing `df` inside the running pod.
  * Returns null if the pod isn't running or the command fails.
  */
@@ -177,34 +213,11 @@ export async function getDeploymentStorageUsage(
       log.warn({ deploymentId, stderr: stderrData }, "df command stderr");
     }
 
-    // Parse df output (second line contains the data)
-    const lines = stdoutData.trim().split("\n");
-    if (lines.length < 2) {
-      log.warn({ deploymentId, output: stdoutData }, "Unexpected df output");
-      return null;
-    }
-
-    const parts = lines[1].trim().split(/\s+/);
-    if (parts.length < 6) {
+    const result = parseDfOutput(stdoutData);
+    if (!result) {
       log.warn({ deploymentId, output: stdoutData }, "Could not parse df output");
-      return null;
     }
-
-    const totalBytes = parseInt(parts[1], 10);
-    const usedBytes = parseInt(parts[2], 10);
-
-    if (isNaN(totalBytes) || isNaN(usedBytes)) {
-      return null;
-    }
-
-    const GB = 1024 * 1024 * 1024;
-    return {
-      usedBytes,
-      totalBytes,
-      usedGb: Math.round((usedBytes / GB) * 100) / 100,
-      totalGb: Math.round((totalBytes / GB) * 100) / 100,
-      percentUsed: totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 1000) / 10 : 0,
-    };
+    return result;
   } catch (err) {
     log.error({ deploymentId, err }, "Failed to get storage usage");
     return null;
