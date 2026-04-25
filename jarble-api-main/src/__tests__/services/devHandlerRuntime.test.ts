@@ -39,6 +39,7 @@ vi.mock("../../utils/logger.js", () => ({
 import {
   clearStore,
   clearAllStores,
+  clearAllSubscribers,
   getStoreSnapshot,
   subscribe,
   subscriberCount,
@@ -60,18 +61,15 @@ function trackSubscribe(serviceId: string, listener: (e: ServiceEvent) => void) 
 
 beforeEach(() => {
   clearAllStores();
+  clearAllSubscribers();
 });
 
 afterEach(() => {
   clearAllStores();
-  while (cleanupFns.length > 0) {
-    const fn = cleanupFns.pop();
-    try {
-      fn?.();
-    } catch {
-      // ignore double-unsub
-    }
-  }
+  clearAllSubscribers();
+  // Drain the tracker so it doesn't accumulate across tests. The actual
+  // listener removal is handled by clearAllSubscribers above.
+  cleanupFns.length = 0;
 });
 
 // ── Store API via handler ───────────────────────────────────────────────────
