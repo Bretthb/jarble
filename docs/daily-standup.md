@@ -1,5 +1,5 @@
 # Jarble Nightly Health Check
-**Date**: 2026-04-25 08:09 UTC
+**Date**: 2026-04-26 08:18 UTC
 
 ---
 
@@ -20,7 +20,7 @@ develop is green and buildable. Both packages typecheck clean with zero errors.
 
 | Branch | Ahead | Behind | Conflicts | Flag |
 |--------|------:|-------:|:---------:|------|
-| cleanup/jar-99-runtime-native-subagents-env | 1 | 46 | 0 | REBASE |
+| cleanup/jar-99-runtime-native-subagents-env | 1 | 47 | 0 | REBASE |
 | feature/jar-40-org-limits | 620 | 50 | 0 | REBASE |
 | feature/jar-47-beta-promo-codes-v2 | 605 | 50 | 0 | REBASE |
 | feature/jar-51-observability-phase-2-otel | 773 | 50 | 0 | REBASE |
@@ -45,15 +45,16 @@ develop is green and buildable. Both packages typecheck clean with zero errors.
 
 ## Observations
 
-- **All branches are 46-50 commits behind develop.** Consistent drift pattern, likely from a large recent merge onto develop. No conflicts despite the drift -- clean rebases expected.
-- **cleanup/jar-99** is only 1 commit ahead. It is nearly ready to land but needs a rebase first -- prioritize this one.
-- **jar-51 family (13 branches)**: The observability epic is split across many long-lived parallel branches (530-796 commits ahead). Coordinate rebases across this family together to minimize conflict risk.
-- **Linear MCP not available** -- per-ticket branch status comments not posted. Run with Linear MCP authenticated to enable automated nudges.
+- **All branches remain 47-50 commits behind develop.** The drift pattern is unchanged from yesterday — no branches were rebased overnight. All rebases are expected to be clean (zero merge conflicts detected).
+- **cleanup/jar-99** is still only 1 commit ahead and now 47 behind. This is the lowest-cost rebase — one commit on top of develop. Prioritize landing this first.
+- **jar-51 family (13 branches)**: The observability epic remains split across many long-lived parallel branches (530-796 commits ahead). These have been drifting since yesterday with no reduction. Coordinate a rebase window across the whole family to avoid cascading conflicts when merging.
+- **develop gained 1 commit overnight** (yesterday's standup commit `bd6f4c5`), pushing all already-stale branches one step further behind.
+- **Linear MCP not available** — per-ticket branch status comments not posted this run.
 
 ---
 
 ## Next Actions
 
-1. Rebase all flagged branches on `origin/develop`, starting with `jar-99` (1 commit -- nearly landable).
-2. Plan a coordinated rebase window for the JAR-51 observability epic branches.
-3. No merge conflicts detected so all rebases should be mechanical.
+1. Rebase `cleanup/jar-99-runtime-native-subagents-env` on `origin/develop` — 1 commit, nearly landable.
+2. Schedule a coordinated rebase window for the JAR-51 observability epic (13 branches, all stale at 50 behind).
+3. No merge conflicts detected — all rebases should be mechanical once scheduled.
