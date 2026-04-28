@@ -1,72 +1,57 @@
 # Last QA Run
 
 ## Run Details
-- **Timestamp**: 2026-04-24T22:23:13.862Z
-- **Git SHA**: b76ef3f
-- **Duration**: ~17 minutes
-- **Pass rate**: 82% (9 pass, 2 warn, 0 fail, 0 error, 0 skip out of 11 goals)
-- **Real bugs found**: 1 potential (FP-009: empty chat response body for BYOK Anthropic Opus 4.6)
-- **UX gaps found**: 1 (FP-008: pod-not-reachable lag after status=Running)
-- **Healer dispatched**: No (deployment deleted for cleanup before investigation)
+- **Timestamp**: 2026-04-28T04:08:25.837Z
+- **Git SHA**: 9d19c18
+- **Duration**: ~12 minutes
+- **Pass rate**: 100% (7 pass, 0 warn, 0 fail, 0 skip out of 7 goals)
+- **Unit tests**: 3223 pass, 10 fail (beta-promo.test.ts pre-existing), 67 skip
+- **New tests added**: deploymentSecrets.test.ts — 38/38 PASS
+- **Real bugs found**: 0 new
+- **UX gaps found**: 0 new (billing $27.40/$0 subscriptions is known FP-007)
 
 ## Goals Tested
 
 | # | Goal | Type | Status | Notes |
 |---|------|------|--------|-------|
-| 1 | Diagnose endpoint auth enforcement | API | PASS | 401 no auth, 404 valid auth + fake ID — refactor to openclaw.diagnostics.ts intact |
-| 2 | flows.create with valid nodes | API | PASS | Flow created (flw_cl6wluaggtcb), retrieved, then soft-deleted |
-| 3 | flows.generateFromPrompt | API | WARN | 412 PRECONDITION_FAILED — test user has no LLM key (expected behavior, not a bug) |
-| 4 | flows.delete cleanup | API | PASS | Soft delete confirmed; flow absent from list |
-| 5 | org.list with valid auth | API | PASS | Returns [] for test user with no orgs |
-| 6 | Diagnose endpoint unauthenticated | API | PASS | 401 returned correctly |
-| 7 | Dashboard loads with org switcher | UI | PASS | Workspace banner, org switcher in profile dropdown, deployment section all present |
-| 8 | Agent Teams / Flow Canvas | UI | PASS | 7 Team 1 flows listed; canvas renders with mini-map, zoom, chat/run controls; node badges not shown (flows have empty nodes) |
-| 9 | Deployment wizard BYOK Anthropic | UI | PASS | Full 5-step wizard completed; Anthropic key validated; deployment 8uv3e8mpg9uc created; pod provisioned via autoscaler |
-| 10 | /d/[id] chat interface | UI | WARN | Pod-not-reachable lag for 2-3 min after Running; chat UI loaded; Opus 4.6 response had empty body after 75s typing indicator |
-| 11 | Visual regression (billing, deployments) | UI | PASS | All 3 pages clean; minor billing counter lag noted |
+| 1 | deploymentSecrets auth enforcement | API | PASS | 401 on all 3 procedures without auth |
+| 2 | deploymentSecrets.getByDeployment — list secrets | API | PASS | Returns masked secrets; shared="dev-*******y-qa", user="[client-encrypted]" |
+| 3 | deploymentSecrets.save — create/update secret | API | PASS | Validation works: reserved keys rejected, lowercase key rejected, empty value rejected |
+| 4 | deploymentSecrets.delete — delete secret | API | PASS | Idempotent (delete non-existent key -> 200 success, not 404) |
+| 5 | /orgs page UI | UI | PASS | Empty state renders correctly; "Create your first organization" CTA present |
+| 6 | Visual regression — dashboard | UI | PASS | Running deployment card, workspace banner, no overflow |
+| 7 | Visual regression — billing | UI | PASS | All sections present; $27.40 spend vs 0 subscriptions (known FP-007) |
 
 ## Key Findings
 
-### Code Change Verified: openclaw.diagnostics.ts Extraction (b76ef3f)
-- The refactored `diagnose.ts` → `runOpenClawDiagnostics()` extraction is working correctly
-- Auth guard still fires: 401 on missing auth, 404 on valid auth with non-existent deployment
-- No 500 errors from the refactoring — extraction is clean
+### Code Change Verified: deploymentSecrets Router (9d19c18)
+- New test file `deploymentSecrets.test.ts` (531 lines) — 38/38 pass in unit tests
+- Live production endpoints all work correctly
+- Procedure name is `deploymentSecrets.getByDeployment` (not `.list` as docs might say)
+- Secret values are masked in API response: shared scope shows partial mask, user scope shows "[client-encrypted]"
+- Reserved key validation works (ANTHROPIC_API_KEY rejected with descriptive message)
+- Key format validation works: must match `/^[A-Z][A-Z0-9_]{0,127}$/`
+- Delete is idempotent — consistent with unit test expectations
 
-### Deployment Wizard BYOK Works End-to-End
-- 5-step wizard: Name → OpenClaw runtime → (optional system prompt) → LLM BYOK Anthropic → Deploy
-- Anthropic key validation via API works ("Key validated! Connected to Anthropic." toast)
-- Default model shown as "Claude Opus 4.6" in the deploy step
-- Autoscaler provisioned a new Hetzner worker (jarble-auto-8uv3e8mpg9uc) for the pod
-- Deployment reached Running state in ~3-4 minutes
+### /orgs Page First Browser Test
+- Page renders correctly with empty state for users with no orgs
+- Two CTA paths: header "Create Organization" button + main "Create your first organization" button
+- No console errors, no layout issues
 
-### Agent Teams Canvas Confirmed Working
-- Renders with @xyflow/react grid + mini-map + zoom controls
-- Shows 7 "Team 1" flows from test user's existing data
-- Left panel: "No deployments yet — Create deployments first, then build your team here"
-- Top controls: New / Layout / Save (disabled) / Chat (disabled) / Run / Delete
-
-### TOS Consent Gate Triggered
-- On first login with smallradcomp@gmail.com, TOS consent modal appeared (tosAcceptedAt was null)
-- User accepted consent before dashboard was accessible — gate working as designed
-
-### WARN: Empty Chat Response Body (FP-009)
-- After BYOK Anthropic deployment reached Running, sent "Hello, what can you do?"
-- Typing indicator appeared for 75+ seconds
-- Assistant message header rendered ("claude-opus-4-6") but body was empty
-- "openclaw-control-ui" appeared as sender label (anomalous)
-- Deployment was deleted for cleanup — need new repro deployment to investigate Langfuse traces
-
-### WARN: Pod-Not-Reachable Lag (FP-008)
-- 2-3 minute window where status=Running but chat iframe returns {"error":"Pod not reachable"}
-- Misleading UX — users see green "Running" badge but can't use the agent yet
+### Pre-existing Unit Test Failure: beta-promo.test.ts
+- 10 tests fail with `SqliteError: table promo_codes has no column named discount_type`
+- CONTRADICTS: both testDb.ts and testSchema.sqlite.ts have this column defined in CREATE TABLE SQL
+- Failure occurs only in "expiration + usage caps" and "success response shape" describe blocks
+- Likely a Vitest worker isolation or DB state issue — NOT introduced by current PR (#246)
+- Was last touched in commit 27e3b8f (2026-04-22); current PR (#246) only adds deploymentSecrets test file
+- NEEDS INVESTIGATION: healer should investigate why SQLite reports missing column despite schema definition
 
 ## Healer Actions
-None — deployment was cleaned up before healer could investigate. FP-009 needs a fresh repro.
+None dispatched — all QA goals passed. beta-promo failures are pre-existing unit test issue.
 
 ## Next Run Priorities
-1. **INVESTIGATE FP-009**: Create new BYOK Anthropic deployment and check Langfuse traces for empty response; compare with a non-BYOK deployment
-2. **Test /d/[id] with non-BYOK deployment** (if one can be provisioned without payment)
-3. **Test Agent Teams generateFromPrompt UI** — the "Generate Flow" button in the teams canvas (needs a configured LLM on the test user)
-4. **Test /orgs page** — new page never tested end-to-end via UI
-5. **Test Files panel** in /d/[id] — Files icon was visible but not clicked this run
-6. **Test Control UI** deep-dive (openclaw-control-ui interaction after pod fully warms up)
+1. **INVESTIGATE beta-promo failures** — 10 unit tests failing despite schema having the columns; possible Vitest isolation bug
+2. **Test /d/[id] with existing deployment** — QA-BYOK-Test-0425 is still Running; test chat UX (FP-009 repro)
+3. **Test /orgs/[orgId] page** — never tested; needs creating an org first
+4. **Test deploymentSecrets.save per-deployment limit** — unit tests cover a 20-secret limit; verify limit enforced in prod
+5. **Test org.create flow in UI** — create an org via the /orgs page CTA

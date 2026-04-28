@@ -14,10 +14,10 @@
 | /docs | 2026-03-24 | STALE (docs pages removed in codebase) | qa-explorer-ui |
 | /privacy | 2026-03-24 | PASS | qa-explorer-ui |
 | /terms | 2026-03-24 | PASS | qa-explorer-ui |
-| /dashboard | 2026-04-24 | PASS (org switcher present; workspace banner; deployment card with RAM/uptime/cost after creation) | qa-explorer-ui |
+| /dashboard | 2026-04-28 | PASS (workspace banner, deployment card QA-BYOK-Test-0425 Running with cost/memory/restart info, no overflow) | qa-explorer-ui |
 | /deployments | 2026-04-24 | PASS (3 tabs: Linked, Agent Teams, Resource Map; flow canvas renders; 7 Team 1 flows listed) | qa-explorer-ui |
 | /settings | 2026-03-26 | PASS (profile, appearance, account, danger zone) | qa-explorer-ui |
-| /billing | 2026-04-24 | PASS (stat cards, empty subscriptions, invoice history; minor: $27.40 spend shows but Active Subscriptions=0 lag) | qa-explorer-ui |
+| /billing | 2026-04-28 | PASS (stat cards, empty subscriptions, invoice history; minor: $27.40 spend shows but Active Subscriptions=0 — known FP-007) | qa-explorer-ui |
 | /onboarding/new | 2026-04-24 | PASS (5-step wizard: name→runtime→system-prompt→LLM-BYOK→deploy; BYOK Anthropic validated + deployment created) | qa-explorer-ui |
 | /d/[id] | 2026-04-24 | WARN (chat UI loads after ~3-4 min provisioning; BYOK Anthropic Opus 4.6 typing indicator appeared but response body was empty) | qa-explorer-ui |
 | /docs/getting-started | 2026-03-26 | PASS (8 sections, ToC, code blocks) | qa-explorer-ui |
@@ -31,7 +31,7 @@
 | /admin/announcements | never | NEW (added 2026-04) | - |
 | /admin/promo | never | NEW (added 2026-04) | - |
 | /admin/* (other sub-pages) | never | - | - |
-| /orgs | never | NEW (added 2026-04) | - |
+| /orgs | 2026-04-28 | PASS (empty state: "No organizations yet" + "Create your first organization" CTA; 0 console errors) | qa-explorer-ui |
 | /orgs/[orgId] | never | NEW (added 2026-04) | - |
 | /invite/[token] | never | NEW (added 2026-04) | - |
 | /legal/terms | never | NEW (added 2026-04) | - |
@@ -86,7 +86,9 @@
 | org.invite | never | - | - |
 | org.acceptInvite | never | - | - |
 | subagents.list | YES (401) | not tested authed | 2026-04-23 |
-| deploymentSecrets.* | never | NEW router added 2026-04 | - |
+| deploymentSecrets.getByDeployment | YES (401) | 200 — [] empty, or array of masked secret objects; maskedValue="dev-*******y-qa" (shared) or "[client-encrypted]" (user scope) | 2026-04-28 |
+| deploymentSecrets.save | YES (401) | 200 — {success:true}; validates reserved keys (ANTHROPIC_API_KEY rejected), invalid format (lowercase rejected), empty value rejected | 2026-04-28 |
+| deploymentSecrets.delete | YES (401) | 200 — {success:true}; idempotent (deleting non-existent key returns 200 success) | 2026-04-28 |
 | user.acceptTerms | YES (401) | not tested authed (but TOS consent gate triggered + accepted in UI on 2026-04-24) | 2026-04-24 |
 | REMOVED: agentCredits.* | 2026-04-23 | REMOVED — agentCredits router deleted from codebase |
 
