@@ -31,9 +31,15 @@ Also: `runtimeCatalog.getById` requires a **numeric** `id`, not a string. Passin
 **subagents router** (tested 2026-04-23):
 - `subagents.list` requires `{ deploymentId: string }` — NOT a no-input procedure. Returns 404 for unknown deploymentId.
 
-**deploymentSecrets router** (tested 2026-04-23):
-- `deploymentSecrets.list` does NOT exist — returns 404. Correct name is `deploymentSecrets.getByDeployment`.
-- `deploymentSecrets.getByDeployment` requires `{ deploymentId: string }` — returns 404 for unknown deploymentId.
+**deploymentSecrets router** (tested 2026-04-28, full live suite):
+- `deploymentSecrets.list` does NOT exist — the test goal name is wrong. Correct procedure is `deploymentSecrets.getByDeployment`.
+- `deploymentSecrets.getByDeployment` — GET query, requires `{ deploymentId: string }`, returns 404 for unknown/unowned deploymentId. Returns array of `{ id, key, maskedValue, source, scope, createdAt, updatedAt }` — no plaintext values ever exposed.
+- `deploymentSecrets.save` — POST mutation, requires `{ deploymentId, key, value, scope? }`. scope defaults to "shared". Returns `{ success: true }`.
+- `deploymentSecrets.delete` — POST mutation, idempotent (deleting a non-existent key returns 200 `{ success: true }`, not 404).
+- Reserved env var keys (e.g. `ANTHROPIC_API_KEY`) return 400 BAD_REQUEST with a descriptive message.
+- Invalid key format (lowercase, starts with digit, etc.) returns 400. Key regex: `^[A-Z][A-Z0-9_]{0,127}$`.
+- User-scope secrets show `[client-encrypted]` as maskedValue instead of a partial reveal.
+- All three procedures require auth — unauthenticated requests return 401.
 
 **flows router** (tested 2026-04-23):
 - `flows.create` requires `{ name, definition: { nodes: [], edges: [] }, description?, status?, entryNodeId?, teamType? }` — `definition` is a top-level required field (NOT `nodes`/`edges` at the root level).
