@@ -323,9 +323,12 @@ export const LLM_MODELS: LLMModelDef[] = [
   { id: "o3-pro",                    name: "o3-pro",                  provider: "openai", description: "Extended reasoning for hard problems" },
 
   // ── Anthropic direct models ──
-  { id: "claude-opus-4-6",           name: "Claude Opus 4.6",         provider: "anthropic", description: "Most capable - 1M context", isDefault: true },
-  { id: "claude-sonnet-4-6",         name: "Claude Sonnet 4.6",       provider: "anthropic", description: "Fast frontier intelligence" },
-  { id: "claude-sonnet-4-20250514",  name: "Claude Sonnet 4",         provider: "anthropic", description: "Balanced performance and speed" },
+  // IMPORTANT: Anthropic's API expects dated model slugs (e.g. "claude-sonnet-4-20250514").
+  // The undated slugs "claude-opus-4-6" / "claude-sonnet-4-6" only exist on OpenRouter
+  // (which abstracts them to the latest dated version under the hood). Sending an
+  // undated slug directly to api.anthropic.com returns 404 and produces an empty
+  // response body in the chat UI (see FP-009).
+  { id: "claude-sonnet-4-20250514",  name: "Claude Sonnet 4",         provider: "anthropic", description: "Balanced performance and speed", isDefault: true },
   { id: "claude-haiku-4-5-20251001", name: "Claude Haiku 4.5",        provider: "anthropic", description: "Fast and affordable" },
 
   // ── Google direct models ──

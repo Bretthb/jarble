@@ -759,8 +759,28 @@ async function chatViaHTTPInner(
         const data = line.slice(6).trim();
         if (data === "[DONE]") continue;
 
+        // FP-009: Surface upstream provider errors. OpenClaw's gateway
+        // proxies upstream LLM errors as SSE chunks shaped like
+        // `{ "error": { "message": "...", "type": "..." } }` (e.g. an
+        // invalid Anthropic model slug returns 404 with this shape). The
+        // previous parser only looked at `choices[0].delta`, so error
+        // chunks were silently dropped and `fullText` stayed empty —
+        // producing a header-only assistant bubble after the timeout.
+        // Detect outside the per-chunk try/catch so the throw isn't
+        // swallowed by "skip unparseable chunks".
+        let parsedChunk: any = null;
+        try { parsedChunk = JSON.parse(data); } catch { /* skip */ }
+        if (parsedChunk) {
+          const errObj = parsedChunk?.error ?? parsedChunk?.choices?.[0]?.error;
+          if (errObj && (errObj.message || errObj.type)) {
+            const msg = errObj.message || JSON.stringify(errObj);
+            throw new Error(`upstream LLM error: ${msg}`);
+          }
+        }
+
         try {
-          const chunk = JSON.parse(data);
+          const chunk = parsedChunk;
+          if (!chunk) continue;
           const delta = chunk.choices?.[0]?.delta;
 
           // JAR-63: Accumulate native reasoning from OpenAI-compat fields
