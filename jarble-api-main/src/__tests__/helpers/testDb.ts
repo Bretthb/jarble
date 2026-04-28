@@ -151,14 +151,16 @@ const CREATE_TABLES_SQL = `
 
   -- Mirrors schema.pg.ts promoCodes + promoRedemptions. Required by the
   -- deployment.delete procedure which cleans up promo_redemptions rows keyed
-  -- on deployment_id.
+  -- on deployment_id, AND by routes/promo.ts validate handler which reads
+  -- discount_type / discount_amount / current_uses / max_uses_per_user.
   CREATE TABLE IF NOT EXISTS promo_codes (
     id TEXT PRIMARY KEY,
     code TEXT NOT NULL UNIQUE,
-    description TEXT,
-    months_free INTEGER DEFAULT 1 NOT NULL,
+    discount_type TEXT NOT NULL DEFAULT 'fixed',
+    discount_amount INTEGER NOT NULL DEFAULT 0,
     max_uses INTEGER,
-    uses_remaining INTEGER,
+    max_uses_per_user INTEGER NOT NULL DEFAULT 1,
+    current_uses INTEGER NOT NULL DEFAULT 0,
     expires_at TEXT,
     active INTEGER DEFAULT 1 NOT NULL,
     created_by TEXT REFERENCES users(id),
