@@ -52,6 +52,12 @@ See `prod-chat-broken-mar2026.md` for full details.
 3. **No exec fallback for origin errors** -- `tamboAgent.ts:1347` regex only matches connection errors (ETIMEDOUT etc), not auth errors like "origin not allowed"
 4. **K8s manifest drift** -- `k8s/deployment.yaml` is outdated vs live cluster (missing configmaps, services resources)
 
+## Production Bugs Found (Apr 2026 Debugging Session)
+
+See `autoscaler-label-silent-failure.md` for details.
+
+5. **Autoscaler label PATCH silent failure** -- `nodeManager.ts:497-513` swallows label PATCH error as "non-fatal". Node ends up with `jarble.ai/workload=agent:NoSchedule` taint applied but missing `jarble.ai/auto-scaled=true` label, leaving agent pod permanently Pending (required nodeAffinity from `lifecycle.ts:113-160`). Quick unblock: `kubectl label node jarble-auto-{id} jarble.ai/auto-scaled=true jarble.ai/role=agent jarble.ai/managed-node-id={dbId}`. Real fix: throw on label failure OR add read-back verification + retry OR periodic reconciler.
+
 ## Patterns & Conventions
 
 - `storageMb` field is historically misnamed -- it actually stores GB values
