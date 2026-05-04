@@ -123,16 +123,16 @@ export default function Home() {
                 Web Chat
               </span>
               <h2 className="text-4xl font-serif font-medium leading-tight">
-                Rich responses, not<br />
-                <span className="text-primary">just plain text.</span>
+                Native runtime UI,<br />
+                <span className="text-primary">straight from your deployment.</span>
               </h2>
               <p className="text-lg text-muted-foreground">
-                Every agent gets its own web chat with a full canvas: charts, tables, code blocks, live data widgets, and 3D visualizations rendered inline. Your agent doesn&apos;t just respond, it shows its work.
+                Every agent deployment gets a live chat interface with its runtime dashboard built in. See real-time status, logs, and native UI components rendered inline — no separate tools, no context switching.
               </p>
               <div className="space-y-3">
                 <div className="flex gap-3 items-start">
                   <MessageSquare className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-muted-foreground">Charts, tables, maps, code editors, and 3D visualizations, all rendered inline as the agent responds.</p>
+                  <p className="text-sm text-muted-foreground">Runtime-native UI surfaces directly in chat — charts, status panels, live widgets, and data views rendered inline as the agent responds.</p>
                 </div>
                 <div className="flex gap-3 items-start">
                   <Globe className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
@@ -140,7 +140,7 @@ export default function Home() {
                 </div>
                 <div className="flex gap-3 items-start">
                   <Zap className="w-5 h-5 text-primary mt-0.5 flex-shrink-0" />
-                  <p className="text-sm text-muted-foreground">37 built-in UI components. Install more from the marketplace. Builders can define custom components.</p>
+                  <p className="text-sm text-muted-foreground">One deployment, one URL. The chat interface, runtime dashboard, and canvas are all the same place.</p>
                 </div>
               </div>
               <Button
