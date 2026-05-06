@@ -277,7 +277,7 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
     if (!entryNode.deploymentId) {
       res.status(400).json({
         error:
-          "The entry bot has no deployment assigned. Configure it in the flow editor.",
+          "The entry agent has no deployment assigned. Configure it in the flow editor.",
       });
       return;
     }
@@ -303,14 +303,14 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
 
     if (!entryDeployment) {
       res.status(404).json({
-        error: "Entry bot deployment not found or not owned by you.",
+        error: "Entry agent deployment not found or not owned by you.",
       });
       return;
     }
 
     if (entryDeployment.status !== "running") {
       res.status(400).json({
-        error: `Entry bot "${entryDeployment.name}" is not running (status: ${entryDeployment.status}). Start it first.`,
+        error: `Entry agent "${entryDeployment.name}" is not running (status: ${entryDeployment.status}). Start it first.`,
       });
       return;
     }
@@ -540,7 +540,7 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
       sendEvent(res, {
         type: TEXT_MESSAGE_CONTENT,
         messageId,
-        delta: "Could not find a running pod for the entry bot. Try restarting it.",
+        delta: "Could not find a running pod for the entry agent. Try restarting it.",
       });
       sendEvent(res, { type: TEXT_MESSAGE_END, messageId });
       sendEvent(res, { type: RUN_FINISHED, runId, threadId });
@@ -582,7 +582,7 @@ flowChatRouter.post("/:flowId/chat", async (req, res) => {
         sendEvent(res, {
           type: TEXT_MESSAGE_CONTENT,
           messageId,
-          delta: `Sorry, I couldn't reach the entry bot. Error: ${safeErr}`,
+          delta: `Sorry, I couldn't reach the entry agent. Error: ${safeErr}`,
         });
       }
       sendEvent(res, { type: TEXT_MESSAGE_END, messageId });

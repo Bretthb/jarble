@@ -109,7 +109,7 @@ Individual-first model: users sign up as individuals, then create/join unlimited
 - **tRPC + React Query**: Type-safe API calls with automatic caching
 - **SSE Streams**: Real-time status (`useStatusStream`), logs (`useLogStream`), QR pairing (`useQrStream`)
 - **Chat SSE**: `POST /api/tambo-agent` streams agent responses (text deltas + UI blocks + reasoning events)
-- **Flow SSE**: `POST /api/flows/:flowId/execute` starts execution and returns an `executionId`; client reconnects to `GET /api/flows/executions/:executionId/stream` for the live event stream
+- **Flow SSE**: `POST /api/flows/:flowId/execute` starts execution and returns an `executionId`; client reconnects to `GET /api/flows/:flowId/executions/:executionId/stream` for the live event stream
 - **Auth0 Bearer tokens**: Automatically attached via tRPC link headers
 
 ## Chat UX Features

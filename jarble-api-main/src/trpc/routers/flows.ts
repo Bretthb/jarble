@@ -1055,7 +1055,7 @@ export const flowsRouter = router({
             code: "PRECONDITION_FAILED",
             message:
               "Flow generation requires a valid LLM API key. The configured " +
-              "key was rejected by the provider — please check your OpenRouter " +
+              "key was rejected by the provider. Please check your OpenRouter " +
               "or Anthropic key in Settings.",
           });
         }

@@ -813,7 +813,7 @@ Browser -> Auth0 (login)
 **Flow (orchestration) execution:**
 ```
 Frontend -> POST /api/flows/:flowId/execute (gets executionId)
-  -> Client reconnects to GET /api/flows/executions/:executionId/stream
+  -> Client reconnects to GET /api/flows/:flowId/executions/:executionId/stream
   -> FlowEngine executes DAG in topological order
   -> Each node emits jarble.flow.step.* SSE events
   -> Deployment nodes call bots via chatViaHTTP

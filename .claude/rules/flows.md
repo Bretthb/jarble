@@ -36,7 +36,7 @@ globs:
 ## Flow Execution Routes (`jarble-api-main/src/routes/flowExecution.ts`)
 - `POST /api/flows/:flowId/execute` — authenticated, starts execution, returns `{ executionId }` as JSON
 - `GET /api/flows/:flowId/executions/:execId/stream` — SSE stream; supports reconnect with buffered replay
-- `POST /api/flows/executions/:executionId/resume` — unpauses a `waitForInput` node with user-provided input
+- `POST /api/flows/:flowId/executions/:executionId/resume` — unpauses a `waitForInput` node with user-provided input
 - `POST /api/flows/:flowId/chat` — chat with a flow via LLM gateway (10K char message limit)
 - Rate-limited to 5 concurrent SSE connections per user (`MAX_FLOW_SSE_PER_USER`)
 
