@@ -11,7 +11,8 @@ git clone https://github.com/Jarble-AI/jarble.git
 cd jarble
 bash scripts/setup.sh          # Install deps, set up env files
 # Fill in .env.local values from the team secrets doc
-cd jarble-api-main && npm run dev:test   # API on :3001 (SQLite)
+# Point DATABASE_URL at a Neon dev branch (no SQLite provider exists at runtime)
+cd jarble-api-main && npm run dev        # API on :3001
 cd Jarble-mvp && pnpm run dev            # Frontend on :3000
 ```
 
@@ -91,9 +92,8 @@ These are standardized workflows. Use them instead of writing long prompts:
 | Command | What It Does |
 |---------|-------------|
 | `/deploy-check` | Run both typechecks + both test suites (catches Zod v3/v4 split issues) |
-| `/new-component` | Scaffold a canvas component (file, manifest, register, resolve, verify) |
 | `/new-router` | Scaffold a tRPC router with auth, Zod v3, registration |
-| `/new-platform` | Add a messaging platform (all 5 touchpoints) |
+| `/new-platform` | Add a messaging platform (all 5 touchpoints on the harness handler) |
 | `/context` | Query CodeGraphContext MCP for dependency analysis before complex tasks |
 | `/qa` | Run the agentic QA system locally (uses Max subscription, no API cost) |
 
@@ -145,9 +145,9 @@ Pre-configured agents live in `.claude/agents/`. Claude will use them automatica
 | `stripe-webhook-debugger` | Subscription not linking, webhook signature failures |
 | `terraform-infra` | Hetzner/K3s infrastructure changes |
 | `docs-updater` | Keeping API-ENDPOINTS.md, DEVELOPER-GUIDE.md in sync |
-| `runtime-handler` | Adding runtimes, modifying config rendering, secret mapping |
+| `runtime-handler` | Adding Agent Harnesses, modifying config rendering, secret mapping |
 | `openclaw-diagnostics` | Gateway timeouts, chat failures, model switch issues |
-| `canvas-component-builder` | Scaffold new canvas components (5-step pattern) |
+| `canvas-component-builder` | **Deprecated.** Jarble no longer ships canvas components — the harness owns its own webchat UI. |
 
 ### What Claude Enforces Automatically
 
@@ -183,12 +183,18 @@ Never use npm in the frontend or pnpm in the API. The lockfile hook will block i
 
 ## Database Changes
 
-Schema is defined in 3 files that **must stay in sync**:
-- `jarble-api-main/src/db/schema.ts` (MySQL)
-- `jarble-api-main/src/db/schema.pg.ts` (PostgreSQL — production)
-- `jarble-api-main/src/db/schema.sqlite.ts` (SQLite — local dev)
+The platform runs on **Postgres only**, via Neon. MySQL and SQLite providers were removed in commit `388018b`. The single source of truth for the schema is:
 
-When adding tables or columns, update all three plus `db/init.ts` and `db/index.ts`. Use the `drizzle-db-schema` agent — it knows the pattern.
+- `jarble-api-main/src/db/schema.pg.ts`
+
+When adding tables or columns:
+
+1. Edit `schema.pg.ts`.
+2. Hand-write the migration `.sql` file under `drizzle-pg/` with the next sequential number — production applies via `src/db/migrate.pg.ts` on pod start, not `drizzle-kit migrate`.
+3. Mirror the column in the unit-test SQLite mirror (`src/__tests__/helpers/testSchema.sqlite.ts` AND the raw `CREATE TABLE` block in `src/__tests__/helpers/testDb.ts`). The mirror is for Vitest only — it is not a production provider.
+4. Apply locally via `npx tsx src/db/migrate.pg.ts` against a Neon dev branch.
+
+Use the `drizzle-db-schema` agent — it knows the pattern.
 
 ## Security
 

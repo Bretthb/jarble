@@ -1,6 +1,22 @@
 ---
-description: "Scaffold a new canvas component with manifest entry, registration, and FadeIn wrapper. Follows the exact 5-step pattern from CLAUDE.md."
+description: "DEPRECATED. Jarble no longer ships canvas components — the Agent Harness owns the chat/render layer. Do not invoke."
+status: deprecated
 ---
+
+# new-component — DEPRECATED
+
+Jarble has retired its own canvas component library as a product surface. The per-deployment chat UI is the Agent Harness's own webchat (OpenClaw's webchat today). Legacy canvas code in `Jarble-mvp/components/canvas/` is on a path to deletion, not extension.
+
+If the user invokes `/new-component`, surface this deprecation, then ask what they actually want to do:
+
+- For a per-deployment UI feature → propose it as a contribution to the harness upstream (e.g. OpenClaw).
+- For a Jarble-platform UI surface that Jarble does own (dashboard, onboarding wizard, deployment config sidebar, orchestration canvas in `views/Deployments.tsx`) → edit those files directly; they are not "canvas components" in the deprecated sense.
+
+Do not scaffold anything below this line.
+
+---
+
+(Original 5-step scaffold preserved below for reference only — do not execute.)
 
 Create a new canvas component. Ask the user for the component name if not provided.
 

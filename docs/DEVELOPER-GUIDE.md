@@ -2,6 +2,13 @@
 
 > A plain-English walkthrough of how Jarble works, written for developers who may not know Kubernetes, infrastructure, or the full stack yet. Uses real-world metaphors to make complex concepts click.
 
+> ⚠️ **This guide is being reconciled with a 2026-05-12 product decision.** Jarble is an **Agent Infrastructure Platform**; the per-deployment chat UI is served by the **Agent Harness** (OpenClaw's webchat today), not by a Jarble-built chat / canvas surface. Any section below that describes Jarble's own chat UI, canvas components, the `render_ui` MCP server, or "rich UI blocks rendered by Jarble" is describing **legacy code on a path to deletion**, not the current product surface. The authoritative product framing lives in `PRODUCT.md`; the authoritative architecture summary lives in `CLAUDE.md`. Where they conflict with this guide, they win.
+>
+> Other rolling reconciliations to be aware of while reading:
+> - "Agent Runtime" → **Agent Harness** in user-facing / architectural prose (code identifiers like `RuntimeHandler`, `runtimes/handlers/`, `runtimeCatalog` keep their existing names).
+> - The database is **Postgres only** (Neon); the MySQL and SQLite providers were removed.
+> - The **marketplace is not yet shipped** — anywhere this guide describes browsing or installing from a marketplace as a present-tense feature is a roadmap aspiration.
+
 ---
 
 ## Table of Contents

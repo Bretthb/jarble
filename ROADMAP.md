@@ -6,10 +6,12 @@ This file is the forward-looking counterpart to `CLAUDE.md`. `CLAUDE.md` describ
 
 ## Phases at a Glance
 
-- **Phase 1 — Foundation** _(shipped)_: Hetzner + k3s infrastructure, one pod per agentic runtime, native agentic UI, everything currently running in production.
-- **Phase 2 — Agentic Runtime Orchestration** _(in progress)_: Multi-agent canvas, delegation / collaboration / reporting between agents, workflow save + share, team workflow tooling. **Public launch happens at the end of Phase 2.**
-- **Phase 3 — Agentic Runtime Marketplace** _(post-launch)_: Builders publish and fork runtime-agnostic assets (skills, sub-agents, workflow templates) and runtime-specific assets.
-- **Phase 4 — Agentic Runtime Benchmarking** _(post-launch)_: Categorized scoring across reasoning / tool-use / speed / cost, competitive analysis across frameworks, continuous evaluation.
+- **Phase 1 — Foundation** _(shipped)_: Hetzner + K3s infrastructure, one pod per **Agent Harness**, harness-native webchat surfaced at the per-deployment subdomain, everything currently running in production.
+- **Phase 2 — Agent Harness Orchestration** _(in progress)_: Multi-agent orchestration canvas, delegation / collaboration / reporting between agents, workflow save + share, team workflow tooling. **Public launch happens at the end of Phase 2.**
+- **Phase 3 — Agent Harness Marketplace** _(post-launch)_: Builders publish and fork harness-agnostic assets (skills, sub-agents, workflow templates) and harness-specific assets.
+- **Phase 4 — Agent Harness Benchmarking** _(post-launch)_: Categorized scoring across reasoning / tool-use / speed / cost, competitive analysis across harnesses, continuous evaluation.
+
+> Terminology note: this file uses **Agent Harness** in narrative phases (matching PRODUCT.md). Code identifiers in feature blocks may still reference `RuntimeHandler`, `runtimes/handlers/`, `runtimeCatalog`, etc. — those are intentionally preserved.
 
 ## How to edit this file
 

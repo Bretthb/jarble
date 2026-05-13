@@ -1,5 +1,5 @@
 ---
-description: Chat UX features, streaming, typewriter, reasoning, conversation history, component edit sync
+description: "**Legacy reference** for the deprecated Jarble-built chat / canvas surface. The supported per-deployment chat UI is the Agent Harness's own webchat (OpenClaw's webchat today) — do not extend the code documented below. Auto-loaded when editing the legacy files so anyone touching them sees the deprecation notice."
 globs:
   - "Jarble-mvp/hooks/useCanvasChat*"
   - "Jarble-mvp/lib/assistantRuntime*"
@@ -9,9 +9,12 @@ globs:
   - "Jarble-mvp/components/workspace/SimpleCanvas*"
   - "Jarble-mvp/components/canvas/**"
   - "jarble-api-main/src/routes/tamboAgent*"
+status: deprecated
 ---
 
-# Chat UX Features
+> ⚠️ **DEPRECATED SURFACE.** Per PRODUCT.md (2026-05-12), Jarble no longer ships its own chat / canvas UI. The per-deployment chat is the Agent Harness's webchat. This rule documents legacy code that is on a path to deletion — read it to understand existing behavior when touching the files, but do not add features here. New user-facing chat work belongs upstream in the harness, not in `Jarble-mvp/components/canvas/`.
+
+# Chat UX Features (legacy reference)
 
 ## Stop Generation
 Send button transforms to filled square stop button when streaming. Partial text preserved as assistant message. Sending a new message auto-aborts current generation.

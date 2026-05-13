@@ -15,22 +15,28 @@ This repo includes a **portable memory system** so Claude Code context travels w
 
 ## Secret Handling
 
-- **Never put secrets in `.claude/settings.json`** — it is committed to git. MCP server tokens, API keys, and any other credential goes in `.claude/settings.local.json` (gitignored) or an env var referenced via `${VAR_NAME}` in the server's `env` block. JAR-33 documents the incident that led to this rule: two live tokens (Sentry + Vercel) were committed and had to be rotated out-of-band.
-- A pre-commit scan-secrets hook (`.claude/hooks/scan-secrets.js`) blocks commits that add strings matching well-known token prefixes (`sntryu_`, `vcp_`, `sk-ant-api03-`, `sk_live_`, `whsec_`, `ghp_`, `gho_`, `xoxb-`, `AKIA`, PEM private-key headers, etc.). Escape hatch: `SKIP_SECRET_SCAN=1` for a single commit.
+  - A pre-commit scan-secrets hook (`.claude/hooks/scan-secrets.js`) blocks commits that add strings matching well-known token prefixes (`sntryu_`, `vcp_`, `sk-ant-api03-`, `sk_live_`, `whsec_`, `ghp_`, `gho_`, `xoxb-`, `AKIA`, PEM private-key headers, etc.). Escape hatch: `SKIP_SECRET_SCAN=1` for a single commit.
 - API secrets live in `jarble-api-main/.env` (dev) or Kubero/Coolify env config (prod) — never in source files. See `.claude/rules/env-config.md`.
 
 ## Project Overview
 
 > **Source of truth**: `PRODUCT.md` in the repo root. If anything here contradicts PRODUCT.md, PRODUCT.md wins.
 
-Jarble is an **infrastructure platform for AI agents**. The platform has two sides:
+Jarble is an **Agent Infrastructure Platform**. It deploys, scales, runs, and orchestrates **Agent Harnesses** on managed K8s, abstracting the operational layer so builders can focus on agent behavior.
 
-- **Builders** create, host, and monetize agents — pick a runtime (OpenClaw), write a system prompt, add MCP connections, install skills/components, publish to the marketplace, and earn on every deployment.
-- **Businesses** discover, deploy, and run agents in the tools their teams already use — browse the marketplace, deploy in one click, agents run inside existing workflows.
+- **OpenClaw is the only Agent Harness currently shipping.** The platform is harness-agnostic by design — additional harnesses plug in via the `RuntimeHandler` interface in `jarble-api-main/src/runtimes/handlers/`.
+- **Builders** configure a deployment (system prompt, model, MCP connections, messaging-platform credentials) and ship it.
+- **Businesses / end users** reach the agent through the **harness's own webchat UI** at the per-deployment subdomain, or through messaging platforms (WhatsApp, Discord, Slack, Telegram) the deployment is wired to.
 
-The **marketplace** connects both sides. The **infrastructure** (K8s pods, config sync, LLM routing) makes everything run. The moat is the infrastructure layer, not any single agent.
+The moat is the infrastructure layer (K8s isolation, config sync, ingress + forward-auth, secret management, LLM routing, autoscaling), not any single agent or harness.
 
-Each deployment gets a **web chat interface** (`/d/[id]`) with rich UI components (charts, tables, 3D visualizations, live widgets) rendered via an MCP UI server as interactive canvas blocks inline in conversation. Agents can also be connected to messaging platforms (WhatsApp, Discord, Slack, Telegram).
+The marketplace (browse + publish + revenue share) is **planned, not shipped** — see PRODUCT.md → Future Roadmap.
+
+### Naming and deprecations (read this)
+
+- The user-facing / architectural term is **Agent Harness**. The earlier name "Agent Runtime" is retired in product / docs / agent prompts. **Code identifiers stay**: `RuntimeHandler` interface, `runtimes/handlers/` directory, `runtimeCatalog` table, `RUNTIME_EXTRA_STEPS` / `RUNTIME_CONFIG_TABS` config objects.
+- **Jarble does not ship its own chat UI or canvas component library going forward.** The per-deployment chat surface is the harness's webchat. The repo still contains legacy canvas + chat code (`Jarble-mvp/components/canvas/`, `hooks/useCanvasChat.ts`, `components/chat/AssistantUIChat.tsx`, `components/workspace/SimpleCanvasGrid.tsx`, `lib/assistantRuntime.ts`, the `render_ui` / `define_component` tools in `jarble-api-main/src/mcp/jarble-ui-server.js`); that code is in **deprecation**, not active development. Do not add to it. The `canvas-component-builder` agent is marked deprecated.
+- The **orchestration canvas** in `Jarble-mvp/views/Deployments.tsx` (built on `@xyflow/react`, used to wire deployments into multi-agent workflows) is **not** the deprecated canvas — it is a Jarble-owned surface and stays.
 
 ## Monorepo Structure
 
@@ -84,7 +90,7 @@ cd Jarble-mvp && pnpm run dev
 ## Tech Stack
 - **Frontend**: Next.js 15 (App Router), React 19, TypeScript, Tailwind v4, shadcn/ui, pnpm
 - **API**: Express, tRPC, SuperJSON, Drizzle ORM, npm
-- **MCP**: Custom stdio MCP server (`jarble-ui-server.js`) — `render_ui`, `define_component`, `list_components`, `component_reference`, `skill_reference`
+- **MCP**: Legacy stdio MCP server (`jarble-ui-server.js`) exposing `render_ui` / `define_component` / `list_components` / `component_reference` / `skill_reference` is **deprecated** (the harness owns chat rendering now). Do not extend it.
 - **Database**: PostgreSQL via Neon (prod and local dev via a Neon branch)
 - **Auth**: Auth0 (JWT + JWKS), **Payments**: Stripe, **Email**: Resend (transactional, from `noreply@noreply.jarble.ai`)
 - **Infra**: Hetzner Cloud, Terraform, K3s, Longhorn
@@ -92,13 +98,13 @@ cd Jarble-mvp && pnpm run dev
 **Package managers**: Frontend uses **pnpm** (declared in package.json `packageManager` field). API uses **npm**. Do not mix them — use the correct lockfile for each.
 
 ## tRPC Router Structure
-16 routers with 90+ procedures at `/trpc`:
-`user`, `deployment`, `runtimeCatalog`, `openrouter`, `billing`, `platformCredentials`, `deploymentSecrets`, `flows` (flow CRUD + execution), `admin`, `apiKeys`, `skills`, `subagents`, `org` (organizations)
+Routers at `/trpc`:
+`user`, `deployment`, `runtimeCatalog` (the harness catalog — the table + router keep the legacy `runtime` code identifier), `openrouter`, `billing`, `platformCredentials`, `deploymentSecrets`, `flows` (flow CRUD + execution), `admin`, `apiKeys`, `skills`, `subagents`, `org` (organizations)
 
 ## Organizations
 Individual-first model: users sign up as individuals, then create/join unlimited orgs. Deployments have an optional `orgId` — null means personal mode.
 
-- **Tables**: `organizations`, `org_members`, `org_invites` (in all 3 DB schemas)
+- **Tables**: `organizations`, `org_members`, `org_invites` (in `schema.pg.ts` plus the Vitest SQLite mirror)
 - **Roles**: owner > admin > member
 - **Router**: `org` — create, list, getById, update, delete, invite, acceptInvite, listInvites, cancelInvite, removeMember, updateMemberRole, leave
 - **Frontend**: `OrgContext` provider, `OrgSwitcher` in ProfileDropdown, dedicated `/orgs` list + `/orgs/[orgId]` detail pages, workspace banner on dashboard
@@ -112,10 +118,11 @@ Individual-first model: users sign up as individuals, then create/join unlimited
 - **Flow SSE**: `POST /api/flows/:flowId/execute` starts execution and returns an `executionId`; client reconnects to `GET /api/flows/:flowId/executions/:executionId/stream` for the live event stream
 - **Auth0 Bearer tokens**: Automatically attached via tRPC link headers
 
-## Chat UX Features
-> Full details in `.claude/rules/chat-ux.md` (auto-loads when working in chat/canvas files)
+## Chat UX — **legacy, not the supported product surface**
 
-Key features: stop generation, message edit + resend, multi-conversation sidebar (localStorage), streaming reasoning (`<think>` tags), typewriter text reveal (480 chars/sec), component edit sync (`content_edit` action), canvas card context menus.
+The supported per-deployment chat surface is the **harness's own webchat UI** (OpenClaw's webchat today), served via the per-deployment subdomain + forward-auth + proxy routes (`routes/openWebUiProxy.ts`, `routes/adminProxy.ts`, `routes/agentAuth.ts`).
+
+The legacy Jarble-built chat (stop generation, message edit + resend, multi-conversation sidebar, streaming reasoning, typewriter reveal, component edit sync, canvas card context menus) still ships in `app/d/[id]/page.tsx` as the default `chatMode="workspace"` toggle, with details in `.claude/rules/chat-ux.md`. **This is on a path to removal.** Do not add features to it.
 
 ## Orchestration System (Flow Engine)
 > Full details in `.claude/rules/flows.md` (auto-loads when working in flow files)
@@ -152,10 +159,11 @@ When writing new user-facing strings, use "agent". When writing new internal cod
 
 ## Key Patterns
 
-### Adding a New Runtime
-1. Add entry to `RUNTIME_EXTRA_STEPS` and `RUNTIME_CONFIG_TABS` in `wizardStepConfig.ts`
-2. Create runtime handler in `jarble-api-main/src/runtimes/handlers/`
+### Adding a New Agent Harness
+1. Add entry to `RUNTIME_EXTRA_STEPS` and `RUNTIME_CONFIG_TABS` in `wizardStepConfig.ts` (code identifiers keep the "RUNTIME_" prefix on purpose)
+2. Create the harness handler in `jarble-api-main/src/runtimes/handlers/` implementing the `RuntimeHandler` interface
 3. Add render blocks in `OnboardingWizard.tsx` and deployment config views
+4. Wire the per-deployment ingress so the new harness's webchat UI is what serves at the deployment subdomain — Jarble does not provide a generic chat fallback
 
 ### Adding a New LLM Provider
 1. Add to `LLM_PROVIDERS` in `wizardStepConfig.ts`
@@ -170,12 +178,8 @@ When writing new user-facing strings, use "agent". When writing new internal cod
 4. Add UI in `OnboardingWizard.tsx` and `DeploymentConfiguration.tsx`
 5. Add step in `wizardStepConfig.ts:RUNTIME_EXTRA_STEPS`
 
-### Adding a New Canvas Component
-1. Create `Jarble-mvp/components/canvas/components/Canvas{Name}.tsx` — **no wrapper styling** (use `p-3 h-full`)
-2. Wrap content in `<FadeIn>` from `components/canvas/FadeIn.tsx` for consistent mount animation (framer-motion is not used — 22+ components use this lightweight wrapper instead)
-3. Add entry to `shared/component-manifest/components/{name}.ts`
-4. Register in `shared/component-manifest/index.ts`
-5. Run `npm run check:manifest`
+### Adding a New Canvas Component — **DEPRECATED**
+Canvas components are no longer a Jarble product surface — the harness owns the chat/render layer. Do not scaffold new canvas components. If a fix to existing canvas code is unavoidable, leave a comment linking back to this section and prefer a path that removes the code rather than extending it.
 
 ### Adding a New Flow Node Type
 1. Add the type literal to `FlowNode["type"]` union in `jarble-api-main/src/services/flowEngine.ts`
@@ -189,7 +193,7 @@ Changes that aren't obvious from a cold read of the code:
 
 - **Per-deployment ingress**: Each deployment gets a direct subdomain `{id}.agents.jarble.ai`. Auth is enforced by a Traefik forward-auth middleware + signed cookie (not in-app). A per-deployment auth middleware is auto-created on deploy (`50b5dbf`, `8e23c3c`, `6905639`).
 - **Control UI proxy**: Fast-path proxy for the in-app Control Panel. Pod address is cached; DB lookups are skipped on the hot path (`187c95a`). Gateway token is passed in the URL hash for WS auto-connect (`ba3e04f`).
-- **OpenClaw-native canvas**: The legacy `jarble_ui` MCP bridge was dropped. Canvas renders are produced natively by OpenClaw (`6006e3b`). Do not re-introduce `jarble_ui`-style bridging.
+- **OpenClaw-native canvas / no Jarble chat UI**: The legacy `jarble_ui` MCP bridge was dropped (`6006e3b`); canvas renders are produced natively by the harness. As of 2026-05, Jarble has formally retired its own chat / canvas UI as a product surface — the per-deployment subdomain serves the harness's webchat. Do not re-introduce `jarble_ui`-style bridging, and do not add to the legacy `components/canvas/` / `useCanvasChat.ts` / `AssistantUIChat.tsx` / `SimpleCanvasGrid.tsx` code.
 - **configSync advisory locks + durable lifecycle jobs** (JAR-86, `18bed02`): Deployment mutations (create/update/restart) acquire Postgres advisory locks so concurrent requests serialize instead of racing. Long-running lifecycle work (restart, redeploy) is durable — jobs survive API pod restarts.
 - **`findDeploymentWithAccess`** (JAR-83, `7c9e310`): The canonical authz entry point in the deployment router. When adding a new deployment procedure, call this helper — don't hand-roll ownership/org checks.
 
@@ -211,18 +215,20 @@ To bump the TOS version: change `CURRENT_TOS_VERSION` in `lib/consent.ts` AND th
 ### Config-Driven UI
 Wizard steps and config tabs driven by `Jarble-mvp/views/onboarding/wizardStepConfig.ts`. Adding a new runtime only requires config changes + component implementation.
 
-### Key Chat/Canvas Files
-| File | Purpose |
-|------|---------|
-| `hooks/useCanvasChat.ts` | Chat hook — streaming, conversation management, stop/edit, typewriter reveal |
-| `lib/assistantRuntime.ts` | assistant-ui ExternalStoreRuntime — onNew, onCancel, onEdit, streaming message |
-| `lib/conversationStorage.ts` | localStorage multi-conversation CRUD, legacy migration |
-| `components/chat/AssistantUIChat.tsx` | Thread UI — user/assistant bubbles, reasoning renderer, edit button |
-| `components/workspace/ConversationHistoryPanel.tsx` | Conversation sidebar — list, new chat, delete, switch |
-| `components/workspace/SimpleCanvasGrid.tsx` | Freeform canvas — card rendering, context menu, drag/resize |
-| `components/canvas/CanvasActionContext.tsx` | Action dispatch context — `content_edit`, UI actions |
-| `components/canvas/components/CanvasCodeBlock.tsx` | Code block — shiki highlighting, inline edit, copy |
-| `components/canvas/FadeIn.tsx` | Lightweight mount-animation wrapper used by 22+ canvas components |
+### Legacy Chat / Canvas files (deprecated — phasing out)
+
+These files still exist in the repo but are **on a path to deletion**. They power the legacy "workspace mode" toggle on `app/d/[id]/page.tsx`. The supported per-deployment UX is the harness's own webchat (the "webui" mode in that same page). Do not add to these files.
+
+| File | Purpose | Status |
+|------|---------|--------|
+| `hooks/useCanvasChat.ts` | Chat hook — streaming, conversation mgmt | Deprecated |
+| `lib/assistantRuntime.ts` | assistant-ui ExternalStoreRuntime adapter | Deprecated |
+| `lib/conversationStorage.ts` | localStorage multi-conversation CRUD | Deprecated |
+| `components/chat/AssistantUIChat.tsx` | Thread UI | Deprecated |
+| `components/workspace/ConversationHistoryPanel.tsx` | Conversation sidebar | Deprecated |
+| `components/workspace/SimpleCanvasGrid.tsx` | Freeform canvas | Deprecated |
+| `components/canvas/*` | All Jarble-built canvas component library | Deprecated |
+| `jarble-api-main/src/mcp/jarble-ui-server.js` | `render_ui` / `define_component` MCP tools | Deprecated |
 
 ### Key Flow / Orchestration Files
 | File | Purpose |
@@ -348,15 +354,15 @@ Pre-configured agents in `.claude/agents/`:
 | `code-reviewer` | Review diffs for correctness, security, consistency |
 | `jarble-api-debugger` | Trace errors through tRPC, services, K8s, Stripe |
 | `nextjs-frontend-debugger` | Hydration, React Query cache, Auth0 redirects, SSE |
-| `drizzle-db-schema` | Schema changes across 3 DB providers, migrations |
+| `drizzle-db-schema` | Schema changes (Postgres-only + the Vitest SQLite mirror), migrations |
 | `test-writer` | Unit/integration/E2E tests, test infra |
 | `k8s-pod-lifecycle-debugger` | PVC mounts, image pulls, crash loops, storage |
 | `stripe-webhook-debugger` | Webhook signatures, subscription lifecycle |
 | `terraform-infra` | Hetzner Cloud, K3s, Auth0 Terraform |
 | `docs-updater` | Update API-ENDPOINTS.md, DEVELOPER-GUIDE.md, OVERVIEW.md |
-| `runtime-handler` | Runtime configs, secret mapping, platform env vars |
+| `runtime-handler` | Agent Harness configs, secret mapping, platform env vars |
 | `openclaw-diagnostics` | Gateway timeouts, chat failures, config sync |
-| `canvas-component-builder` | Scaffold canvas components (5-step pattern) |
+| `canvas-component-builder` | **Deprecated.** Tombstone agent — Jarble no longer ships canvas components. |
 | `ticket-dispatcher` | Parse ROADMAP.md into per-assignee Linear ticket drafts with embedded Claude Code prompts |
 | `ticket-updater` | Post session-end Linear comment (mermaid + AC delta + token/cost footer) from Stop hook |
 | `linear-orchestrator` | Nightly cross-ticket planner: writes focus-plan.json + docs/daily-standup.md |

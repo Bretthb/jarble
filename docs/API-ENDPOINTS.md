@@ -3,6 +3,8 @@
 > Complete reference for every API endpoint in the Jarble platform.
 > Last updated: April 6, 2026
 
+> ⚠️ **Procedure counts and sections below have drifted from the code.** The repo has gone through significant cleanup (template router removed, marketplace/services routers reduced, Postgres-only schema). For an accurate router list, see `CLAUDE.md` → tRPC Router Structure, or read the files in `jarble-api-main/src/trpc/routers/` directly. Re-run the `docs-updater` agent to regenerate this file. Terminology note: the `runtimeCatalog` router is the **Agent Harness** catalog — the code identifier keeps the legacy `runtime` name.
+
 ---
 
 ## Table of Contents

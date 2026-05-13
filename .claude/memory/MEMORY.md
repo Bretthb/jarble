@@ -1,110 +1,72 @@
 # Memory Index
 
-- [feedback_human_workforce_mental_model.md](feedback_human_workforce_mental_model.md) — Jarble is an AI workforce; use "what would a human team do?" as a design compass
-- [feedback_deployments_are_atomic.md](feedback_deployments_are_atomic.md) — Deployments atomic, teams fractal orchestration+distributed compute; scope hierarchy (runtime → individual → team → team-of-teams)
-- [project_vision.md](project_vision.md) — Jarble is an agent mesh platform with distributed compute marketplace
-- [project_autoscaling_2026_03_25.md](project_autoscaling_2026_03_25.md) — K3s auto-scaling live on custom nodeManager; JAR-130 (Apr 22) fixed the duplicate-InternalIP cloud-init bug
-- [feedback_whatsapp_secondary.md](feedback_whatsapp_secondary.md) — WhatsApp/messaging are secondary; web chat is primary
-- [feedback_component_quality.md](feedback_component_quality.md) — Components must be investor pitch deck quality
-- [feedback_autonomous_overnight.md](feedback_autonomous_overnight.md) — User trusts Claude to work autonomously overnight
+## Active policy / decisions
+- [Harness + chat-UI policy (2026-05-12)](harness-and-chat-decision.md) — Jarble is an "Agent Infrastructure Platform"; "Agent Runtime" → "Agent Harness" in prose (code identifiers stay); legacy canvas + chat code is deprecated, harness owns chat
 
-## Feedback & Fixes
+## Feedback & preferences
+- [feedback_human_workforce_mental_model.md](feedback_human_workforce_mental_model.md) — Jarble is an AI workforce; use "what would a human team do?" as a design compass
+- [feedback_deployments_are_atomic.md](feedback_deployments_are_atomic.md) — Deployments atomic, teams fractal orchestration+distributed compute
+- [feedback_whatsapp_secondary.md](feedback_whatsapp_secondary.md) — WhatsApp/messaging are secondary; web chat is primary (note: chat now = harness webchat)
+- [feedback_component_quality.md](feedback_component_quality.md) — Components must be investor pitch deck quality (applies to legacy canvas surface — see harness-and-chat-decision)
+- [feedback_autonomous_overnight.md](feedback_autonomous_overnight.md) — User trusts Claude to work autonomously overnight
+- [feedback_no_auto_merge_main.md](feedback_no_auto_merge_main.md) — Don't auto-merge to main without approval
+- [feedback_overnight_qa.md](feedback_overnight_qa.md) — Overnight QA preferences and authorization scope
+- [feedback_slash_commands.md](feedback_slash_commands.md) — Slash command preferences
+- [feedback_deployments_page.md](feedback_deployments_page.md) — Deployments page UX preferences
 - [tRPC splitLink for mutations](feedback_splitlink.md) — Never batch mutations with queries
 
-## Current Work — Bot-Side Skills System IMPLEMENTED (Mar 6, 2026)
+## Active projects
+- [Enterprise feature — Phase 1 backend](enterprise-phase1.md) — Org model, account types, agent listings, orgAuth utility
+- [project_vision.md](project_vision.md) — Jarble vision snapshot (pre-2026-05; superseded for positioning by PRODUCT.md)
+- [project_autoscaling_2026_03_25.md](project_autoscaling_2026_03_25.md) — K3s auto-scaling on nodeManager; JAR-130 (Apr 22) fixed duplicate-InternalIP cloud-init bug
 
-### Bot-Side Skills — 4-Step Implementation Complete
-1. **Quick win (Step 1)** — Added ~300 tokens anti-pattern prevention to `JARBLE_UI_PROMPT`:
-   - Chart data format (recharts vs Chart.js)
-   - Field name cheat sheet (body/message/label/items/events/tabs etc.)
-   - data_table rows format (arrays not objects)
-   - Valid enum values (variant/size/chart type)
-   - CDN allowlist for sandbox
-2. **Skill files (Step 2)** — Created 5 skills in `shared/component-manifest/skills/`:
-   - `component-rendering.ts` — Selection matrix, props examples, design principles
-   - `sandbox-mastery.ts` — CDN allowlist, bridge API, theme, heartbeat, common mistakes
-   - `generative-ui-patterns.ts` — When to render UI vs text, harmony, orchestration
-   - `platform-awareness.ts` — Canvas system, MCP tools, multi-platform
-   - `dashboard-composition.ts` — Ordering, layout strategy, data consistency
-3. **MCP tool (Step 3)** — Added `skill_reference` tool to `jarble-ui-server.js`:
-   - Lists all 5 skills or returns full content for a specific skill
-   - Skills embedded as string constants in the MCP server (deployed with pod)
-   - Dispatch case added to `executeTool` switch
-4. **Slim core prompt (Step 4)** — Reduced JARBLE_UI_PROMPT from ~2,900 to ~1,800 tokens:
-   - Compressed design principles, rendering order, sandbox tips
-   - Removed redundant Browser Tool / Long-Term Memory sections (tools self-document)
-   - Added `embed` to Component Chooser table
-   - Added pointer to `skill_reference` MCP tool for detailed guides
+## Infrastructure
+- [Infrastructure hosting setup](infra-hosting.md) — Coolify for frontend (dev.jarble.ai, jarble.ai), Kubero for API (api.jarble.ai), both on Hetzner K3s
+- [jarble-agents host IP](jarble-agents-host.md) — jarble-agents node at 178.156.231.154 (SSH via id_ed25519_hetzner)
+- [project_coolify_setup.md](project_coolify_setup.md) — Coolify VPS setup
+- [project_k8s_infra_apr3.md](project_k8s_infra_apr3.md) — K3s + Kubero infra setup
+- [prod_deployment_mar25.md](prod_deployment_mar25.md) — Prod deployment notes
+- [k8s-architecture.md](k8s-architecture.md) — K8s topology overview
+- [infra_docker_builds.md](infra_docker_builds.md) — Docker build pipeline notes
+- [staging_pipeline_plan.md](staging_pipeline_plan.md) — Staging pipeline plan
 
-### Key Files Modified
-- `jarble-api-main/src/runtimes/handlers/openclaw.ts` — Slimmed JARBLE_UI_PROMPT + anti-pattern content
-- `jarble-api-main/src/mcp/jarble-ui-server.js` — Added `skill_reference` tool + BOT_SKILLS content
-- `shared/component-manifest/skills/` — 5 new skill files + index.ts
-- `shared/component-manifest/index.ts` — Re-exports `BOT_SKILLS`
+## Side projects (not platform)
+- [jarble-mc Minecraft server](jarble-mc-server.md) — CPX41 at 5.161.195.44 running ATM10 v6.6 NeoForge for the team
 
-### Research Reports (20 total in `research/skills/` + `research/shadcn-v4/`)
-- shadcn v4 features, AI component evaluation, Tambo skill, components vs pages architecture
-- Bot knowledge gap analysis, autoFixProps audit, skill drafts for all 5 skills
-- 97 Claude Code skills installed from 11 sources
+## Architecture notes
+- [orchestration_architecture.md](orchestration_architecture.md) — Orchestration layer overview
+- [orchestration_system_mar27.md](orchestration_system_mar27.md) — Orchestration snapshot
+- [deployment_orchestration.md](deployment_orchestration.md) — Deployment-side orchestration
+- [jarble_orchestration_layers.md](jarble_orchestration_layers.md) — Layer breakdown
+- [control_ui_integration.md](control_ui_integration.md) — Control UI proxy integration
+- [team_deployment_bridge.md](team_deployment_bridge.md) — Team deployment bridge notes
+- [marketplace-install-flows.md](marketplace-install-flows.md) — Marketplace install flow (future feature)
+- [project_forking_flywheel.md](project_forking_flywheel.md) — Forking + marketplace flywheel
 
----
+## Legacy / deprecated areas (do not extend)
+- [canvas-workspace-plan.md](canvas-workspace-plan.md) — Canvas workspace plan **(deprecated; see harness-and-chat-decision)**
+- [component-audit-report.md](component-audit-report.md) — Canvas component audit **(deprecated)**
+- [component-inventory.md](component-inventory.md) — Canvas component inventory **(deprecated)**
+- [perf_useCanvasChat_plan.md](perf_useCanvasChat_plan.md) — useCanvasChat perf plan **(deprecated)**
+- [custom_themes_skins.md](custom_themes_skins.md) — Custom themes for legacy chat skins **(deprecated)**
+- [project_sandbox_first_pivot.md](project_sandbox_first_pivot.md) — Sandbox-first canvas pivot **(deprecated)**
+- [project_page_routing.md](project_page_routing.md) — Bot page routing in legacy canvas **(deprecated)**
 
-## Previous Work — Component Resolver + ConfigSync Research (Mar 5, 2026)
+## Audits & findings
+- [security-audit.md](security-audit.md)
+- [bugs-and-fixes.md](bugs-and-fixes.md)
+- [project_bug_audit_mar20.md](project_bug_audit_mar20.md)
+- [project_agent_findings_2026_03_22.md](project_agent_findings_2026_03_22.md)
+- [project_audit_2026_03_17.md](project_audit_2026_03_17.md)
+- [project_qa_findings_apr10.md](project_qa_findings_apr10.md)
+- [error-resilience-audit.md](error-resilience-audit.md)
+- [error-resilience-implementation.md](error-resilience-implementation.md)
+- [pod-performance-analysis.md](pod-performance-analysis.md)
+- [soul-md-audit.md](soul-md-audit.md)
 
-### Component Resolver Discovery Pipeline
-- Dual-path: K8s Layer (kubectl exec) + MCP Server (in-pod fs)
-- Discovery: Built-in (37) → Custom from `/data/components/*.json` → Fallback
-- ConfigSync: 3-tier sync (file-only → restart → pod restart)
-
-### AG-UI Protocol Alignment — COMPLETE (uncommitted on UI-Polishing-v2)
-- `agui-events.ts`, `tamboAgent.ts`, `useCanvasChat.ts`, `useDirectChat.ts`
-- reasoning, tool, sources components implemented
-
----
-
-## OpenClaw Thinking Blocks (Mar 19, 2026)
-- OpenClaw 2026.2.25 strips native thinking from `--json` output and WS protocol
-- Fix: System prompt now instructs bot to emit `<think>` tags + `--thinking medium` flag for quality
-- `hasNativeThinking` guard removed — `<think>` tags work for all models including Opus 4.6
-- External reasoning (GPT-4o-mini) still available as supplement when OPENROUTER_API_KEY is set
-
-## Bug Audit & Playwright Testing (Mar 20, 2026)
-- [Proactive bug audit](project_bug_audit_mar20.md) — 134 bugs found, 21 fixed and committed (fed8bb9), 12 high-priority remaining
-- [Page routing & sandbox issues](project_page_routing.md) — Sandbox tabs broken (bot forgets onclick), page component needs runtime routing
-
-## Upcoming Features
-- [Canvas Vision](project_canvas_vision.md) — Bot sees its own canvas via html2canvas screenshots + multimodal LLM
-- [OpenClaw CLI slash commands](project_openclaw_slash_commands.md) — Wire pod CLI commands into chat slash menu
-
-## Key Architecture
-- **Chat flow:** User message -> POST /api/tambo-agent -> WS to OpenClaw gateway -> AG-UI SSE events -> frontend renders
-- **UI blocks:** Bot emits `jarble_ui` fenced blocks -> backend parses -> TOOL_CALL events -> SSE -> frontend
-- **Component resolution:** Built-in (37 + 1 alias) -> custom from PVC -> fallback
-- **Bot skills:** Core prompt (~1,800 tokens always) + on-demand skills via `skill_reference` MCP tool (~5,000 tokens available)
-
-## Key Patterns
-- Frontend tRPC type errors are pre-existing — caused by missing `jarble-api` module resolution. Not real bugs.
-- SQLite dev mode: `export USE_SQLITE=true && npx tsx watch src/index.ts`
-- `MSYS_NO_PATHCONV=1` prefix for kubectl exec with absolute paths
-- **stdin redirect does NOT work** with Windows Git Bash + kubectl exec. Use base64+node.
-- **ConfigSync quirk**: API server must be running NEW code when configSync runs
-
-## Branch Info
-- **Active branch**: `UI-Tambo-ALL` (current work)
-- **Previous branch**: `UI-Polishing-v2` (pushed Mar 4)
-- **Main branch**: `main` (PR #6 merged)
-
-## Test Counts
-- **Backend**: 934 tests across 32 files
-- **Frontend**: 319 tests across 12 files
-- **Total**: 1,253 tests
-
-## Competitive Research & Infrastructure
-- [Blink.new comparison & improvement roadmap](project_blink_comparison.md) — Page-level UI, RAG, agent templates, Components+Pages architecture proposal
-- [Agent marketplace infrastructure research](project_agent_marketplace_infra.md) — gVisor/Kata/Firecracker, Marketplace Hub pattern, A2A protocol, credit billing
-
-## Infrastructure (Apr 4, 2026)
-- [Coolify setup](project_coolify_setup.md) — Coolify replaces Vercel for frontend: VPS 178.156.235.35, cpx31 8GB, dev.jarble.ai live, preview deploys configured
-
-## Infrastructure (Apr 3, 2026)
-- [K8s infra setup](project_k8s_infra_apr3.md) — Hetzner K3s: Kubero in jarble-production, cert-manager, RBAC, K8s dashboard, Neon DB migration, credential rotation needed
+## Session notes
+- [project_session_2026_03_23.md](project_session_2026_03_23.md)
+- [project_overnight_2026_03_18.md](project_overnight_2026_03_18.md)
+- [project_overnight_apr9_plan.md](project_overnight_apr9_plan.md)
+- [project_merge_2026_03_22.md](project_merge_2026_03_22.md)
+- [cron_jobs_planned.md](cron_jobs_planned.md)
