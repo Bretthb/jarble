@@ -20,7 +20,7 @@ The 51 shadcn primitives in `components/ui/` include ~36 unused (already tracked
 
 ## Design principles (the north stars)
 
-1. **Layer monospace onto the existing serif/sans pair.** Three-font system: **Playfair Display** (display headings only), **Inter** (body), **Geist Mono** (every identifier, duration, token count, model name, region tag, log line). This is the single highest-leverage change for "feels like real infra."
+1. **Layer monospace onto the existing serif/sans pair.** Three-font system: **Playfair Display** (display headings only), **Inter** (body), **JetBrains Mono** (every identifier, duration, token count, model name, region tag, log line). This is the single highest-leverage change for "feels like real infra."
 2. **Codify a typography scale.** Five sizes, one heading family, one body family, one mono family. Locks the rhythm.
 3. **Density wins, but warm.** Borrow Linear/Stripe row density, but render it on Jarble's existing warm palette + paper grain — don't paste in cold Vercel-black aesthetic.
 4. **Status is uppercase microtype.** `RUNNING / BUILDING / CRASHED / IDLE` at 10–11px caps with the existing `StatusBadge` color palette + pulse ring (already shipped).
@@ -36,18 +36,18 @@ Must land before any of the rest. Estimated 2–3 days.
 Add to `globals.css`'s `@theme` block:
 
 ```css
---font-mono: 'Geist Mono', ui-monospace, 'JetBrains Mono', monospace;
+--font-mono: 'JetBrains Mono', ui-monospace, 'JetBrains Mono', monospace;
 --text-display: 2.25rem / 1.15;       /* Playfair, page hero */
 --text-h1: 1.5rem / 1.25;             /* Playfair, section header */
 --text-h2: 1.125rem / 1.3;            /* Inter semibold */
 --text-body: 0.875rem / 1.5;          /* Inter, default */
 --text-micro: 0.6875rem / 1;          /* Inter caps, status pills */
---text-mono: 0.8125rem / 1.4;         /* Geist Mono, identifiers */
+--text-mono: 0.8125rem / 1.4;         /* JetBrains Mono, identifiers */
 ```
 
 Replace ad-hoc `text-sm` / blanket `font-serif` usages with these tokens via class utilities (`.text-display`, `.text-h1`, etc).
 
-### 0B. Adopt Geist Mono
+### 0B. Adopt JetBrains Mono
 Self-host via `@vercel/font` (preferred — local, no third-party request) or load from Google Fonts. Wire into the `--font-mono` token. Subsequent component work assumes it's available.
 
 ### 0C. Document existing utilities
@@ -70,7 +70,7 @@ Stripe-style four-tile strip on top of the dashboard:
 - **Token spend this period** — USD + sparkline + period selector
 - **Health** — `RUNNING / FAILED / PENDING` pill counts
 
-Built on a new `<KPITile>` + `<Sparkline>` (minimal SVG, no axes, no legend). Tiles use `.card-surface` (existing utility) + Geist Mono for the big number. **Period selector in monospace**. Sparkline stroke = primary warm-red at 60% opacity.
+Built on a new `<KPITile>` + `<Sparkline>` (minimal SVG, no axes, no legend). Tiles use `.card-surface` (existing utility) + JetBrains Mono for the big number. **Period selector in monospace**. Sparkline stroke = primary warm-red at 60% opacity.
 
 **Data dependency:** the "token spend" tile assumes a queryable per-deployment token-spend stream. If that doesn't exist as a single query yet, scope the tile down to "last 24h request count" (already available via existing batched queries) and file a follow-up for the spend metric.
 
@@ -95,12 +95,12 @@ Global command palette via shadcn's `cmdk`. Verbs scoped by context:
 - `switch org`, `create deployment`, `invite teammate`
 - Fuzzy match deployment names + IDs (mono-rendered in the result list)
 
-The palette uses Inter for verbs and Geist Mono for the deployment IDs — visual proof the mono voice ties everything together.
+The palette uses Inter for verbs and JetBrains Mono for the deployment IDs — visual proof the mono voice ties everything together.
 
 ### 1D. Per-deployment management route
 New route `/deployments/[id]` (separate from chat at `/d/[id]`). Tabs:
 - **Overview** — health, recent activity, billing snapshot
-- **Logs** — streaming pod logs (Geist Mono, dense)
+- **Logs** — streaming pod logs (JetBrains Mono, dense)
 - **Config** — system prompt, model, MCP, platform credentials
 - **Connections** — wired messaging platforms
 - **Lineage** — *stub for Phase 2*, show a "Coming soon" placeholder with a small ASCII tree
@@ -109,7 +109,7 @@ New route `/deployments/[id]` (separate from chat at `/d/[id]`). Tabs:
 Replace today's `py-24` empty state with a single sentence + a primary action button + 3 starter-template rows directly below. No decorative illustration.
 
 ### 1F. Workspace banner
-"Viewing organization deployments · owner" → `ORG · acme-inc · OWNER` in Geist Mono caps. Single line. Half the height. Same logic, less chrome.
+"Viewing organization deployments · owner" → `ORG · acme-inc · OWNER` in JetBrains Mono caps. Single line. Half the height. Same logic, less chrome.
 
 ### 1G. Lineage tab stub
 Create the Lineage tab on the per-deployment route as a placeholder so the slot exists. Backfill the actual `<LineageTree>` visualization in Phase 2.
@@ -128,11 +128,11 @@ Same patterns ported, in this order:
 
 ## Engineering deliverables
 
-New components (none require new deps beyond Geist Mono):
+New components (none require new deps beyond JetBrains Mono):
 
 - `<KPITile>` — number + sparkline + delta + period
 - `<Sparkline>` — SVG, no axes, takes `data: number[]` + warm-red stroke
-- `<MonoId>` — Geist Mono identifier with copy-on-click + reveal-token affordance for masked secrets
+- `<MonoId>` — JetBrains Mono identifier with copy-on-click + reveal-token affordance for masked secrets
 - `<RelativeTime>` — `<time>` with relative text + absolute tooltip
 - `<StatusPill>` — uppercase microtype variant of the existing `StatusBadge` (shares color tokens)
 - `<CommandMenu>` — Cmd-K, built on shadcn `cmdk`
@@ -145,7 +145,7 @@ Refactors:
 
 ## Open decisions
 
-1. **Geist Mono — yes/no.** Recommend yes. If you'd prefer JetBrains Mono or IBM Plex Mono for license/distinctiveness reasons, swap freely; the plan doesn't change.
+1. **JetBrains Mono — yes/no.** Recommend yes. If you'd prefer JetBrains Mono or IBM Plex Mono for license/distinctiveness reasons, swap freely; the plan doesn't change.
 2. **Density default.** Recommend row by default for >5 deployments, card otherwise. Persisted per user.
 3. **Lineage tab in Phase 1 — stub or skip?** Recommend stub (creates the slot, signals the differentiator).
 4. **Per-deployment management route.** Recommend new `/deployments/[id]` (bookmarkable, separate concern from chat at `/d/[id]`).
@@ -155,7 +155,7 @@ Refactors:
 
 | Phase | Length | Output |
 |------|--------|--------|
-| 0 | 2-3 days | Type scale + Geist Mono + utility doc + framer-motion removal |
+| 0 | 2-3 days | Type scale + JetBrains Mono + utility doc + framer-motion removal |
 | 1A-1B | 1-2 weeks | KPI strip + DeploymentRow with density toggle |
 | 1C-1F | 1 week | Cmd-K + workspace banner + empty state |
 | 1D + 1G | 1-2 weeks | Per-deployment management route with tabs + lineage stub |
