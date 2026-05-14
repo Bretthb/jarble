@@ -1,6 +1,6 @@
-# Daily Standup — 2026-05-09 UTC
+# Daily Standup — 2026-05-14 UTC
 
-Generated: 2026-05-09 08:09 UTC — Nightly develop health check
+Generated: 2026-05-14 08:03 UTC — Nightly develop health check
 
 ---
 
@@ -51,6 +51,6 @@ No merge conflicts detected on any branch.
 ## Notes
 
 - Linear MCP not available in this session -- per-ticket comments skipped.
-- The jar-51-* cluster (13 branches) is a phased observability epic. All phases are 50 behind develop and should coordinate a shared rebase to avoid redundant churn.
+- The jar-51-* cluster (11 branches) is a phased observability epic. All phases are 50 behind develop and should coordinate a shared rebase to avoid redundant churn.
 - cleanup/jar-99 is the furthest ahead (963 commits) -- may represent a long-running accumulated branch; worth reviewing whether it should be split or landed.
 - All merges are predicted clean by git merge-tree -- no conflict resolution work expected on rebase.
