@@ -37,7 +37,7 @@ const caveat = Caveat({
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
   display: "swap",
-  variable: "--font-mono",
+  variable: "--font-jetbrains-mono",
 });
 
 export const viewport: Viewport = {
