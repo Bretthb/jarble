@@ -1,4 +1,4 @@
-# Daily Standup — 2026-05-31
+# Daily Standup — 2026-06-01
 
 **Generated:** 2026-05-31 08:12 UTC
 **Branch checked:** `develop`
