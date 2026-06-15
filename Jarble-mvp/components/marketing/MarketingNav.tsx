@@ -20,6 +20,7 @@ import ProfileDropdown from "@/components/ProfileDropdown";
 const NAV_LINKS = [
   { href: "/", label: "Home" },
   { href: "/about", label: "About" },
+  { href: "/research", label: "Research" },
   { href: "/pricing", label: "Pricing" },
 ];
 
