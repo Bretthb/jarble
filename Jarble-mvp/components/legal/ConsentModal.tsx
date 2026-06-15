@@ -28,6 +28,7 @@ const CONSENT_EXEMPT_PATHS = [
   "/terms",
   "/privacy",
   "/about",
+  "/research",
   "/pricing",
   "/", // marketing home
 ];
