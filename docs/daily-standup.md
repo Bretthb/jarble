@@ -1,73 +1,66 @@
-# Daily Standup — 2026-06-27
+# Nightly Health Check — 2026-06-28
 
-Generated: 2026-06-27 04:00 UTC | Branch: `develop` | Run: nightly health check
-
----
-
-## develop — Typecheck Results
-
-| Check | Result |
-|-------|--------|
-| API (`jarble-api-main`) | ✅ PASS |
-| Frontend (`Jarble-mvp`) | ✅ PASS |
-
-develop is **green**. Both API and frontend compile clean with zero type errors.
+Generated: 2026-06-28 04:00 UTC | Branch: `develop` | Run: nightly health check
 
 ---
 
-## Open Feature Branches — Health Summary
+## Typecheck Results
 
-20 JAR branches checked against `origin/develop`.
+| Project | Result |
+|---------|--------|
+| API (`jarble-api-main`) | PASS |
+| Frontend (`Jarble-mvp`) | PASS |
 
-| Branch | Ahead | Behind | Conflicts | Status |
-|--------|------:|-------:|:---------:|--------|
-| cleanup/jar-99-runtime-native-subagents-env | 1 | 124 | none | ⚠️ rebase |
-| feature/jar-40-org-limits | 4 | 470 | none | ⚠️ rebase |
-| feature/jar-47-beta-promo-codes-v2 | 0 | 481 | none | 🟣 likely merged |
-| feature/jar-51-observability-phase-2-otel | 7 | 320 | none | ⚠️ rebase |
-| feature/jar-51-phase-2-langfuse-exporter | 1 | 422 | none | ⚠️ rebase |
-| feature/jar-51-phase-3-cost-display | 5 | 388 | none | ⚠️ rebase |
-| feature/jar-51-phase-3-delegation-span | 1 | 419 | none | ⚠️ rebase |
-| feature/jar-51-phase-3-gateway-span | 2 | 419 | none | ⚠️ rebase |
-| feature/jar-51-phase-3-http-span | 1 | 412 | none | ⚠️ rebase |
-| feature/jar-51-phase-4-llm-spans | 1 | 416 | none | ⚠️ rebase |
-| feature/jar-51-phase-5-debug-drawer | 1 | 414 | none | ⚠️ rebase |
-| feature/jar-51-phase-6-runaway-breaker | 1 | 413 | none | ⚠️ rebase |
-| feature/jar-51-phase-7-otel-plugin-scaffold | 1 | 409 | none | ⚠️ rebase |
-| feature/jar-51-phase-7-wire-otel-plugin | 1 | 557 | none | ⚠️ rebase |
-| feature/jar-51-prefer-jarble-memory-tools | 1 | 409 | none | ⚠️ rebase |
-| feature/jar-56-org-rbac | 0 | 425 | none | 🟣 likely merged |
-| feature/jar-59-60-billing-metrics | 0 | 321 | none | 🟣 likely merged |
-| feature/jar-63-sse-streaming-thinking-ui | 1 | 291 | none | ⚠️ rebase |
-| fix/jar-48-block-storage-mount | 1 | 431 | none | ⚠️ rebase |
-| fix/jar-50-skill-call-topology | 3 | 298 | none | ⚠️ rebase |
-
-**20 branches checked. 17 flagged for rebase (≥20 commits behind). 0 merge conflicts.**
+`develop` is fully buildable. No type errors.
 
 ---
 
-## Notes
+## Branch Health (20 branches checked, 20 flagged for rebase)
 
-### Likely-merged branches (0 commits ahead of develop)
-Three branches have 0 unique commits vs develop — their work is already in develop:
-- `feature/jar-47-beta-promo-codes-v2` — last commit: `feat: beta promo codes + simplified onboarding (JAR-47)`
-- `feature/jar-56-org-rbac` — last commit: `feat: org-level Stripe billing + billing UI (JAR-57)`
-- `feature/jar-59-60-billing-metrics` — last commit: `feat: real Stripe pricing on Dashboard + upcoming invoice (JAR-59)`
+All 20 open JAR branches are **50 commits behind develop**. Of those 50 commits, **46 are automated nightly standup/health-check commits** and **4 are real code changes** landed on develop:
 
-These branches are safe to delete.
+- `a727fc3` Simplify Research page to honest placeholder
+- `ef12527` Add public Research page and nav link (#257)
+- `c64bdd2` Phase 0 dashboard design foundation + plan (JAR-136) (#256)
+- `04a57e5` docs: reconcile to Agent Infrastructure Platform + harness-owns-chat
 
-### JAR-51 phase branches (extremely stale)
-14 branches are JAR-51 observability sub-phases, most with only 1 commit ahead and 400+ commits behind develop. These likely need rebasing before they can be reviewed or merged. Consider rebasing `feature/jar-51-phase-7-wire-otel-plugin` first (557 commits behind — most stale of all).
+**No branches have merge conflicts** — all would merge cleanly if rebased today.
 
-### No conflicts
-Despite being hundreds of commits behind develop, **all 20 branches merge cleanly** with no file conflicts detected. Rebasing should be straightforward.
+### Per-Branch Rows
 
-### Linear MCP
-Linear MCP was not available in this run. Branch status comments were not posted to tickets.
+| Branch | Ahead | Behind | Conflicts |
+|--------|-------|--------|-----------|
+| cleanup/jar-99-runtime-native-subagents-env | 963 | 50 | 0 |
+| feature/jar-40-org-limits | 620 | 50 | 0 |
+| feature/jar-47-beta-promo-codes-v2 | 605 | 50 | 0 |
+| feature/jar-51-observability-phase-2-otel | 773 | 50 | 0 |
+| feature/jar-51-phase-2-langfuse-exporter | 665 | 50 | 0 |
+| feature/jar-51-phase-3-cost-display | 703 | 50 | 0 |
+| feature/jar-51-phase-3-delegation-span | 668 | 50 | 0 |
+| feature/jar-51-phase-3-gateway-span | 669 | 50 | 0 |
+| feature/jar-51-phase-3-http-span | 675 | 50 | 0 |
+| feature/jar-51-phase-4-llm-spans | 671 | 50 | 0 |
+| feature/jar-51-phase-5-debug-drawer | 673 | 50 | 0 |
+| feature/jar-51-phase-6-runaway-breaker | 674 | 50 | 0 |
+| feature/jar-51-phase-7-otel-plugin-scaffold | 678 | 50 | 0 |
+| feature/jar-51-phase-7-wire-otel-plugin | 530 | 50 | 0 |
+| feature/jar-51-prefer-jarble-memory-tools | 678 | 50 | 0 |
+| feature/jar-56-org-rbac | 661 | 50 | 0 |
+| feature/jar-59-60-billing-metrics | 765 | 50 | 0 |
+| feature/jar-63-sse-streaming-thinking-ui | 796 | 50 | 0 |
+| fix/jar-48-block-storage-mount | 656 | 50 | 0 |
+| fix/jar-50-skill-call-topology | 791 | 50 | 0 |
+
+Note: The 50-behind count is inflated by 46 automated nightly standup commits. Real code divergence on develop is 4 commits. No branch needs an urgent rebase -- all would merge cleanly today.
+
+---
+
+## Linear Comments
+
+Linear MCP not available in this session -- skipping automated comments.
 
 ---
 
 ## Summary
 
-- develop: ✅ green (API + frontend both typecheck clean)
-- 20 branches: 17 need rebase, 3 appear already merged, 0 conflicts
+`develop` is green (API + Frontend typechecks pass). 20 branches open, all 50 commits behind but with 0 merge conflicts. The gap is mostly automated standup noise (46/50 commits), not real drift. No urgent action required.
