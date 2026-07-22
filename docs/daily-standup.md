@@ -1,4 +1,4 @@
-# Daily Standup — 2026-07-21 (08:16 UTC)
+# Daily Standup — 2026-07-22 (04:00 UTC)
 
 ## develop Health
 
@@ -29,7 +29,7 @@ All 20 branches are **50 commits behind** `develop` (develop has had ~50 daily-s
 | `feature/jar-51-phase-3-gateway-span` | 669 | 50 | 0 | rebase needed |
 | `feature/jar-51-phase-3-http-span` | 675 | 50 | 0 | rebase needed |
 | `feature/jar-51-phase-4-llm-spans` | 671 | 50 | 0 | rebase needed |
-| `feature/jar-51-phase-5-debug-drawer` | 671 | 50 | 0 | rebase needed |
+| `feature/jar-51-phase-5-debug-drawer` | 673 | 50 | 0 | rebase needed |
 | `feature/jar-51-phase-6-runaway-breaker` | 674 | 50 | 0 | rebase needed |
 | `feature/jar-51-phase-7-otel-plugin-scaffold` | 678 | 50 | 0 | rebase needed |
 | `feature/jar-51-phase-7-wire-otel-plugin` | 530 | 50 | 0 | rebase needed |
