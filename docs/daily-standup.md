@@ -1,4 +1,4 @@
-# Daily Standup — 2026-07-22 (04:00 UTC)
+# Daily Standup — 2026-07-23 (04:00 ET)
 
 ## develop Health
 
@@ -13,7 +13,7 @@ develop is green. Both packages build cleanly.
 
 ## Branch Health (JAR-tagged feature branches)
 
-All 20 branches are **50 commits behind** `develop` (develop has had ~50 daily-standup commits since these branches were last synced). No branches have merge conflicts.
+All 20 branches are **50 commits behind** `develop`. No branches have merge conflicts — rebasing should be clean.
 
 > **Rebase threshold**: 20 commits. All 20 branches exceed this threshold and need rebasing.
 
@@ -44,10 +44,8 @@ All 20 branches are **50 commits behind** `develop` (develop has had ~50 daily-s
 
 ## Summary
 
-**20 branches checked, 20 flagged for rebase** (all 50 commits behind develop).
+**20 branches checked, 20 flagged for rebase** (all 50 commits behind develop, 0 with conflicts).
 
-Good news: no merge conflicts detected on any branch -- rebasing should be clean.
+The `jar-51-*` family has the most sub-branches (12 total for the observability/OTEL epic). Consider whether any earlier phases have been superseded before investing in rebasing all of them. `cleanup/jar-99` is 963 commits ahead — the most diverged branch in the set.
 
-The `jar-51-*` family has the most branches (12 sub-branches for the observability/OTEL epic). These appear to be sequential phases of a single epic that have accumulated significant divergence. Consider whether any of these have been superseded before investing time in rebasing.
-
-**Linear MCP**: not available in this environment -- branch comments skipped.
+**Linear MCP**: not available in this environment — per-ticket comments skipped.
