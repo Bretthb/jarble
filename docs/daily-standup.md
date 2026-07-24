@@ -1,4 +1,4 @@
-# Daily Standup — 2026-07-23 (04:00 ET)
+# Daily Standup — 2026-07-24 (04:00 ET)
 
 ## develop Health
 
@@ -7,7 +7,7 @@
 | API typecheck (`jarble-api-main`) | **PASS** |
 | Frontend typecheck (`Jarble-mvp`) | **PASS** |
 
-develop is green. Both packages build cleanly.
+develop is green. Both packages build cleanly. Latest commit: `8d2eb72` — "Update daily standup for 2026-07-23"
 
 ---
 
@@ -46,6 +46,8 @@ All 20 branches are **50 commits behind** `develop`. No branches have merge conf
 
 **20 branches checked, 20 flagged for rebase** (all 50 commits behind develop, 0 with conflicts).
 
-The `jar-51-*` family has the most sub-branches (12 total for the observability/OTEL epic). Consider whether any earlier phases have been superseded before investing in rebasing all of them. `cleanup/jar-99` is 963 commits ahead — the most diverged branch in the set.
+Same state as yesterday — the 50-commit lag accumulates from daily standup commits on develop. No conflicts detected; rebases will be clean when branches are ready to land.
+
+The `jar-51-*` family has 12 sub-branches for the observability/OTEL epic. Consider which phases have been superseded before rebasing all of them. `cleanup/jar-99` remains the most diverged at 963 commits ahead.
 
 **Linear MCP**: not available in this environment — per-ticket comments skipped.
