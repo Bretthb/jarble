@@ -1,4 +1,4 @@
-# Daily Standup — 2026-07-24 (04:00 ET)
+# Daily Standup — 2026-07-25 (04:00 ET)
 
 ## develop Health
 
@@ -7,7 +7,7 @@
 | API typecheck (`jarble-api-main`) | **PASS** |
 | Frontend typecheck (`Jarble-mvp`) | **PASS** |
 
-develop is green. Both packages build cleanly. Latest commit: `8d2eb72` — "Update daily standup for 2026-07-23"
+develop is green. Both packages build cleanly. Latest commit: `74b29ec` — "Update daily standup for 2026-07-24"
 
 ---
 
@@ -16,6 +16,7 @@ develop is green. Both packages build cleanly. Latest commit: `8d2eb72` — "Upd
 All 20 branches are **50 commits behind** `develop`. No branches have merge conflicts — rebasing should be clean.
 
 > **Rebase threshold**: 20 commits. All 20 branches exceed this threshold and need rebasing.
+> **Note**: The 50-commit lag is entirely from daily `docs/daily-standup.md` commits committed directly to develop each night. No code changes are blocked by these commits and merges will be conflict-free.
 
 | Branch | Ahead | Behind | Conflicts | Status |
 |--------|-------|--------|-----------|--------|
