@@ -1,4 +1,4 @@
-# Daily Standup -- 2026-07-29 (04:00 ET)
+# Daily Standup -- 2026-07-30 (04:00 ET)
 
 ## develop Health
 
@@ -40,4 +40,4 @@ All 20 branches checked. Every branch is 50 commits behind `develop` (flagged ST
 
 **Summary: 20 branches checked, 20 flagged for rebase (all 50 commits behind develop, no merge conflicts).**
 
-Linear MCP not available in this session — per-ticket comments skipped.
+Linear MCP not available in this session -- per-ticket comments skipped.
