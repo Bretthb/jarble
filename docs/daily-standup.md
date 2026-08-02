@@ -1,4 +1,4 @@
-# Daily Standup -- 2026-08-01 (04:00 ET)
+# Daily Standup -- 2026-08-02 (04:00 ET)
 
 ## develop Health
 
@@ -9,11 +9,18 @@
 
 develop is **green**. Both API and frontend compile cleanly.
 
+Last real code commit to develop: `a727fc3 Simplify Research page to honest placeholder` (2026-06-14).
+All 50 subsequent develop commits are nightly standup automation (`docs/daily-standup.md` updates).
+
 ---
 
 ## Open JAR Feature Branch Status
 
-20 branches checked. All 20 are 50 commits behind `develop`. The 50-commit delta is entirely nightly standup commits (`docs/daily-standup.md` updates) -- no code-level divergence. No merge conflicts detected. All branches were last touched 3-4 months ago and may be candidates for archiving.
+21 branches checked. All 21 are 50 commits behind `develop`. The 50-commit delta is entirely nightly standup
+automation commits -- no code-level divergence. No merge conflicts detected. All branches were last
+touched 3-4 months ago and may be candidates for archiving or triage.
+
+Linear MCP not available in this session -- branch status comments skipped.
 
 | Branch | Ahead | Behind | Last Active | Conflicts | Flag |
 |--------|-------|--------|-------------|-----------|------|
@@ -35,9 +42,17 @@ develop is **green**. Both API and frontend compile cleanly.
 | feature/jar-56-org-rbac | 661 | 50 | 4 months ago | none | STALE |
 | feature/jar-59-60-billing-metrics | 765 | 50 | 4 months ago | none | STALE |
 | feature/jar-63-sse-streaming-thinking-ui | 796 | 50 | 4 months ago | none | STALE |
+| feature/jar-tos-consent-gate | 814 | 50 | 4 months ago | none | STALE |
 | fix/jar-48-block-storage-mount | 656 | 50 | 4 months ago | none | STALE |
 | fix/jar-50-skill-call-topology | 791 | 50 | 4 months ago | none | STALE |
 
-**Summary: 20 branches checked, 20 flagged STALE (50 commits behind develop, no code conflicts).**
+---
 
-Linear MCP not available in this session -- per-ticket comments skipped.
+## Summary
+
+21 branches checked. **21 flagged** (all behind >= 20 commits, though delta is automation-only).
+**0 merge conflicts** detected. develop is green.
+
+Notable: no feature code has landed on develop since 2026-06-14 (~7 weeks). All 21 open feature
+branches are dormant (last touched 3-4 months ago). Consider a backlog triage to close or archive
+stale branches, or confirm that active work has moved to a different branching strategy.
