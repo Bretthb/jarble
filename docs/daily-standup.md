@@ -1,4 +1,4 @@
-# Daily Standup -- 2026-08-05 08:13 UTC
+# Daily Standup -- 2026-08-06 08:21 UTC
 
 ## develop Health
 
@@ -11,10 +11,10 @@ develop is **green**.
 
 ---
 
-## Feature Branch Status (20 branches checked)
+## Feature Branch Status (21 branches checked)
 
 All branches merge cleanly against develop (0 merge conflict files).
-**All 20 branches are exactly 50 commits behind develop — rebase recommended for all.**
+**All 21 branches are exactly 50 commits behind develop — rebase recommended for all.**
 
 | Branch | Ticket | Ahead | Behind | Conflicts | Flag |
 |--------|--------|-------|--------|-----------|------|
@@ -34,8 +34,9 @@ All branches merge cleanly against develop (0 merge conflict files).
 | `feature/jar-51-phase-7-wire-otel-plugin` | JAR-51 | 530 | 50 | 0 | ⚠️ rebase |
 | `feature/jar-51-prefer-jarble-memory-tools` | JAR-51 | 678 | 50 | 0 | ⚠️ rebase |
 | `feature/jar-56-org-rbac` | JAR-56 | 661 | 50 | 0 | ⚠️ rebase |
-| `feature/jar-59-60-billing-metrics` | JAR-59 | 765 | 50 | 0 | ⚠️ rebase |
+| `feature/jar-59-60-billing-metrics` | JAR-59/60 | 765 | 50 | 0 | ⚠️ rebase |
 | `feature/jar-63-sse-streaming-thinking-ui` | JAR-63 | 796 | 50 | 0 | ⚠️ rebase |
+| `feature/jar-tos-consent-gate` | JAR-TOS | 814 | 50 | 0 | ⚠️ rebase |
 | `fix/jar-48-block-storage-mount` | JAR-48 | 656 | 50 | 0 | ⚠️ rebase |
 | `fix/jar-50-skill-call-topology` | JAR-50 | 791 | 50 | 0 | ⚠️ rebase |
 
@@ -45,10 +46,11 @@ All branches merge cleanly against develop (0 merge conflict files).
 
 - **JAR-51 has 12 sub-branches** across the observability epic (phases 2-7 + extras). They range 530-773 commits ahead of develop. Consider merging completed phases before extending further.
 - **JAR-99** (`cleanup/jar-99`) leads at 963 commits ahead — longest-running branch.
+- **New branch today:** `feature/jar-tos-consent-gate` (814 commits ahead, 50 behind).
 - **No merge conflicts on any branch** — all rebases should be clean.
 - Linear MCP not available in this remote session; branch comments not posted to Linear.
 
 ## Summary
 
-**20 branches checked, 20 flagged for rebase (all 50 behind develop), 0 merge conflicts.**
+**21 branches checked, 21 flagged for rebase (all 50 behind develop), 0 merge conflicts.**
 develop is clean: API PASS, Frontend PASS.
