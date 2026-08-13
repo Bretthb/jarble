@@ -1,6 +1,6 @@
-# Daily Standup — 2026-08-12
+# Daily Standup — 2026-08-13
 
-Generated: 2026-08-12 08:19 UTC | Branch: develop
+Generated: 2026-08-13 04:00 UTC | Branch: develop
 
 ## develop health
 
@@ -46,7 +46,7 @@ All branches diverged from the same point; no file-level conflicts detected. Reb
 - **JAR-51 has 12 sub-branches** across the observability epic (phases 2-7 + extras), ranging 530-773 commits ahead of develop. Consider merging completed phases before extending further.
 - **JAR-99** (`cleanup/jar-99`) leads at 963 commits ahead -- longest-running branch.
 - **No merge conflicts on any branch** -- all rebases should be clean.
-- Linear MCP available but branch-to-ticket comment posting skipped (ticket IDs not confirmed via Linear API in this run).
+- Linear MCP not available in this remote session; branch comments not posted to Linear.
 
 ## Summary
 
