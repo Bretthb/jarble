@@ -1,6 +1,6 @@
-# Jarble Nightly Health Check — 2026-08-22 UTC
+# Daily Standup — 2026-08-23
 
-## develop branch status
+## develop Health
 
 | Check | Result |
 |-------|--------|
