@@ -1,6 +1,6 @@
-# Nightly Develop Health Check — 2026-08-27
+# Nightly Develop Health Check — 2026-08-28
 
-**Run date:** 2026-08-27 UTC  
+**Run date:** 2026-08-28 UTC  
 **Branch:** `develop`  
 **Triggered by:** Scheduled nightly check (04:00 America/New_York)
 
@@ -21,7 +21,7 @@
 
 > **Note:** Linear MCP not available — skipping per-ticket comments.
 
-All 20 branches are **50 commits behind `develop`** with **0 merge conflicts**. The 50-commit gap is from automated nightly standup commits accumulating on `develop`. No actual merge conflicts detected via `git merge-tree`.
+All 20 branches are **50 commits behind `develop`** with **0 merge conflicts**. The behind-count continues to accumulate from automated nightly standup commits on `develop` — no actual merge conflicts detected via `git merge-tree`. Clean rebases expected.
 
 | Branch | Ahead | Behind | Conflicts | Flag |
 |--------|-------|--------|-----------|------|
@@ -50,21 +50,21 @@ All 20 branches are **50 commits behind `develop`** with **0 merge conflicts**. 
 
 ### Context
 
-The 50-commit delta is almost entirely from automated `docs: update daily standup` commits accumulating on `develop`. The most recent develop commits:
+The 50-commit delta is almost entirely from automated `docs: update daily standup` commits accumulating on `develop`. The most recent develop commits confirm this pattern:
 
 ```
+f35ed29 docs: update daily standup for 2026-08-27 (SKIP_JAR_TAG=1)
 ff73683 docs: update daily standup for 2026-08-26 (SKIP_JAR_TAG=1)
-5a5caf7 Update daily standup with nightly health check 2026-08-25
+5a5caf7 Update daily standup with nightly health check 2026-08-25 (SKIP_JAR_TAG=1)
 9ad733c Update daily standup with nightly health check 2026-08-23
 a901e98 Update daily standup with nightly health check 2026-08-22
-e316861 Update daily standup for 2026-08-21 (SKIP_JAR_TAG=1)
 ```
 
-Since the branching divergence is caused by doc-only commits with no logic changes, **merge conflict risk is zero** for all branches. However, the 50-commit delta is large enough that the rebase-nudge policy applies — teammates should rebase to keep their branches current.
+No actionable conflicts — rebases on any of these branches should be clean.
 
 ---
 
-## Notes
+## Action Items
 
-- Linear MCP not available in this session — per-ticket Linear comments were skipped.
-- No blocking issues on `develop` — it is safe to merge to.
+- None blocking. `develop` is clean.
+- All 20 open branches are rebasing targets but no conflicts to resolve manually.
