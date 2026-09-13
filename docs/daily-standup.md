@@ -1,57 +1,66 @@
-# Jarble Daily Standup — 2026-09-12
+# Jarble Nightly Health Check — 2026-09-13
 
-**Generated**: Fri Sep 12 04:00 UTC 2026  
-**Branch**: develop  
-**Run type**: Nightly automated health check
+**Run time**: 2026-09-13 UTC (scheduled 04:00 America/New_York)
 
 ---
 
-## develop Build Health
+## develop Branch Status
 
 | Check | Result |
 |-------|--------|
 | API typecheck (`jarble-api-main`) | ✅ PASS |
 | Frontend typecheck (`Jarble-mvp`) | ✅ PASS |
 
-Both `tsc --noEmit` runs completed with zero errors. Develop is clean and buildable.
+**develop is green.** Both the API (`jarble-api-main`) and frontend (`Jarble-mvp`) pass TypeScript compilation with zero errors.
 
 ---
 
-## Branch Status (JAR feature branches vs `develop`)
+## Feature Branch Health (21 branches)
 
-All 20 branches are **50 commits behind** `develop`. No merge conflicts detected on any branch. All are flagged for rebase.
+> **Note**: Repo was cloned shallow; deepened to ~1,041 commits for this analysis. Some `behind` counts may still be conservative underestimates for very old branches.
 
-| Branch | Ahead | Behind | Conflicts | Flag |
-|--------|-------|--------|-----------|------|
-| cleanup/jar-99-runtime-native-subagents-env | 963 | 50 | 0 | REBASE-NEEDED |
-| feature/jar-40-org-limits | 620 | 50 | 0 | REBASE-NEEDED |
-| feature/jar-47-beta-promo-codes-v2 | 605 | 50 | 0 | REBASE-NEEDED |
-| feature/jar-51-observability-phase-2-otel | 773 | 50 | 0 | REBASE-NEEDED |
-| feature/jar-51-phase-2-langfuse-exporter | 665 | 50 | 0 | REBASE-NEEDED |
-| feature/jar-51-phase-3-cost-display | 703 | 50 | 0 | REBASE-NEEDED |
-| feature/jar-51-phase-3-delegation-span | 668 | 50 | 0 | REBASE-NEEDED |
-| feature/jar-51-phase-3-gateway-span | 669 | 50 | 0 | REBASE-NEEDED |
-| feature/jar-51-phase-3-http-span | 675 | 50 | 0 | REBASE-NEEDED |
-| feature/jar-51-phase-4-llm-spans | 671 | 50 | 0 | REBASE-NEEDED |
-| feature/jar-51-phase-5-debug-drawer | 673 | 50 | 0 | REBASE-NEEDED |
-| feature/jar-51-phase-6-runaway-breaker | 674 | 50 | 0 | REBASE-NEEDED |
-| feature/jar-51-phase-7-otel-plugin-scaffold | 678 | 50 | 0 | REBASE-NEEDED |
-| feature/jar-51-phase-7-wire-otel-plugin | 530 | 50 | 0 | REBASE-NEEDED |
-| feature/jar-51-prefer-jarble-memory-tools | 678 | 50 | 0 | REBASE-NEEDED |
-| feature/jar-56-org-rbac | 661 | 50 | 0 | REBASE-NEEDED |
-| feature/jar-59-60-billing-metrics | 765 | 50 | 0 | REBASE-NEEDED |
-| feature/jar-63-sse-streaming-thinking-ui | 796 | 50 | 0 | REBASE-NEEDED |
-| fix/jar-48-block-storage-mount | 656 | 50 | 0 | REBASE-NEEDED |
-| fix/jar-50-skill-call-topology | 791 | 50 | 0 | REBASE-NEEDED |
+| Branch | Ahead | Behind | Flags |
+|--------|-------|--------|-------|
+| cleanup/jar-99-runtime-native-subagents-env | +1 | -198 | ⚠️ NEEDS REBASE |
+| feature/jar-40-org-limits | +4 | -544 | ⚠️ NEEDS REBASE |
+| feature/jar-47-beta-promo-codes-v2 | **+0** | -555 | ⚠️ NEEDS REBASE (no unique commits — may be merged/abandoned) |
+| feature/jar-51-observability-phase-2-otel | +7 | -394 | ⚠️ NEEDS REBASE |
+| feature/jar-51-phase-2-langfuse-exporter | +1 | -496 | ⚠️ NEEDS REBASE |
+| feature/jar-51-phase-3-cost-display | +5 | -462 | ⚠️ NEEDS REBASE |
+| feature/jar-51-phase-3-delegation-span | +1 | -493 | ⚠️ NEEDS REBASE |
+| feature/jar-51-phase-3-gateway-span | +2 | -493 | ⚠️ NEEDS REBASE |
+| feature/jar-51-phase-3-http-span | +1 | -486 | ⚠️ NEEDS REBASE |
+| feature/jar-51-phase-4-llm-spans | +1 | -490 | ⚠️ NEEDS REBASE |
+| feature/jar-51-phase-5-debug-drawer | +1 | -488 | ⚠️ NEEDS REBASE |
+| feature/jar-51-phase-6-runaway-breaker | +1 | -487 | ⚠️ NEEDS REBASE |
+| feature/jar-51-phase-7-otel-plugin-scaffold | +1 | -483 | ⚠️ NEEDS REBASE |
+| feature/jar-51-phase-7-wire-otel-plugin | +1 | -631 | ⚠️ NEEDS REBASE |
+| feature/jar-51-prefer-jarble-memory-tools | +1 | -483 | ⚠️ NEEDS REBASE |
+| feature/jar-56-org-rbac | **+0** | -499 | ⚠️ NEEDS REBASE (no unique commits — may be merged/abandoned) |
+| feature/jar-59-60-billing-metrics | **+0** | -395 | ⚠️ NEEDS REBASE (no unique commits — may be merged/abandoned) |
+| feature/jar-63-sse-streaming-thinking-ui | +1 | -365 | ⚠️ NEEDS REBASE |
+| feature/jar-tos-consent-gate | +1 | -347 | ⚠️ NEEDS REBASE |
+| fix/jar-48-block-storage-mount | +1 | -505 | ⚠️ NEEDS REBASE |
+| fix/jar-50-skill-call-topology | +3 | -372 | ⚠️ NEEDS REBASE |
+
+**Summary: 21 branches checked, 21 flagged for rebase.**
+
+### Notable findings
+
+- **3 branches with 0 commits ahead of develop** (`jar-47-beta-promo-codes-v2`, `jar-56-org-rbac`, `jar-59-60-billing-metrics`): these are pure subsets of develop. Their work is likely already merged — consider deleting them.
+- **All jar-51 observability sub-branches** (9 branches) are 400-630 commits behind. This large family of branches may need coordinated rebase or squash-merge if they are still active.
+- The **most behind branch** is `feature/jar-51-phase-7-wire-otel-plugin` at 631 commits behind develop.
+- The **least behind** is `cleanup/jar-99-runtime-native-subagents-env` at 198 commits behind (still well past the ≥20 rebase threshold).
 
 ---
 
-## Summary
+## Recommendations
 
-**20 branches checked, 20 flagged for rebase** (all 50 commits behind develop, no conflicts detected).
+1. **Delete stale zero-ahead branches**: `jar-47`, `jar-56`, `jar-59-60` appear to have no unreachable work — confirm and delete.
+2. **Rebase or close all active branches**: Every active branch needs a rebase onto develop before it can be safely merged. With 350-600 commit gaps, merge conflicts are likely.
+3. **Coordinate jar-51 family**: 9 branches share the same JAR-51 ticket prefix. Consider which are still relevant and consolidate before rebasing.
+4. **develop itself is healthy**: no action needed on the main branch.
 
-- `develop` is clean — API and frontend both typecheck without errors.
-- All open feature branches share the same drift (50 commits behind). No text conflicts, suggesting divergence occurred at a common ancestor and the new develop commits don't collide with branch changes.
-- Linear MCP not available this run — skipping per-ticket comments.
+---
 
-**Action needed:** All branch owners should rebase onto latest `develop` before merging.
+*Linear MCP not invoked in this session — no comment posting performed.*
