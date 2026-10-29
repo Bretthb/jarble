@@ -1,6 +1,6 @@
-# Nightly Develop Health — 2026-10-28
+# Nightly Develop Health — 2026-10-29
 
-Generated: 2026-10-28T04:00 UTC (scheduled)
+Generated: 2026-10-29T08:04 UTC (scheduled)
 
 ---
 
@@ -43,7 +43,7 @@ Every branch is flagged for rebase (behind ≥ 20).
 
 **Summary: 20 branches checked, 20 flagged for rebase (all 50 behind develop, 0 merge conflicts).**
 
-Note: Several of these appear to be historical branches (500–963 commits ahead of develop) that may already be merged or abandoned. The consistent "50 behind" figure suggests develop received a batch of commits after these branches were last updated.
+Note: The "50 behind" figure is stable (same as yesterday) — develop has exactly 50 commits total (nightly standup docs), and all feature branches have a disjoint history from develop's current HEAD. No new drift. These branches appear to be historical work that pre-dates the current develop baseline.
 
 ---
 
