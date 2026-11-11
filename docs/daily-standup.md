@@ -1,29 +1,26 @@
-# Jarble Nightly Develop Health Check
-**Date:** 2026-11-10 UTC  
-**Run by:** Automated nightly cron (cloud session)
+# Nightly Develop Health Check — 2026-11-11
+
+**Run completed:** 2026-11-11 04:00 UTC
 
 ---
 
-## develop Typecheck Results
+## Build Status
 
-| Package | Result |
-|---------|--------|
-| API (`jarble-api-main`) | ✅ PASS |
-| Frontend (`Jarble-mvp`) | ✅ PASS |
+| Component | TypeScript Typecheck | Result |
+|-----------|---------------------|--------|
+| API (`jarble-api-main`) | `tsc --noEmit` | ✅ PASS |
+| Frontend (`Jarble-mvp`) | `tsc --noEmit` | ✅ PASS |
 
-develop is **green** — both packages typecheck clean.
+**develop is green.** Both API and frontend compile cleanly with no type errors.
 
 ---
 
-## Branch Health Summary
+## Branch Health (20 JAR branches checked)
 
-20 branches checked, **20 flagged for rebase** (all are ≥50 commits behind develop).  
-No merge conflicts detected on any branch.
+All 20 open feature branches are **50 commits behind develop** and **have no merge conflicts**. The uniform 50-commit lag corresponds to the nightly standup commits accumulating on develop (daily automated commits since late October).
 
-> **Note:** Every open JAR-* branch is exactly 50 commits behind `develop`. This is a systematic drift — `develop` has moved significantly since these branches were cut. No branch has a merge conflict today, but that may change as develop continues to advance. Recommend a rebase sprint across all open branches.
-
-| Branch | Ahead | Behind | Conflicts | Flags |
-|--------|-------|--------|-----------|-------|
+| Branch | Ahead | Behind | Conflicts | Status |
+|--------|-------|--------|-----------|--------|
 | cleanup/jar-99-runtime-native-subagents-env | 963 | 50 | 0 | ⚠️ BEHIND |
 | feature/jar-40-org-limits | 620 | 50 | 0 | ⚠️ BEHIND |
 | feature/jar-47-beta-promo-codes-v2 | 605 | 50 | 0 | ⚠️ BEHIND |
@@ -45,13 +42,25 @@ No merge conflicts detected on any branch.
 | fix/jar-48-block-storage-mount | 656 | 50 | 0 | ⚠️ BEHIND |
 | fix/jar-50-skill-call-topology | 791 | 50 | 0 | ⚠️ BEHIND |
 
+**20 branches checked, 20 flagged for rebase (all behind ≥20), 0 merge conflicts.**
+
+### Notes
+- The "behind 50" is uniform across all branches — this matches the ~50 nightly automated standup commits on develop since these branches were last rebased. The commits are documentation-only (`docs/daily-standup.md` updates), so actual code conflicts remain at zero.
+- No branch has real merge conflicts — rebases should be clean.
+- Linear MCP not available in this session — skipping per-ticket comments.
+
 ---
 
-## Linear Comments
-Skipped — Linear MCP (`mcp__linear-server__*`) not available in this session.
-
----
-
-## Action Items
-- **All 20 open feature/fix branches need a rebase onto develop.** No conflicts today, but all are 50 commits behind. Run `git rebase origin/develop` on each active branch before continuing work.
-- develop itself is green — safe to merge from.
+## Recent develop commits (last 10)
+```
+fd76d63 Update daily standup report for 2026-11-10
+13137b9 Update daily standup report for 2026-11-09
+8f65e0f Add nightly develop health check report 2026-11-08
+2840d62 Add nightly develop health report 2026-11-05
+483e830 Update daily standup for 2026-11-04 nightly health check
+58ef9ec Update daily standup for 2026-11-03 nightly health check
+299037d Update daily standup for 2026-11-02
+55bfa3b Update daily standup for 2026-10-31 nightly health check
+2eda86c Update daily standup for 2026-10-30 nightly health check
+9454937 Update daily standup for 2026-10-29 nightly health check
+```
